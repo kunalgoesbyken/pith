@@ -198,7 +198,6 @@ impl Harness {
         let accepting = matches!(event, Event::AcceptAll | Event::AcceptWord);
         match &event {
             Event::Field(field) => self.sent = field.clone(),
-            Event::SetEnabled(enabled) => self.config.enabled = *enabled,
             Event::SetConfig(config) => self.config = config.clone(),
             _ => {}
         }
@@ -332,7 +331,6 @@ impl Harness {
             }
             Event::Field(Some(_))
             | Event::Dismiss
-            | Event::SetEnabled(_)
             | Event::SetConfig(_)
             | Event::AcceptAll
             | Event::AcceptWord
@@ -403,17 +401,12 @@ impl Harness {
                 self.send(Event::Dismiss);
             }
             90..=91 => {
-                let enabled = self.rng.chance(60);
-                if self.rng.chance(50) {
-                    self.send(Event::SetEnabled(enabled));
-                } else {
-                    let config = Config {
-                        enabled,
-                        min_chars_before: if self.rng.chance(50) { 3 } else { 6 },
-                        ..self.config.clone()
-                    };
-                    self.send(Event::SetConfig(config));
-                }
+                let config = Config {
+                    enabled: self.rng.chance(60),
+                    min_chars_before: if self.rng.chance(50) { 3 } else { 6 },
+                    ..self.config.clone()
+                };
+                self.send(Event::SetConfig(config));
             }
             _ => self.complete(false),
         }

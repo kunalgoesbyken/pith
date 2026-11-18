@@ -28,7 +28,6 @@ pub enum Event {
     AcceptWord,
     Dismiss,
     Trigger,
-    SetEnabled(bool),
     Resume(String),
     SetConfig(Config),
 }
@@ -61,17 +60,50 @@ fn closes_spaced_word(field: &FieldSnapshot, accepted: &str) -> bool {
         && ends_spaced_word(&format!("{}{accepted}", field.before))
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FieldKey {
+    id: u64,
+    app: String,
+}
+
+impl FieldKey {
+    fn of(field: &FieldSnapshot) -> Self {
+        Self {
+            id: field.field_id,
+            app: field.app.clone(),
+        }
+    }
+
+    fn matches(&self, field: &FieldSnapshot) -> bool {
+        self.id == field.field_id && self.app == field.app
+    }
+}
+
+struct Dismissal {
+    field: FieldKey,
+    before: String,
+}
+
+struct Shown {
+    text: String,
+    shown_at: Option<Instant>,
+    engaged: bool,
+}
+
+enum Phase {
+    Idle,
+    Requested,
+    Showing(Shown),
+}
+
 pub struct Engine {
     config: Config,
     field: Option<FieldSnapshot>,
     generation: u64,
-    in_flight: bool,
-    suggestion: Option<String>,
-    engaged: bool,
-    dismissed: Option<(u64, String)>,
+    phase: Phase,
+    dismissed: Option<Dismissal>,
     ignores: IgnoreTracker,
-    forced: Option<(u64, String)>,
-    shown_at: Option<Instant>,
+    forced: Option<FieldKey>,
     unlanded: Vec<String>,
     counts: Counts,
 }
@@ -82,13 +114,10 @@ impl Engine {
             config,
             field: None,
             generation: 0,
-            in_flight: false,
-            suggestion: None,
-            engaged: false,
+            phase: Phase::Idle,
             dismissed: None,
             ignores: IgnoreTracker::default(),
             forced: None,
-            shown_at: None,
             unlanded: Vec::new(),
             counts: Counts::default(),
         }
@@ -103,17 +132,24 @@ impl Engine {
     }
 
     pub fn suggestion(&self) -> Option<&str> {
-        self.suggestion.as_deref()
+        match &self.phase {
+            Phase::Showing(shown) => Some(&shown.text),
+            Phase::Idle | Phase::Requested => None,
+        }
+    }
+
+    fn is_idle(&self) -> bool {
+        matches!(self.phase, Phase::Idle)
     }
 
     pub fn can_accept(&self, now: Instant, moves_caret: bool) -> bool {
-        let Some(field) = &self.field else {
+        let (Some(field), Phase::Showing(shown)) = (&self.field, &self.phase) else {
             return false;
         };
-        let racing = self.shown_at.is_some_and(|shown| {
-            now.saturating_duration_since(shown) < Duration::from_millis(self.config.accept_race_ms)
+        let racing = shown.shown_at.is_some_and(|at| {
+            now.saturating_duration_since(at) < Duration::from_millis(self.config.accept_race_ms)
         });
-        self.suggestion.is_some() && !racing && (!moves_caret || field.after.trim().is_empty())
+        !racing && (!moves_caret || field.after.trim().is_empty())
     }
 
     pub fn handle(&mut self, event: Event) -> Vec<Action> {
@@ -136,17 +172,12 @@ impl Engine {
                 if let Some(app) = ignored {
                     self.note_ignored(&app, &mut out);
                 }
-                self.dismissed = self
-                    .field
-                    .as_ref()
-                    .map(|field| (field.field_id, field.before.clone()));
+                self.dismissed = self.field.as_ref().map(|field| Dismissal {
+                    field: FieldKey::of(field),
+                    before: field.before.clone(),
+                });
             }
             Event::Trigger => self.on_trigger(&mut out),
-            Event::SetEnabled(enabled) => {
-                self.config.enabled = enabled;
-                self.reset(&mut out);
-                self.schedule(&mut out);
-            }
             Event::Resume(app) => {
                 if self.ignores.resume(&app) {
                     out.push(Action::AutoPaused(self.ignores.paused()));
@@ -163,13 +194,12 @@ impl Engine {
     }
 
     fn was_readable(&self) -> bool {
-        self.shown_at
-            .is_some_and(|shown| shown.elapsed() >= READ_TIME)
+        matches!(&self.phase, Phase::Showing(shown) if shown.shown_at.is_some_and(|at| at.elapsed() >= READ_TIME))
     }
 
     fn unengaged_app(&self) -> Option<String> {
         let field = self.field.as_ref()?;
-        (self.suggestion.is_some() && !self.engaged).then(|| field.app.clone())
+        matches!(&self.phase, Phase::Showing(shown) if !shown.engaged).then(|| field.app.clone())
     }
 
     fn note_ignored(&mut self, app: &str, out: &mut Vec<Action>) {
@@ -178,27 +208,32 @@ impl Engine {
         }
     }
 
+    fn withdraw(&mut self, out: &mut Vec<Action>) {
+        self.phase = Phase::Idle;
+        out.push(Action::Hide);
+        out.push(Action::DisarmKeys);
+    }
+
     fn reset(&mut self, out: &mut Vec<Action>) {
-        if self.in_flight {
-            out.push(Action::CancelCompletion);
-            self.in_flight = false;
-        }
-        if self.suggestion.take().is_some() {
-            out.push(Action::Hide);
-            out.push(Action::DisarmKeys);
+        match self.phase {
+            Phase::Idle => {}
+            Phase::Requested => {
+                self.phase = Phase::Idle;
+                out.push(Action::CancelCompletion);
+            }
+            Phase::Showing(_) => self.withdraw(out),
         }
         self.forced = None;
-        self.shown_at = None;
         self.unlanded.clear();
         self.generation += 1;
     }
 
+    fn is_forced(&self, field: &FieldSnapshot) -> bool {
+        self.forced.as_ref().is_some_and(|key| key.matches(field))
+    }
+
     fn eligible(&self, field: &FieldSnapshot) -> Result<(), SkipReason> {
-        let forced = self
-            .forced
-            .as_ref()
-            .is_some_and(|(id, app)| *id == field.field_id && *app == field.app);
-        if forced {
+        if self.is_forced(field) {
             check_forced(field, &self.config)
         } else {
             check(field, &self.config)
@@ -207,18 +242,17 @@ impl Engine {
 
     fn on_trigger(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
-        if self.suggestion.is_some()
-            || self.in_flight
+        if !self.is_idle()
             || field.placement.is_none()
             || check_forced(field, &self.config).is_err()
         {
             return;
         }
-        let forced = (field.field_id, field.app.clone());
+        let forced = FieldKey::of(field);
         self.dismissed = None;
         self.reset(out);
         self.forced = Some(forced);
-        self.in_flight = true;
+        self.phase = Phase::Requested;
         if let Some(field) = &self.field {
             out.push(Action::StartCompletion {
                 generation: self.generation,
@@ -234,7 +268,7 @@ impl Engine {
         let position = self
             .field
             .as_ref()
-            .filter(|previous| previous.field_id == field.field_id && previous.app == field.app)
+            .filter(|previous| FieldKey::of(previous).matches(field))
             .filter(|_| self.eligible(field).is_ok())
             .and_then(|previous| {
                 let mut candidates = vec![previous.before.as_str()];
@@ -272,8 +306,7 @@ impl Engine {
             return;
         }
         if let Some(previous) = &self.field
-            && previous.field_id == field.field_id
-            && previous.app == field.app
+            && FieldKey::of(previous).matches(&field)
         {
             field.before = continue_window(
                 &previous.before,
@@ -282,20 +315,17 @@ impl Engine {
             );
         }
         let suggestable = field.placement.is_some() && check(&field, &self.config).is_ok();
-        self.dismissed.take_if(|(id, before)| {
-            suggestable && *id == field.field_id && *before != field.before
+        self.dismissed.take_if(|dismissal| {
+            suggestable && dismissal.field.matches(&field) && dismissal.before != field.before
         });
         let mut ignored = None;
         if let Some(previous) = &self.field {
-            let same_field = previous.field_id == field.field_id
-                && previous.app == field.app
-                && self.eligible(&field).is_ok();
+            let same_field =
+                FieldKey::of(previous).matches(&field) && self.eligible(&field).is_ok();
             if same_field && previous.before == field.before && previous.after == field.after {
                 let moved = previous.placement != field.placement;
                 let unblocked = self.eligible(previous).is_err()
-                    || (previous.placement.is_none()
-                        && self.suggestion.is_none()
-                        && !self.in_flight);
+                    || (previous.placement.is_none() && self.is_idle());
                 self.field = Some(field);
                 if unblocked {
                     self.schedule(out);
@@ -307,15 +337,15 @@ impl Engine {
             if same_field && let Some(rest) = self.typed_through(previous, &field) {
                 if rest.trim().is_empty() {
                     self.ignores.accepted(&field.app);
-                    self.suggestion = None;
                     self.forced = None;
-                    out.push(Action::Hide);
-                    out.push(Action::DisarmKeys);
+                    self.withdraw(out);
                     self.field = Some(field);
                     self.schedule(out);
                 } else {
                     self.field = Some(field);
-                    self.suggestion = Some(rest);
+                    if let Phase::Showing(shown) = &mut self.phase {
+                        shown.text = rest;
+                    }
                     self.show_current(out);
                 }
                 return;
@@ -333,7 +363,7 @@ impl Engine {
     }
 
     fn typed_through(&self, previous: &FieldSnapshot, field: &FieldSnapshot) -> Option<String> {
-        let suggestion = self.suggestion.as_ref()?;
+        let suggestion = self.suggestion()?;
         let typed = field.before.strip_prefix(previous.before.as_str())?;
         if typed.is_empty() || previous.after != field.after {
             return None;
@@ -343,19 +373,15 @@ impl Engine {
     }
 
     fn suppressed(&self, field: &FieldSnapshot) -> bool {
-        let forced = self
-            .forced
-            .as_ref()
-            .is_some_and(|(id, app)| *id == field.field_id && *app == field.app);
-        self.eligible(field).is_err() || (!forced && self.ignores.is_paused(&field.app))
+        self.eligible(field).is_err()
+            || (!self.is_forced(field) && self.ignores.is_paused(&field.app))
     }
 
     fn schedule(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
-        let dismissed = self
-            .dismissed
-            .as_ref()
-            .is_some_and(|(id, before)| *id == field.field_id && *before == field.before);
+        let dismissed = self.dismissed.as_ref().is_some_and(|dismissal| {
+            dismissal.field.matches(field) && dismissal.before == field.before
+        });
         if dismissed
             || self.config.trigger_mode == TriggerMode::Manual
             || field.placement.is_none()
@@ -371,14 +397,14 @@ impl Engine {
     }
 
     fn on_debounce(&mut self, generation: u64, out: &mut Vec<Action>) {
-        if generation != self.generation || self.in_flight || self.suggestion.is_some() {
+        if generation != self.generation || !self.is_idle() {
             return;
         }
         let Some(field) = &self.field else { return };
         if field.placement.is_none() || self.suppressed(field) {
             return;
         }
-        self.in_flight = true;
+        self.phase = Phase::Requested;
         out.push(Action::StartCompletion {
             generation,
             request: build(field, &self.config),
@@ -391,10 +417,10 @@ impl Engine {
         result: Result<Completion, String>,
         out: &mut Vec<Action>,
     ) {
-        if generation != self.generation || !self.in_flight {
+        if generation != self.generation || !matches!(self.phase, Phase::Requested) {
             return;
         }
-        self.in_flight = false;
+        self.phase = Phase::Idle;
         let Ok(completion) = result else { return };
         let Some(field) = &self.field else { return };
         let Some(text) = suggestion(&completion, &field.before, &self.config) else {
@@ -403,25 +429,28 @@ impl Engine {
         if field.placement.is_none() {
             return;
         }
-        self.suggestion = Some(text);
+        self.phase = Phase::Showing(Shown {
+            text,
+            shown_at: Some(Instant::now()),
+            engaged: false,
+        });
         self.counts.record_shown();
-        self.engaged = false;
-        self.shown_at = Some(Instant::now());
         self.show_current(out);
         out.push(Action::ArmKeys);
     }
 
     fn on_accept(&mut self, one_word: bool, out: &mut Vec<Action>) {
-        let Some(suggestion) = self.suggestion.take() else {
+        let Phase::Showing(shown) = &mut self.phase else {
             return;
         };
+        let suggestion = std::mem::take(&mut shown.text);
+        self.phase = Phase::Idle;
         let accepted = if one_word {
             next_word(&suggestion).to_string()
         } else {
             suggestion.clone()
         };
         let rest = suggestion[accepted.len()..].to_string();
-        self.engaged = true;
         let mut accepted = accepted;
         if let Some(field) = &self.field {
             self.ignores.accepted(&field.app);
@@ -429,7 +458,6 @@ impl Engine {
                 accepted.push(' ');
             }
         }
-        self.shown_at = None;
         self.counts.record_accept(&accepted, one_word);
         out.push(Action::Insert(accepted.clone()));
         if let Some(field) = &mut self.field {
@@ -438,32 +466,32 @@ impl Engine {
         self.unlanded.push(accepted);
         if rest.trim().is_empty() {
             self.forced = None;
-            out.push(Action::Hide);
-            out.push(Action::DisarmKeys);
+            self.withdraw(out);
             self.generation += 1;
             self.schedule(out);
         } else {
-            self.suggestion = Some(rest);
+            self.phase = Phase::Showing(Shown {
+                text: rest,
+                shown_at: None,
+                engaged: true,
+            });
             self.show_current(out);
         }
     }
 
     fn show_current(&mut self, out: &mut Vec<Action>) {
-        let (Some(text), Some(field)) = (&self.suggestion, &self.field) else {
+        let (Phase::Showing(shown), Some(field)) = (&self.phase, &self.field) else {
             return;
         };
-        match field.placement {
-            Some(placement) => out.push(Action::Show {
-                text: text.clone(),
-                placement,
-                style: field.style.clone(),
-            }),
-            None => {
-                self.suggestion = None;
-                out.push(Action::Hide);
-                out.push(Action::DisarmKeys);
-            }
-        }
+        let Some(placement) = field.placement else {
+            self.withdraw(out);
+            return;
+        };
+        out.push(Action::Show {
+            text: shown.text.clone(),
+            placement,
+            style: field.style.clone(),
+        });
     }
 }
 
@@ -747,9 +775,12 @@ mod tests {
             ),
             (
                 true,
-                Event::SetEnabled(false),
+                Event::SetConfig(Config {
+                    enabled: false,
+                    ..Config::default()
+                }),
                 &["hide", "disarm"],
-                Event::SetEnabled(true),
+                Event::SetConfig(Config::default()),
             ),
             (
                 true,
@@ -943,7 +974,9 @@ mod tests {
     }
 
     fn read_by_user(engine: &mut Engine) {
-        engine.shown_at = engine.shown_at.map(|shown| shown - READ_TIME);
+        if let Phase::Showing(shown) = &mut engine.phase {
+            shown.shown_at = shown.shown_at.map(|at| at - READ_TIME);
+        }
     }
 
     #[test]
@@ -1370,7 +1403,8 @@ mod tests {
             assert!(out.is_empty(), "{out:?}");
         }
         assert!(engine.handle(Event::DebounceElapsed(0)).is_empty());
-        let out = engine.handle(Event::SetEnabled(true));
+        let unchanged = engine.config().clone();
+        let out = engine.handle(Event::SetConfig(unchanged));
         assert!(no_model_work(&out), "{out:?}");
         let out = engine.handle(Event::Field(None));
         assert!(out.is_empty(), "{out:?}");
