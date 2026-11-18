@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use nib_core::{Action, Completion, Config, Engine, Event, FieldSnapshot, log};
-use nib_infer::Worker;
+use pith_core::{Action, Completion, Config, Engine, Event, FieldSnapshot, log};
+use pith_infer::Worker;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{
@@ -99,7 +99,7 @@ unsafe extern "system" fn control_procedure(
 fn control_window() -> windows::core::Result<HWND> {
     unsafe {
         let instance = GetModuleHandleW(None)?;
-        let class = w!("NibControl");
+        let class = w!("PithControl");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(control_procedure),
             hInstance: instance.into(),
@@ -110,7 +110,7 @@ fn control_window() -> windows::core::Result<HWND> {
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class,
-            w!("nib-control"),
+            w!("pith-control"),
             WINDOW_STYLE(0),
             0,
             0,

@@ -8,7 +8,7 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
-use nib_core::{Completer, Completion, CompletionRequest, SentenceEnd, StopReason, sentence_end};
+use pith_core::{Completer, Completion, CompletionRequest, SentenceEnd, StopReason, sentence_end};
 
 use crate::sampling::{common_prefix_len, consistent_with_prefix, log_sum_exp, valid_utf8_prefix};
 

@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use nib_core::{Config, init_log, log};
-use nib_infer::{Backend, cpu_supported, download, find_local, preset};
+use pith_core::{Config, init_log, log};
+use pith_infer::{Backend, cpu_supported, download, find_local, preset};
 
 struct Paths {
     config: PathBuf,
@@ -12,11 +12,11 @@ struct Paths {
 }
 
 fn paths() -> Paths {
-    let dirs = directories::ProjectDirs::from("", "", "Nib").expect("home directory");
+    let dirs = directories::ProjectDirs::from("", "", "Pith").expect("home directory");
     Paths {
         config: dirs.config_dir().join("config.toml"),
         models: dirs.data_local_dir().join("models"),
-        log: dirs.data_local_dir().join("nib.log"),
+        log: dirs.data_local_dir().join("pith.log"),
     }
 }
 
@@ -89,8 +89,8 @@ fn resolve_backend(
 fn main() {
     use std::sync::mpsc::channel;
 
-    use nib_infer::Worker;
-    use nib_windows::{Inbound, InsertMode, Options, Source, Waker, run, single_instance};
+    use pith_infer::Worker;
+    use pith_windows::{Inbound, InsertMode, Options, Source, Waker, run, single_instance};
 
     let args: Vec<String> = std::env::args().collect();
     let paths = paths();
@@ -108,7 +108,7 @@ fn main() {
     if let Some(threads) = flag(&args, "--threads").and_then(|t| t.parse().ok()) {
         config.threads = threads;
     }
-    if !single_instance("Local\\NibSingleInstance") {
+    if !single_instance("Local\\PithSingleInstance") {
         log("another instance is running");
         return;
     }
@@ -148,7 +148,7 @@ fn main() {
         observer: None,
         global_keys: true,
     };
-    log("nib starting");
+    log("pith starting");
     if let Err(error) = run(config, worker, (sender, receiver), waker, options) {
         log(&format!("fatal: {error}"));
     }
@@ -157,5 +157,5 @@ fn main() {
 #[cfg(not(windows))]
 fn main() {
     let _ = (paths, load_config, flag, resolve_backend);
-    eprintln!("Nib currently runs on Windows; macOS and Linux support is planned.");
+    eprintln!("Pith currently runs on Windows; macOS and Linux support is planned.");
 }

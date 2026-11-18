@@ -5,9 +5,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use nib_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot};
-use nib_infer::{Backend, Worker};
-use nib_windows::{
+use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot};
+use pith_infer::{Backend, Worker};
+use pith_windows::{
     ACCEPT_ALL, ACCEPT_WORD, DISMISS, Inbound, InsertMode, Options, Reader, Source, Waker, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -75,7 +75,7 @@ fn spawn_test_window(title: &str, left: i32, top: i32, edit_style: u32) -> Field
     std::thread::spawn(move || unsafe {
         let _ = LoadLibraryW(w!("Msftedit.dll"));
         let instance = GetModuleHandleW(None).unwrap();
-        let class = w!("NibE2EHost");
+        let class = w!("PithE2EHost");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(host_procedure),
             hInstance: instance.into(),
@@ -238,7 +238,7 @@ fn move_host(field: Field, left: i32, top: i32) {
 }
 
 fn overlay_window() -> Option<HWND> {
-    unsafe { FindWindowW(w!("NibGhostText"), None).ok() }
+    unsafe { FindWindowW(w!("PithGhostText"), None).ok() }
 }
 
 fn overlay_visible() -> bool {
@@ -348,7 +348,7 @@ fn tail(text: &str) -> String {
 }
 
 fn trace(action: &Action) {
-    if std::env::var("NIB_E2E_TRACE").is_ok() {
+    if std::env::var("PITH_E2E_TRACE").is_ok() {
         println!(
             "[TRACE] {}",
             format!("{action:?}").chars().take(200).collect::<String>()
@@ -805,7 +805,7 @@ fn prompt_matches_typed_text(rig: &mut Rig) {
             "{}{}",
             request
                 .prompt
-                .strip_prefix("Nib e2e target\n\n")
+                .strip_prefix("Pith e2e target\n\n")
                 .unwrap_or(&request.prompt),
             request.forced_prefix
         );
@@ -1012,14 +1012,14 @@ fn rapid_accept_chain(rig: &mut Rig) {
         let mut rest = suggestion.as_str();
         let mut count = 0;
         while !rest.trim().is_empty() {
-            let word = nib_core::next_word(rest);
+            let word = pith_core::next_word(rest);
             rest = &rest[word.len()..];
             count += 1;
         }
         count
     };
     rig.drain();
-    let gap = std::env::var("NIB_E2E_KEY_GAP_MS")
+    let gap = std::env::var("PITH_E2E_KEY_GAP_MS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
@@ -1451,15 +1451,15 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let model = PathBuf::from(args.next().expect("model path"));
     let out_dir = PathBuf::from(args.next().unwrap_or_else(|| ".".into()));
-    let only = std::env::var("NIB_E2E_ONLY").ok();
+    let only = std::env::var("PITH_E2E_ONLY").ok();
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     print_memory("idle, model not loaded");
-    let a = spawn_test_window("Nib e2e target", 60, 60, ES_MULTILINE | ES_AUTOVSCROLL);
-    let b = spawn_test_window("Nib e2e second", 60, 290, ES_MULTILINE | ES_AUTOVSCROLL);
-    let secret = spawn_test_window("Nib e2e secret", 60, 520, ES_AUTOHSCROLL);
-    let locked = spawn_test_window("Nib e2e locked", 60, 750, ES_PASSWORD | ES_AUTOHSCROLL);
+    let a = spawn_test_window("Pith e2e target", 60, 60, ES_MULTILINE | ES_AUTOVSCROLL);
+    let b = spawn_test_window("Pith e2e second", 60, 290, ES_MULTILINE | ES_AUTOVSCROLL);
+    let secret = spawn_test_window("Pith e2e secret", 60, 520, ES_AUTOHSCROLL);
+    let locked = spawn_test_window("Pith e2e locked", 60, 750, ES_PASSWORD | ES_AUTOHSCROLL);
     TARGET.store(a.edit, Ordering::SeqCst);
     let config = Config::default();
     let (sender, receiver) = channel();
@@ -1475,11 +1475,11 @@ fn main() {
             .unwrap_or(4),
     );
     let context_tokens = config.context_tokens;
-    let insert_lag_ms: u64 = std::env::var("NIB_E2E_INSERT_LAG_MS")
+    let insert_lag_ms: u64 = std::env::var("PITH_E2E_INSERT_LAG_MS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
-    let idle_unload_secs: u64 = std::env::var("NIB_IDLE_UNLOAD")
+    let idle_unload_secs: u64 = std::env::var("PITH_IDLE_UNLOAD")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);

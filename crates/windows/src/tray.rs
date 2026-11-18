@@ -33,8 +33,8 @@ fn glyph(active: bool) -> Icon {
             let dy = y as f32 - 15.5;
             let distance = (dx * dx + dy * dy).sqrt();
             let alpha = ((14.5 - distance).clamp(0.0, 1.0) * 255.0) as u8;
-            let nib = (x as f32 - 15.5).abs() < 2.5 && (9..23).contains(&y);
-            if nib {
+            let pith = (x as f32 - 15.5).abs() < 2.5 && (9..23).contains(&y);
+            if pith {
                 rgba.extend_from_slice(&[255, 255, 255, alpha])
             } else {
                 rgba.extend_from_slice(&[r, g, b, alpha])
@@ -47,7 +47,7 @@ fn glyph(active: bool) -> Icon {
 impl Tray {
     pub fn create(enabled: bool) -> Option<Self> {
         let menu = Menu::new();
-        let status = MenuItem::new("Nib: starting…", false, None);
+        let status = MenuItem::new("Pith: starting…", false, None);
         let toggle = MenuItem::new(toggle_label(enabled), true, None);
         let config = MenuItem::new("Open settings", true, None);
         let quit = MenuItem::new("Quit", true, None);
@@ -58,7 +58,7 @@ impl Tray {
         menu.append(&quit).ok()?;
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("Nib")
+            .with_tooltip("Pith")
             .with_icon(glyph(enabled))
             .build()
             .ok()?;
@@ -72,8 +72,8 @@ impl Tray {
     }
 
     pub fn set_status(&self, text: &str) {
-        self.status.set_text(format!("Nib: {text}"));
-        let _ = self.icon.set_tooltip(Some(format!("Nib: {text}")));
+        self.status.set_text(format!("Pith: {text}"));
+        let _ = self.icon.set_tooltip(Some(format!("Pith: {text}")));
     }
 
     pub fn set_enabled(&self, enabled: bool) {

@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use nib_core::Rect;
+use pith_core::Rect;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -51,7 +51,7 @@ impl Overlay {
     pub fn create() -> windows::core::Result<Self> {
         unsafe {
             let instance = GetModuleHandleW(None)?;
-            let class = w!("NibGhostText");
+            let class = w!("PithGhostText");
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(procedure),
                 hInstance: instance.into(),
@@ -66,7 +66,7 @@ impl Overlay {
                     | WS_EX_TOPMOST
                     | WS_EX_TOOLWINDOW,
                 class,
-                w!("nib"),
+                w!("pith"),
                 WS_POPUP,
                 0,
                 0,

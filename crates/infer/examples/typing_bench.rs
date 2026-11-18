@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use nib_core::{Completer, Config, FieldSnapshot, build, clean_completion, split_partial};
-use nib_infer::LlamaModelHandle;
+use pith_core::{Completer, Config, FieldSnapshot, build, clean_completion, split_partial};
+use pith_infer::LlamaModelHandle;
 
 const SAMPLES: [(&str, &str); 6] = [
     (
@@ -95,7 +95,7 @@ fn main() {
             let suggestion = clean_completion(
                 &completion.text,
                 config.max_words,
-                completion.stop == nib_core::StopReason::MaxTokens,
+                completion.stop == pith_core::StopReason::MaxTokens,
             )
             .unwrap_or_default();
             let suggestion = if snapshot.before.ends_with(' ') {

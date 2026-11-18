@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use nib_core::{Config, FieldSnapshot};
+use pith_core::{Config, FieldSnapshot};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -40,7 +40,7 @@ impl Reader {
         let enabled = Arc::new(AtomicBool::new(config.enabled));
         let gate = enabled.clone();
         std::thread::Builder::new()
-            .name("nib-uia".into())
+            .name("pith-uia".into())
             .spawn(move || serve(source, &config, rx, &gate, on_snapshot))
             .expect("spawn uia thread");
         Self { pokes, enabled }
@@ -86,7 +86,7 @@ fn serve(
 ) {
     let automation = match automation() {
         Ok(automation) => automation,
-        Err(error) => return nib_core::log(&format!("uia unavailable: {error}")),
+        Err(error) => return pith_core::log(&format!("uia unavailable: {error}")),
     };
     let own_pid = std::process::id();
     let mut last: Option<FieldSnapshot> = None;
