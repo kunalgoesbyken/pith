@@ -56,6 +56,7 @@ Invalid settings are reported in the tray and the defaults are used until you fi
 | `debounce_ms` | 120 | pause before asking the model |
 | `max_words` | 6 | longest suggestion |
 | `min_mean_logprob` | -1.6 | confidence gate; raise for fewer, safer suggestions |
+| `ghost_opacity` | 50 | ghost text strength, 10 to 100 percent; raised automatically to keep 3:1 contrast |
 | `idle_unload_secs` | 300 | free the model after this much idle time (0 = never) |
 | `blocked_apps` | [] | extra process names to ignore; terminals, editors, password managers and sign-in screens are always ignored |
 | `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; must be `https`, or `http` to this computer |

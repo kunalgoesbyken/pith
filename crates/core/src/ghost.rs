@@ -6,7 +6,6 @@ pub const CONTRAST_FLOOR: f32 = 3.0;
 pub const MAX_ALPHA: u32 = 230;
 pub const FADE_FRAME_MS: u32 = 16;
 pub const FADE_ALPHAS: [u8; 4] = [112, 176, 232, 255];
-pub const MAX_FADE_MS: u32 = 80;
 
 const WHITE: u32 = 0x00FF_FFFF;
 const BLACK: u32 = 0x0000_0000;
@@ -107,7 +106,8 @@ pub fn best_plain(background: u32) -> u32 {
 }
 
 fn raise_to_floor(foreground: u32, background: u32, start: u32) -> Option<u32> {
-    (start..=MAX_ALPHA).find(|alpha| contrast(blend(foreground, background, *alpha), background) >= CONTRAST_FLOOR)
+    (start..=MAX_ALPHA)
+        .find(|alpha| contrast(blend(foreground, background, *alpha), background) >= CONTRAST_FLOOR)
 }
 
 pub fn ink(text_color: Option<u32>, background: u32, opacity_percent: u8) -> Ink {
@@ -289,6 +289,8 @@ pub fn layout(text: &str, flow: &Flow, measure: &dyn Fn(&str) -> i32) -> Vec<Lin
 mod tests {
     use super::*;
 
+    const MAX_FADE_MS: u32 = 80;
+
     fn measure(text: &str) -> i32 {
         text.graphemes(true).count() as i32 * 10
     }
@@ -324,7 +326,10 @@ mod tests {
     #[test]
     fn short_text_stays_on_the_caret_line_right_of_the_caret() {
         let flow = flow(50, 0, 400, false);
-        assert_eq!(rows(" over there", &flow), [(" over there".into(), 51, 100)]);
+        assert_eq!(
+            rows(" over there", &flow),
+            [(" over there".into(), 51, 100)]
+        );
     }
 
     #[test]
@@ -343,10 +348,7 @@ mod tests {
     #[test]
     fn a_word_that_does_not_fit_after_the_caret_moves_down_whole() {
         let flow = flow(70, 0, 100, false);
-        assert_eq!(
-            rows(" word", &flow),
-            [("word".into(), 0, 120)]
-        );
+        assert_eq!(rows(" word", &flow), [("word".into(), 0, 120)]);
     }
 
     #[test]
@@ -383,10 +385,22 @@ mod tests {
     fn rows_beyond_the_field_height_are_dropped() {
         let mut flow = flow(0, 0, 100, false);
         flow.max_lines = 1;
-        assert_eq!(rows(" alpha beta gamma", &flow), [(" alpha".into(), 1, 100)]);
+        assert_eq!(
+            rows(" alpha beta gamma", &flow),
+            [(" alpha".into(), 1, 100)]
+        );
         assert_eq!(lines_that_fit(flow.bounds, 100, 20), 45);
         assert_eq!(
-            lines_that_fit(Rect { x: 0, y: 90, width: 10, height: 20 }, 100, 20),
+            lines_that_fit(
+                Rect {
+                    x: 0,
+                    y: 90,
+                    width: 10,
+                    height: 20
+                },
+                100,
+                20
+            ),
             1
         );
     }
@@ -410,10 +424,7 @@ mod tests {
         let flow = flow(60, 0, 100, true);
         assert_eq!(
             rows("aaaa bbbb cccc", &flow),
-            [
-                ("aaaa".into(), 20, 100),
-                ("bbbb cccc".into(), 10, 120),
-            ]
+            [("aaaa".into(), 20, 100), ("bbbb cccc".into(), 10, 120),]
         );
     }
 
@@ -435,8 +446,14 @@ mod tests {
         let flow = flow(0, 0, 100, false);
         let lines = layout(text, &flow, &measure);
         let strong_end = " alpha".len();
-        assert_eq!(strong_span(text, &lines[0], strong_end, false, &measure), Some((0, 60)));
-        assert_eq!(strong_span(text, &lines[1], strong_end, false, &measure), None);
+        assert_eq!(
+            strong_span(text, &lines[0], strong_end, false, &measure),
+            Some((0, 60))
+        );
+        assert_eq!(
+            strong_span(text, &lines[1], strong_end, false, &measure),
+            None
+        );
     }
 
     #[test]
@@ -444,7 +461,10 @@ mod tests {
         let text = "aaaa bbbb";
         let flow = flow(60, 0, 100, true);
         let lines = layout(text, &flow, &measure);
-        assert_eq!(strong_span(text, &lines[0], 9, true, &measure), Some((0, 40)));
+        assert_eq!(
+            strong_span(text, &lines[0], 9, true, &measure),
+            Some((0, 40))
+        );
         assert_eq!(strong_span(text, &lines[1], 4, true, &measure), None);
     }
 
@@ -453,8 +473,14 @@ mod tests {
         let text = "aaaa bbbb";
         let flow = flow(200, 0, 400, true);
         let lines = layout(text, &flow, &measure);
-        assert_eq!(strong_span(text, &lines[0], 4, true, &measure), Some((50, 90)));
-        assert_eq!(strong_span(text, &lines[0], 4, false, &measure), Some((0, 40)));
+        assert_eq!(
+            strong_span(text, &lines[0], 4, true, &measure),
+            Some((50, 90))
+        );
+        assert_eq!(
+            strong_span(text, &lines[0], 4, false, &measure),
+            Some((0, 40))
+        );
     }
 
     #[test]
@@ -500,11 +526,15 @@ mod tests {
 
     #[test]
     fn faint_opacity_is_raised_until_the_floor_is_met() {
-        for (foreground, background) in [(BLACK, WHITE), (WHITE, BLACK), (0x00AA_5500, 0x00F0_F0F0)] {
+        for (foreground, background) in [(BLACK, WHITE), (WHITE, BLACK), (0x00AA_5500, 0x00F0_F0F0)]
+        {
             let result = ink(Some(foreground), background, 10);
             assert!(u32::from(result.alpha) > opacity_alpha(10));
             let shown = blend(result.color, background, u32::from(result.alpha));
-            assert!(contrast(shown, background) >= CONTRAST_FLOOR, "{foreground:x} on {background:x}");
+            assert!(
+                contrast(shown, background) >= CONTRAST_FLOOR,
+                "{foreground:x} on {background:x}"
+            );
         }
     }
 
@@ -512,7 +542,11 @@ mod tests {
     fn text_colour_that_cannot_reach_the_floor_is_replaced_by_black_or_white() {
         let grey_on_grey = ink(Some(0x0080_8080), 0x0088_8888, 50);
         assert!(grey_on_grey.color == BLACK || grey_on_grey.color == WHITE);
-        let shown = blend(grey_on_grey.color, 0x0088_8888, u32::from(grey_on_grey.alpha));
+        let shown = blend(
+            grey_on_grey.color,
+            0x0088_8888,
+            u32::from(grey_on_grey.alpha),
+        );
         assert!(contrast(shown, 0x0088_8888) >= CONTRAST_FLOOR);
     }
 
@@ -526,12 +560,22 @@ mod tests {
 
     #[test]
     fn every_background_and_opacity_ends_at_or_above_the_floor_or_the_alpha_cap() {
-        for background in [BLACK, WHITE, 0x0080_8080, 0x00FF_00FF, 0x0000_FFFF, 0x0010_2030] {
+        for background in [
+            BLACK,
+            WHITE,
+            0x0080_8080,
+            0x00FF_00FF,
+            0x0000_FFFF,
+            0x0010_2030,
+        ] {
             for percent in [1u8, 10, 35, 50, 65, 100, 255] {
                 let result = ink(None, background, percent);
                 assert!(u32::from(result.alpha) <= MAX_ALPHA);
                 let shown = blend(result.color, background, u32::from(result.alpha));
-                assert!(contrast(shown, background) >= CONTRAST_FLOOR, "{background:x} {percent}");
+                assert!(
+                    contrast(shown, background) >= CONTRAST_FLOOR,
+                    "{background:x} {percent}"
+                );
             }
         }
     }
@@ -562,18 +606,53 @@ mod tests {
 
     #[test]
     fn flow_bounds_use_the_field_when_it_holds_the_caret_and_the_work_area_otherwise() {
-        let work = Rect { x: 0, y: 0, width: 1920, height: 1040 };
-        let caret = Rect { x: 500, y: 300, width: 1, height: 20 };
-        let field = Rect { x: 400, y: 280, width: 600, height: 100 };
+        let work = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1040,
+        };
+        let caret = Rect {
+            x: 500,
+            y: 300,
+            width: 1,
+            height: 20,
+        };
+        let field = Rect {
+            x: 400,
+            y: 280,
+            width: 600,
+            height: 100,
+        };
         assert_eq!(flow_bounds(Some(field), caret, work), field);
-        let elsewhere = Rect { x: 0, y: 0, width: 100, height: 100 };
+        let elsewhere = Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
         assert_eq!(flow_bounds(Some(elsewhere), caret, work), work);
         assert_eq!(flow_bounds(None, caret, work), work);
-        let overhang = Rect { x: 1800, y: 280, width: 600, height: 100 };
-        let near_edge = Rect { x: 1850, y: 300, width: 1, height: 20 };
+        let overhang = Rect {
+            x: 1800,
+            y: 280,
+            width: 600,
+            height: 100,
+        };
+        let near_edge = Rect {
+            x: 1850,
+            y: 300,
+            width: 1,
+            height: 20,
+        };
         assert_eq!(
             flow_bounds(Some(overhang), near_edge, work),
-            Rect { x: 1800, y: 280, width: 120, height: 100 }
+            Rect {
+                x: 1800,
+                y: 280,
+                width: 120,
+                height: 100
+            }
         );
     }
 

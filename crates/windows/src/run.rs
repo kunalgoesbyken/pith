@@ -364,9 +364,9 @@ pub fn run(
     };
     let mut app = App {
         control,
+        overlay: Overlay::create(config.ghost_opacity)?,
         engine: Engine::new(config),
         worker,
-        overlay: Overlay::create()?,
         keys: Keys::new(),
         reader,
         tray,
