@@ -113,6 +113,37 @@ pub fn remove_contents(dir: &Path, attempts: u32, delay: Duration) -> Vec<PathBu
     remaining
 }
 
+const LISTED_LEFTOVERS: usize = 5;
+
+pub fn leftover_notice(dir: &Path, left: &[PathBuf]) -> Option<String> {
+    if left.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = left
+        .iter()
+        .take(LISTED_LEFTOVERS)
+        .map(|path| {
+            path.strip_prefix(dir)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    let more = left.len().saturating_sub(LISTED_LEFTOVERS);
+    let tail = if more > 0 {
+        format!(" and {more} more")
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "Pith could not delete everything. {} item(s) are still in use by another program and remain in {}: {}{}. Delete them yourself once that program has closed.",
+        left.len(),
+        dir.display(),
+        names.join(", "),
+        tail
+    ))
+}
+
 fn leftovers(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -151,6 +182,25 @@ mod tests {
         assert!(remove_contents(&dir, 1, Duration::ZERO).is_empty());
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nothing_left_means_nothing_to_report() {
+        assert_eq!(leftover_notice(Path::new("data"), &[]), None);
+    }
+
+    #[test]
+    fn the_notice_names_what_is_left_relative_to_the_folder_and_caps_the_list() {
+        let dir = PathBuf::from("data");
+        let left: Vec<PathBuf> = (0..7)
+            .map(|n| dir.join("models").join(format!("m{n}.gguf")))
+            .collect();
+        let notice = leftover_notice(&dir, &left).unwrap();
+        assert!(notice.contains("7 item(s)"), "{notice}");
+        let first = Path::new("models").join("m0.gguf");
+        assert!(notice.contains(&*first.to_string_lossy()), "{notice}");
+        assert!(notice.contains(" and 2 more"), "{notice}");
+        assert!(!notice.contains("m5.gguf"), "{notice}");
     }
 
     #[test]

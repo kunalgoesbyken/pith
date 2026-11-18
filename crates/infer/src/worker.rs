@@ -30,6 +30,7 @@ const RETRY_AFTER: Duration = Duration::from_secs(30);
 pub struct Worker {
     jobs: Sender<Job>,
     latest: Arc<AtomicU64>,
+    exited: Receiver<()>,
 }
 
 impl Worker {
@@ -37,11 +38,19 @@ impl Worker {
         let (jobs, rx) = channel();
         let latest = Arc::new(AtomicU64::new(0));
         let shared = latest.clone();
+        let (alive, exited) = channel::<()>();
         std::thread::Builder::new()
             .name("pith-infer".into())
-            .spawn(move || work(prepare, rx, shared, on_ready, on_done))
+            .spawn(move || {
+                let _alive = alive;
+                work(prepare, rx, shared, on_ready, on_done)
+            })
             .expect("spawn inference thread");
-        Self { jobs, latest }
+        Self {
+            jobs,
+            latest,
+            exited,
+        }
     }
 
     pub fn submit(&self, generation: u64, request: CompletionRequest) {
@@ -51,6 +60,15 @@ impl Worker {
 
     pub fn cancel(&self) {
         self.latest.store(0, Ordering::SeqCst);
+    }
+
+    pub fn shutdown(self, wait: Duration) -> bool {
+        self.latest.store(0, Ordering::SeqCst);
+        drop(self.jobs);
+        matches!(
+            self.exited.recv_timeout(wait),
+            Err(RecvTimeoutError::Disconnected)
+        )
     }
 }
 
@@ -202,4 +220,28 @@ pub fn cpu_supported() -> Result<(), String> {
 #[cfg(not(target_arch = "x86_64"))]
 pub fn cpu_supported() -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn worker(prepare: Prepare) -> Worker {
+        Worker::spawn(prepare, Box::new(|_| {}), Box::new(|_, _| {}))
+    }
+
+    #[test]
+    fn shutdown_waits_until_the_thread_has_let_go() {
+        let worker = worker(Box::new(|| Err("no model".into())));
+        assert!(worker.shutdown(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn shutdown_reports_a_thread_still_busy_after_the_wait() {
+        let worker = worker(Box::new(|| {
+            std::thread::sleep(Duration::from_millis(400));
+            Err("late".into())
+        }));
+        assert!(!worker.shutdown(Duration::from_millis(20)));
+    }
 }

@@ -2,6 +2,8 @@
 
 mod caret;
 mod clipboard;
+mod control;
+mod erase;
 mod events;
 mod foreground;
 mod keys;
@@ -14,11 +16,12 @@ mod settings;
 mod tray;
 mod util;
 
+pub use control::Waker;
 pub use keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, TRIGGER};
 pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
     View as OnboardingView,
 };
 pub use reader::{Reader, SnapshotCallback, Source};
-pub use run::{Inbound, InsertMode, Options, Waker, run};
+pub use run::{Inbound, InsertMode, Options, run};
 pub use util::{open_path, single_instance};

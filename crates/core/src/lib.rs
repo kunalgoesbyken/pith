@@ -8,6 +8,7 @@ mod policy;
 mod prompt;
 mod setting;
 mod status;
+mod stored;
 mod text;
 mod types;
 

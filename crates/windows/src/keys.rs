@@ -66,18 +66,56 @@ fn held_modifiers(chord: &Chord) -> Vec<VIRTUAL_KEY> {
     .collect()
 }
 
-pub struct Keys {
-    bindings: Vec<Binding>,
-    armed: bool,
-    trigger_registered: bool,
+pub trait Registrar {
+    fn register(&self, id: i32, chord: &Chord) -> bool;
+    fn unregister(&self, id: i32);
 }
 
-impl Keys {
-    pub fn new(keymap: &Keymap) -> Self {
+impl Registrar for HWND {
+    fn register(&self, id: i32, chord: &Chord) -> bool {
+        unsafe {
+            RegisterHotKey(
+                Some(*self),
+                id,
+                hot_key_modifiers(chord),
+                u32::from(virtual_key(chord.key)),
+            )
+        }
+        .is_ok()
+    }
+
+    fn unregister(&self, id: i32) {
+        unsafe {
+            let _ = UnregisterHotKey(Some(*self), id);
+        }
+    }
+}
+
+fn is_wanted(binding: &Binding, armed: bool, trigger_on: bool) -> bool {
+    if binding.action == TRIGGER {
+        trigger_on
+    } else {
+        armed
+    }
+}
+
+pub struct Keys<R: Registrar> {
+    registrar: R,
+    bindings: Vec<Binding>,
+    registered: Vec<bool>,
+    armed: bool,
+    trigger_on: bool,
+}
+
+impl<R: Registrar> Keys<R> {
+    pub fn new(keymap: &Keymap, registrar: R) -> Self {
+        let bindings = bindings(keymap);
         Self {
-            bindings: bindings(keymap),
+            registrar,
+            registered: vec![false; bindings.len()],
+            bindings,
             armed: false,
-            trigger_registered: false,
+            trigger_on: false,
         }
     }
 
@@ -86,18 +124,19 @@ impl Keys {
         self.bindings.get(index).copied()
     }
 
-    fn register(&self, hwnd: HWND, wanted: impl Fn(&Binding) -> bool) {
-        for (index, binding) in self.bindings.iter().enumerate().filter(|(_, b)| wanted(b)) {
+    fn reconcile(&mut self) {
+        for (index, binding) in self.bindings.iter().enumerate() {
             let id = index as i32 + 1;
-            let registered = unsafe {
-                RegisterHotKey(
-                    Some(hwnd),
-                    id,
-                    hot_key_modifiers(&binding.chord),
-                    u32::from(virtual_key(binding.chord.key)),
-                )
-            };
-            if registered.is_err() {
+            let wanted = is_wanted(binding, self.armed, self.trigger_on);
+            if wanted == self.registered[index] {
+                continue;
+            }
+            if !wanted {
+                self.registrar.unregister(id);
+                self.registered[index] = false;
+            } else if self.registrar.register(id, &binding.chord) {
+                self.registered[index] = true;
+            } else {
                 log(&format!(
                     "hotkey {:?} is taken by another program",
                     binding.chord
@@ -106,40 +145,35 @@ impl Keys {
         }
     }
 
-    fn unregister(&self, hwnd: HWND, wanted: impl Fn(&Binding) -> bool) {
-        for (index, _) in self.bindings.iter().enumerate().filter(|(_, b)| wanted(b)) {
-            unsafe {
-                let _ = UnregisterHotKey(Some(hwnd), index as i32 + 1);
-            }
-        }
-    }
-
-    pub fn arm(&mut self, hwnd: HWND) {
-        if self.armed {
-            return;
-        }
-        self.register(hwnd, |b| b.action != TRIGGER);
+    pub fn arm(&mut self) {
         self.armed = true;
+        self.reconcile();
     }
 
-    pub fn disarm(&mut self, hwnd: HWND) {
-        if !self.armed {
-            return;
-        }
-        self.unregister(hwnd, |b| b.action != TRIGGER);
+    pub fn disarm(&mut self) {
         self.armed = false;
+        self.reconcile();
     }
 
-    pub fn set_trigger(&mut self, hwnd: HWND, on: bool) {
-        if self.trigger_registered == on {
+    pub fn set_trigger(&mut self, on: bool) {
+        self.trigger_on = on;
+        self.reconcile();
+    }
+
+    pub fn rebind(&mut self, keymap: &Keymap) {
+        let next = bindings(keymap);
+        if next == self.bindings {
             return;
         }
-        if on {
-            self.register(hwnd, |b| b.action == TRIGGER);
-        } else {
-            self.unregister(hwnd, |b| b.action == TRIGGER);
-        }
-        self.trigger_registered = on;
+        let (armed, trigger_on) = (self.armed, self.trigger_on);
+        self.armed = false;
+        self.trigger_on = false;
+        self.reconcile();
+        self.registered = vec![false; next.len()];
+        self.bindings = next;
+        self.armed = armed;
+        self.trigger_on = trigger_on;
+        self.reconcile();
     }
 }
 
@@ -205,8 +239,55 @@ pub fn wait_for_modifiers_released(limit: Duration) -> bool {
 mod tests {
     use super::*;
 
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    #[derive(Default)]
+    struct Fake {
+        held: RefCell<BTreeMap<i32, Chord>>,
+        taken: RefCell<Vec<Chord>>,
+        calls: RefCell<usize>,
+    }
+
+    impl Registrar for &Fake {
+        fn register(&self, id: i32, chord: &Chord) -> bool {
+            *self.calls.borrow_mut() += 1;
+            if self.taken.borrow().contains(chord) {
+                return false;
+            }
+            self.held.borrow_mut().insert(id, *chord).is_none()
+        }
+
+        fn unregister(&self, id: i32) {
+            *self.calls.borrow_mut() += 1;
+            assert!(self.held.borrow_mut().remove(&id).is_some(), "id {id}");
+        }
+    }
+
+    impl Fake {
+        fn chords(&self) -> Vec<Chord> {
+            self.held.borrow().values().copied().collect()
+        }
+    }
+
     fn keymap() -> Keymap {
         pith_core::Config::default().keymap().unwrap()
+    }
+
+    fn keymap_of(accept: &[&str], word: &[&str], trigger: Option<&str>) -> Keymap {
+        pith_core::Config {
+            accept_keys: accept.iter().map(|k| k.to_string()).collect(),
+            accept_word_keys: word.iter().map(|k| k.to_string()).collect(),
+            force_trigger: trigger.is_some(),
+            force_trigger_key: trigger.unwrap_or("Ctrl+Shift+Space").into(),
+            ..Default::default()
+        }
+        .keymap()
+        .unwrap()
+    }
+
+    fn chord(source: &str) -> Chord {
+        Chord::parse(source).unwrap()
     }
 
     #[test]
@@ -217,15 +298,17 @@ mod tests {
             actions,
             [ACCEPT_ALL, ACCEPT_WORD, ACCEPT_WORD, DISMISS, TRIGGER]
         );
+        let fake = Fake::default();
+        let keys = Keys::new(&keymap(), &fake);
         for (index, binding) in all.iter().enumerate() {
-            let keys = Keys::new(&keymap());
             assert_eq!(keys.binding(index as i32 + 1), Some(*binding));
         }
     }
 
     #[test]
     fn unknown_registration_ids_have_no_binding() {
-        let keys = Keys::new(&keymap());
+        let fake = Fake::default();
+        let keys = Keys::new(&keymap(), &fake);
         for id in [0, -1, 6, 99, i32::MAX, i32::MIN] {
             assert_eq!(keys.binding(id), None, "{id}");
         }
@@ -269,5 +352,108 @@ mod tests {
         let plain = Chord::parse("Tab").unwrap();
         assert_eq!(hot_key_modifiers(&plain), MOD_NOREPEAT);
         assert!(held_modifiers(&plain).is_empty());
+    }
+
+    #[test]
+    fn arming_registers_everything_but_the_trigger() {
+        let fake = Fake::default();
+        let mut keys = Keys::new(&keymap(), &fake);
+        keys.arm();
+        assert_eq!(
+            fake.chords(),
+            [
+                chord("Tab"),
+                chord("Shift+Tab"),
+                chord("Ctrl+Right"),
+                Chord::ESCAPE
+            ]
+        );
+        keys.set_trigger(true);
+        assert_eq!(fake.chords().len(), 5);
+        keys.disarm();
+        assert_eq!(fake.chords(), [chord("Ctrl+Shift+Space")]);
+        keys.set_trigger(false);
+        assert!(fake.chords().is_empty());
+    }
+
+    #[test]
+    fn repeated_arming_does_not_touch_the_system_again() {
+        let fake = Fake::default();
+        let mut keys = Keys::new(&keymap(), &fake);
+        keys.arm();
+        let calls = *fake.calls.borrow();
+        keys.arm();
+        keys.set_trigger(false);
+        assert_eq!(*fake.calls.borrow(), calls);
+    }
+
+    #[test]
+    fn rebinding_while_armed_moves_the_registrations_to_the_new_keys() {
+        let fake = Fake::default();
+        let mut keys = Keys::new(&keymap(), &fake);
+        keys.arm();
+        keys.set_trigger(true);
+        keys.rebind(&keymap_of(&["Ctrl+J"], &["Alt+Right"], Some("F9")));
+        assert_eq!(
+            fake.chords(),
+            [
+                chord("Ctrl+J"),
+                chord("Alt+Right"),
+                Chord::ESCAPE,
+                chord("F9")
+            ]
+        );
+        for (id, held) in fake.held.borrow().iter() {
+            assert_eq!(keys.binding(*id).unwrap().chord, *held);
+        }
+        keys.disarm();
+        keys.set_trigger(false);
+        assert!(fake.chords().is_empty());
+    }
+
+    #[test]
+    fn rebinding_keeps_what_was_off_off() {
+        let fake = Fake::default();
+        let mut keys = Keys::new(&keymap(), &fake);
+        keys.set_trigger(true);
+        keys.rebind(&keymap_of(&["Ctrl+J"], &[], Some("F9")));
+        assert_eq!(fake.chords(), [chord("F9")]);
+        keys.arm();
+        assert_eq!(fake.chords().len(), 3);
+    }
+
+    #[test]
+    fn rebinding_to_a_smaller_map_releases_the_surplus_ids() {
+        let fake = Fake::default();
+        let mut keys = Keys::new(&keymap(), &fake);
+        keys.arm();
+        keys.set_trigger(true);
+        keys.rebind(&keymap_of(&["Tab"], &[], None));
+        assert_eq!(fake.chords(), [chord("Tab"), Chord::ESCAPE]);
+        assert_eq!(keys.binding(3), None);
+    }
+
+    #[test]
+    fn rebinding_to_the_same_keys_is_a_no_op() {
+        let fake = Fake::default();
+        let mut keys = Keys::new(&keymap(), &fake);
+        keys.arm();
+        let calls = *fake.calls.borrow();
+        keys.rebind(&keymap());
+        assert_eq!(*fake.calls.borrow(), calls);
+    }
+
+    #[test]
+    fn a_taken_chord_is_retried_and_never_released_unregistered() {
+        let fake = Fake::default();
+        fake.taken.borrow_mut().push(chord("Tab"));
+        let mut keys = Keys::new(&keymap(), &fake);
+        keys.arm();
+        assert!(!fake.chords().contains(&chord("Tab")));
+        keys.disarm();
+        assert!(fake.chords().is_empty());
+        fake.taken.borrow_mut().clear();
+        keys.arm();
+        assert!(fake.chords().contains(&chord("Tab")));
     }
 }
