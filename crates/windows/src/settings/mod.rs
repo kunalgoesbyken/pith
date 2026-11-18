@@ -1,47 +1,32 @@
-use std::cell::{Cell, RefCell};
+mod layout;
+mod model;
+mod view;
+mod window;
+
+use std::cell::RefCell;
 
 use pith_core::{Config, Setting, Suggestions};
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
-use windows::Win32::Graphics::Gdi::{
-    COLOR_BTNFACE, CreateFontIndirectW, CreateSolidBrush, DeleteObject, FillRect, GetSysColorBrush,
-    HBRUSH, HDC, HFONT, HGDIOBJ, SetBkColor, SetTextColor,
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyWindow, IsWindow, SW_SHOWNORMAL, SetForegroundWindow, ShowWindow,
 };
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
-use windows::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, SetWindowTheme};
-use windows::Win32::UI::HiDpi::{
-    AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
-};
-use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
-use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{PCWSTR, w};
 
-use crate::registry::apps_use_dark_theme;
-use crate::util::wide;
+use model::update;
 
 const ID_ENABLED: i32 = 101;
 const ID_FEWER: i32 = 102;
 const ID_NORMAL: i32 = 103;
 const ID_MORE: i32 = 104;
-const ID_LIST: i32 = 110;
-const ID_REMOVE: i32 = 111;
 const ID_OPEN_DATA: i32 = 112;
 const ID_DELETE_DATA: i32 = 113;
 const ID_START: i32 = 114;
-const LEVELS: [(i32, Suggestions, &str); 3] = [
+const ID_REMOVE_FIRST: i32 = 120;
+const MAX_APP_ROWS: usize = 3;
+const SEGMENTS: [(i32, Suggestions, &str); 3] = [
     (ID_FEWER, Suggestions::Fewer, "Fewer"),
     (ID_NORMAL, Suggestions::Normal, "Normal"),
     (ID_MORE, Suggestions::More, "More"),
 ];
-
-const CLIENT_WIDTH: i32 = 360;
-const CLIENT_HEIGHT: i32 = 326;
-const MARGIN: i32 = 16;
-const WINDOW: WINDOW_STYLE =
-    WINDOW_STYLE(WS_CAPTION.0 | WS_SYSMENU.0 | WS_MINIMIZEBOX.0 | WS_CLIPCHILDREN.0);
-const DARK_BACKGROUND: u32 = 0x0020_2020;
-const DARK_TEXT: u32 = 0x00F0_F0F0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiEvent {
@@ -54,7 +39,6 @@ pub enum UiEvent {
 
 thread_local! {
     static EVENTS: RefCell<Vec<UiEvent>> = const { RefCell::new(Vec::new()) };
-    static DARK_BRUSH: Cell<Option<HBRUSH>> = const { Cell::new(None) };
 }
 
 pub fn take_events() -> Vec<UiEvent> {
@@ -65,348 +49,18 @@ fn emit(event: UiEvent) {
     EVENTS.with(|events| events.borrow_mut().push(event));
 }
 
-fn dark_brush() -> Option<HBRUSH> {
-    DARK_BRUSH.with(Cell::get)
-}
-
-fn send(hwnd: HWND, message: u32, wparam: usize, lparam: isize) -> isize {
-    unsafe { SendMessageW(hwnd, message, Some(WPARAM(wparam)), Some(LPARAM(lparam))).0 }
-}
-
-fn item(window: HWND, id: i32) -> HWND {
-    unsafe { GetDlgItem(Some(window), id) }.unwrap_or_default()
-}
-
-fn is_checked(window: HWND, id: i32) -> bool {
-    send(item(window, id), BM_GETCHECK, 0, 0) == BST_CHECKED.0 as isize
-}
-
-fn set_checked(window: HWND, id: i32, checked: bool) {
-    let state = if checked { BST_CHECKED } else { BST_UNCHECKED };
-    send(item(window, id), BM_SETCHECK, state.0 as usize, 0);
-}
-
-fn selected_app(window: HWND) -> Option<String> {
-    let list = item(window, ID_LIST);
-    let index = usize::try_from(send(list, LB_GETCURSEL, 0, 0)).ok()?;
-    let length = usize::try_from(send(list, LB_GETTEXTLEN, index, 0)).ok()?;
-    let mut buffer = vec![0u16; length + 1];
-    send(list, LB_GETTEXT, index, buffer.as_mut_ptr() as isize);
-    Some(String::from_utf16_lossy(&buffer[..length]))
-}
-
-fn sync_remove_button(window: HWND) {
-    let selected = send(item(window, ID_LIST), LB_GETCURSEL, 0, 0) >= 0;
-    unsafe {
-        let _ = EnableWindow(item(window, ID_REMOVE), selected);
-    }
-}
-
-fn command(window: HWND, id: i32, code: u32) {
-    match (id, code) {
-        (ID_ENABLED, BN_CLICKED) => emit(UiEvent::Apply(Setting::Enabled(is_checked(
-            window, ID_ENABLED,
-        )))),
-        (ID_FEWER | ID_NORMAL | ID_MORE, BN_CLICKED) => {
-            if let Some((_, level, _)) = LEVELS.iter().find(|(level_id, ..)| *level_id == id) {
-                emit(UiEvent::Apply(Setting::Suggestions(*level)));
-            }
-        }
-        (ID_LIST, LBN_SELCHANGE) => sync_remove_button(window),
-        (ID_REMOVE, BN_CLICKED) => {
-            if let Some(app) = selected_app(window) {
-                emit(UiEvent::Apply(Setting::Unblock(app)));
-            }
-        }
-        (ID_OPEN_DATA, BN_CLICKED) => emit(UiEvent::OpenDataFolder),
-        (ID_DELETE_DATA, BN_CLICKED) => emit(UiEvent::DeleteData),
-        (ID_START, BN_CLICKED) => emit(UiEvent::StartWithWindows(is_checked(window, ID_START))),
-        _ => {}
-    }
-}
-
-unsafe extern "system" fn procedure(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    match message {
-        WM_COMMAND => {
-            command(
-                window,
-                (wparam.0 & 0xFFFF) as i32,
-                ((wparam.0 >> 16) & 0xFFFF) as u32,
-            );
-            return LRESULT(0);
-        }
-        WM_ERASEBKGND => {
-            let brush = dark_brush().unwrap_or_else(|| unsafe { GetSysColorBrush(COLOR_BTNFACE) });
-            let mut area = RECT::default();
-            unsafe {
-                let _ = GetClientRect(window, &mut area);
-                FillRect(HDC(wparam.0 as _), &area, brush);
-            }
-            return LRESULT(1);
-        }
-        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLORLISTBOX => {
-            if let Some(brush) = dark_brush() {
-                unsafe {
-                    let hdc = HDC(wparam.0 as _);
-                    SetTextColor(hdc, COLORREF(DARK_TEXT));
-                    SetBkColor(hdc, COLORREF(DARK_BACKGROUND));
-                }
-                return LRESULT(brush.0 as isize);
-            }
-        }
-        WM_CLOSE => {
-            unsafe {
-                let _ = DestroyWindow(window);
-            }
-            return LRESULT(0);
-        }
-        WM_DESTROY => emit(UiEvent::Closed),
-        _ => {}
-    }
-    unsafe { DefWindowProcW(window, message, wparam, lparam) }
-}
-
-fn high_contrast() -> bool {
-    let mut contrast = HIGHCONTRASTW {
-        cbSize: size_of::<HIGHCONTRASTW>() as u32,
-        ..Default::default()
-    };
-    let read = unsafe {
-        SystemParametersInfoW(
-            SPI_GETHIGHCONTRAST,
-            contrast.cbSize,
-            Some((&mut contrast as *mut HIGHCONTRASTW).cast()),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
-    };
-    read.is_ok() && contrast.dwFlags.0 & HCF_HIGHCONTRASTON.0 != 0
-}
-
-fn scaled(logical: i32, dpi: u32) -> i32 {
-    (logical * dpi as i32 + 48) / 96
-}
-
-fn system_font(dpi: u32) -> Option<HFONT> {
-    let mut metrics = NONCLIENTMETRICSW {
-        cbSize: size_of::<NONCLIENTMETRICSW>() as u32,
-        ..Default::default()
-    };
-    unsafe {
-        SystemParametersInfoForDpi(
-            SPI_GETNONCLIENTMETRICS.0,
-            metrics.cbSize,
-            Some((&mut metrics as *mut NONCLIENTMETRICSW).cast()),
-            0,
-            dpi,
-        )
-        .ok()?;
-        let font = CreateFontIndirectW(&metrics.lfMessageFont);
-        (!font.is_invalid()).then_some(font)
-    }
-}
-
-struct Layout {
-    parent: HWND,
-    instance: HINSTANCE,
-    dpi: u32,
-    font: Option<HFONT>,
-    dark: bool,
-}
-
-impl Layout {
-    fn control(
-        &self,
-        class: PCWSTR,
-        text: &str,
-        style: u32,
-        extended: WINDOW_EX_STYLE,
-        id: i32,
-        (x, y, width, height): (i32, i32, i32, i32),
-    ) {
-        let text = wide(text);
-        let created = unsafe {
-            CreateWindowExW(
-                extended,
-                class,
-                PCWSTR(text.as_ptr()),
-                WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | style),
-                scaled(x, self.dpi),
-                scaled(y, self.dpi),
-                scaled(width, self.dpi),
-                scaled(height, self.dpi),
-                Some(self.parent),
-                Some(HMENU(id as isize as _)),
-                Some(self.instance),
-                None,
-            )
-        };
-        let Ok(control) = created else { return };
-        if let Some(font) = self.font {
-            send(control, WM_SETFONT, font.0 as usize, 1);
-        }
-        if self.dark && class != w!("STATIC") {
-            unsafe {
-                let _ = SetWindowTheme(control, w!("DarkMode_Explorer"), PCWSTR::null());
-            }
-        }
-    }
-
-    fn label(&self, text: &str, y: i32) {
-        self.control(
-            w!("STATIC"),
-            text,
-            WS_GROUP.0,
-            WINDOW_EX_STYLE(0),
-            -1,
-            (MARGIN, y, CLIENT_WIDTH - 2 * MARGIN, 18),
-        );
-    }
-
-    fn check(&self, text: &str, id: i32, y: i32) {
-        self.control(
-            w!("BUTTON"),
-            text,
-            BS_AUTOCHECKBOX as u32 | WS_TABSTOP.0,
-            WINDOW_EX_STYLE(0),
-            id,
-            (MARGIN, y, CLIENT_WIDTH - 2 * MARGIN, 20),
-        );
-    }
-
-    fn push(&self, text: &str, id: i32, rect: (i32, i32, i32, i32)) {
-        self.control(
-            w!("BUTTON"),
-            text,
-            BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
-            WINDOW_EX_STYLE(0),
-            id,
-            rect,
-        );
-    }
-}
-
-fn register(instance: HINSTANCE) {
-    let class = WNDCLASSW {
-        lpfnWndProc: Some(procedure),
-        hInstance: instance,
-        lpszClassName: w!("PithSettings"),
-        hCursor: unsafe { LoadCursorW(None, IDC_ARROW).unwrap_or_default() },
-        ..Default::default()
-    };
-    unsafe {
-        RegisterClassW(&class);
-    }
-}
-
-fn install_dark_brush(dark: bool) {
-    DARK_BRUSH.with(|cell| {
-        if let Some(old) = cell.take() {
-            unsafe {
-                let _ = DeleteObject(HGDIOBJ(old.0));
-            }
-        }
-        if dark {
-            cell.set(Some(unsafe { CreateSolidBrush(COLORREF(DARK_BACKGROUND)) }));
-        }
-    });
-}
-
 pub struct SettingsWindow {
     hwnd: HWND,
-    font: Option<HFONT>,
 }
 
 impl SettingsWindow {
-    pub fn open(config: &Config, start_with_windows: bool) -> windows::core::Result<Self> {
-        let dark = apps_use_dark_theme() && !high_contrast();
-        install_dark_brush(dark);
-        let instance: HINSTANCE = unsafe { GetModuleHandleW(None)? }.into();
-        register(instance);
-        let hwnd = unsafe {
-            CreateWindowExW(
-                WINDOW_EX_STYLE(0),
-                w!("PithSettings"),
-                w!("Pith settings"),
-                WINDOW,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                CLIENT_WIDTH,
-                CLIENT_HEIGHT,
-                None,
-                None,
-                Some(instance),
-                None,
-            )?
-        };
-        let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
-        let mut frame = RECT {
-            left: 0,
-            top: 0,
-            right: scaled(CLIENT_WIDTH, dpi),
-            bottom: scaled(CLIENT_HEIGHT, dpi),
-        };
-        unsafe {
-            let _ = AdjustWindowRectExForDpi(&mut frame, WINDOW, false, WINDOW_EX_STYLE(0), dpi);
-            let _ = SetWindowPos(
-                hwnd,
-                None,
-                0,
-                0,
-                frame.right - frame.left,
-                frame.bottom - frame.top,
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-            let enabled = i32::from(dark);
-            let _ = DwmSetWindowAttribute(
-                hwnd,
-                DWMWA_USE_IMMERSIVE_DARK_MODE,
-                (&enabled as *const i32).cast(),
-                size_of::<i32>() as u32,
-            );
-        }
-        let font = system_font(dpi);
-        let layout = Layout {
-            parent: hwnd,
-            instance,
-            dpi,
-            font,
-            dark,
-        };
-        layout.check("Enabled", ID_ENABLED, 16);
-        layout.label("Suggestions", 48);
-        for (index, (id, _, name)) in LEVELS.into_iter().enumerate() {
-            let first = if index == 0 { WS_GROUP.0 } else { 0 };
-            layout.control(
-                w!("BUTTON"),
-                name,
-                BS_AUTORADIOBUTTON as u32 | WS_TABSTOP.0 | first,
-                WINDOW_EX_STYLE(0),
-                id,
-                (MARGIN + index as i32 * 110, 68, 104, 20),
-            );
-        }
-        layout.label("Turned off in these apps", 100);
-        layout.control(
-            w!("LISTBOX"),
-            "",
-            LBS_NOTIFY as u32 | WS_VSCROLL.0 | WS_TABSTOP.0,
-            WS_EX_CLIENTEDGE,
-            ID_LIST,
-            (MARGIN, 122, 236, 96),
-        );
-        layout.push("Remove", ID_REMOVE, (262, 122, 82, 26));
-        layout.push("Open data folder", ID_OPEN_DATA, (MARGIN, 232, 160, 28));
-        layout.push("Delete model and data", ID_DELETE_DATA, (184, 232, 160, 28));
-        layout.check("Start with Windows", ID_START, 272);
-        layout.label("Runs on this PC. Nothing leaves it.", 298);
-        let window = Self { hwnd, font };
-        window.refresh(config, start_with_windows);
-        Ok(window)
+    pub fn open(
+        config: &Config,
+        start_with_windows: bool,
+        status: &str,
+    ) -> windows::core::Result<Self> {
+        let hwnd = window::create(config, start_with_windows, status)?;
+        Ok(Self { hwnd })
     }
 
     pub fn hwnd(&self) -> HWND {
@@ -424,31 +78,23 @@ impl SettingsWindow {
         }
     }
 
-    pub fn refresh(&self, config: &Config, start_with_windows: bool) {
-        set_checked(self.hwnd, ID_ENABLED, config.enabled);
-        set_checked(self.hwnd, ID_START, start_with_windows);
-        let current = Suggestions::of(config);
-        for (id, level, _) in LEVELS {
-            set_checked(self.hwnd, id, current == Some(level));
+    pub fn refresh(&self, config: &Config, start_with_windows: bool, status: &str) {
+        let changed = update(|model| {
+            let before = model.clone();
+            model.refresh(config, start_with_windows, status);
+            *model != before
+        });
+        if changed == Some(true) {
+            window::relayout(self.hwnd);
         }
-        let list = item(self.hwnd, ID_LIST);
-        send(list, LB_RESETCONTENT, 0, 0);
-        for app in &config.blocked_apps {
-            let name = wide(app);
-            send(list, LB_ADDSTRING, 0, name.as_ptr() as isize);
-        }
-        sync_remove_button(self.hwnd);
     }
 }
 
 impl Drop for SettingsWindow {
     fn drop(&mut self) {
-        unsafe {
-            if self.is_open() {
+        if self.is_open() {
+            unsafe {
                 let _ = DestroyWindow(self.hwnd);
-            }
-            if let Some(font) = self.font {
-                let _ = DeleteObject(HGDIOBJ(font.0));
             }
         }
     }
@@ -456,48 +102,66 @@ impl Drop for SettingsWindow {
 
 #[cfg(test)]
 mod tests {
+    use super::layout::build;
+    use super::model::current;
     use super::*;
-    use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+    use crate::ui::{self, Scale, Theme, force_dark_theme};
+    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::core::w;
+
+    fn send(hwnd: HWND, message: u32, wparam: usize, lparam: isize) -> isize {
+        unsafe { SendMessageW(hwnd, message, Some(WPARAM(wparam)), Some(LPARAM(lparam))).0 }
+    }
+
+    fn item(window: &SettingsWindow, id: i32) -> HWND {
+        unsafe { GetDlgItem(Some(window.hwnd), id) }.unwrap_or_default()
+    }
 
     fn click(window: &SettingsWindow, id: i32) {
-        send(item(window.hwnd, id), BM_CLICK, 0, 0);
+        send(item(window, id), BM_CLICK, 0, 0);
     }
 
-    fn select(window: &SettingsWindow, index: usize) {
-        send(item(window.hwnd, ID_LIST), LB_SETCURSEL, index, 0);
-        let notify = (LBN_SELCHANGE as usize) << 16 | ID_LIST as usize;
-        send(window.hwnd, WM_COMMAND, notify, 0);
+    fn name(window: &SettingsWindow, id: i32) -> String {
+        let mut buffer = [0u16; 128];
+        let length = unsafe { GetWindowTextW(item(window, id), &mut buffer) };
+        String::from_utf16_lossy(&buffer[..length as usize])
     }
 
-    fn list_items(window: &SettingsWindow) -> usize {
-        send(item(window.hwnd, ID_LIST), LB_GETCOUNT, 0, 0) as usize
+    fn shown(window: &SettingsWindow, id: i32) -> bool {
+        let style = unsafe { GetWindowLongPtrW(item(window, id), GWL_STYLE) } as u32;
+        style & WS_VISIBLE.0 != 0
     }
 
-    fn remove_enabled(window: &SettingsWindow) -> bool {
-        unsafe { IsWindowEnabled(item(window.hwnd, ID_REMOVE)).as_bool() }
+    fn frame_width(window: &SettingsWindow) -> i32 {
+        let mut frame = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(window.hwnd, &mut frame);
+        }
+        ui::width(frame)
     }
 
-    #[test]
-    fn scaling_rounds_to_the_nearest_pixel() {
-        assert_eq!(scaled(100, 96), 100);
-        assert_eq!(scaled(100, 144), 150);
-        assert_eq!(scaled(100, 192), 200);
-        assert_eq!(scaled(15, 120), 19);
+    fn with_apps(apps: &[&str]) -> Config {
+        Config {
+            blocked_apps: apps.iter().map(|app| app.to_string()).collect(),
+            ..Config::default()
+        }
     }
 
     #[test]
     fn controls_reflect_the_config_and_emit_matching_settings() {
-        let config = Config {
-            blocked_apps: vec!["Slack".into(), "\u{540d}\u{524d}".into()],
-            ..Config::default()
-        };
-        let window = SettingsWindow::open(&config, true).unwrap();
-        assert!(is_checked(window.hwnd, ID_ENABLED));
-        assert!(is_checked(window.hwnd, ID_START));
-        assert!(is_checked(window.hwnd, ID_NORMAL));
-        assert!(!is_checked(window.hwnd, ID_FEWER));
-        assert_eq!(list_items(&window), 2);
-        assert!(!remove_enabled(&window));
+        let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
+        let window = SettingsWindow::open(&config, true, "Ready").unwrap();
+        assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, on");
+        assert_eq!(name(&window, ID_START), "Start with Windows, on");
+        assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
+        assert_eq!(name(&window, ID_FEWER), "Fewer");
+        assert_eq!(
+            name(&window, ID_REMOVE_FIRST + 1),
+            "Remove \u{540d}\u{524d}"
+        );
+        assert!(shown(&window, ID_REMOVE_FIRST + 1));
+        assert!(!shown(&window, ID_REMOVE_FIRST + 2));
         take_events();
 
         click(&window, ID_ENABLED);
@@ -515,23 +179,19 @@ mod tests {
                 UiEvent::DeleteData,
             ]
         );
-        assert!(is_checked(window.hwnd, ID_MORE));
-        assert!(!is_checked(window.hwnd, ID_NORMAL));
+        assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
+        assert_eq!(name(&window, ID_MORE), "More, selected");
+        assert_eq!(name(&window, ID_NORMAL), "Normal");
     }
 
     #[test]
-    fn remove_needs_a_selection_and_unblocks_that_exact_name() {
-        let config = Config {
-            blocked_apps: vec!["Slack".into(), "\u{540d}\u{524d}".into()],
-            ..Config::default()
-        };
-        let window = SettingsWindow::open(&config, false).unwrap();
+    fn remove_unblocks_that_exact_name_and_unused_slots_do_nothing() {
+        let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
+        let window = SettingsWindow::open(&config, false, "Ready").unwrap();
         take_events();
-        click(&window, ID_REMOVE);
+        click(&window, ID_REMOVE_FIRST + 2);
         assert_eq!(take_events(), []);
-        select(&window, 1);
-        assert!(remove_enabled(&window));
-        click(&window, ID_REMOVE);
+        click(&window, ID_REMOVE_FIRST + 1);
         assert_eq!(
             take_events(),
             [UiEvent::Apply(Setting::Unblock("\u{540d}\u{524d}".into()))]
@@ -539,35 +199,121 @@ mod tests {
     }
 
     #[test]
-    fn refresh_follows_the_config_and_clears_the_selection() {
-        let mut config = Config {
-            blocked_apps: vec!["Slack".into()],
-            ..Config::default()
-        };
-        let window = SettingsWindow::open(&config, false).unwrap();
-        select(&window, 0);
-        assert!(remove_enabled(&window));
+    fn refresh_follows_the_config() {
+        let mut config = with_apps(&["Slack"]);
+        let window = SettingsWindow::open(&config, false, "Ready").unwrap();
+        assert!(shown(&window, ID_REMOVE_FIRST));
         config.blocked_apps.clear();
         config.enabled = false;
         config.min_mean_logprob = -1.234;
-        window.refresh(&config, true);
-        assert_eq!(list_items(&window), 0);
-        assert!(!remove_enabled(&window));
-        assert!(!is_checked(window.hwnd, ID_ENABLED));
-        assert!(is_checked(window.hwnd, ID_START));
-        for (id, ..) in LEVELS {
-            assert!(!is_checked(window.hwnd, id));
+        window.refresh(&config, true, "Turned off");
+        assert!(!shown(&window, ID_REMOVE_FIRST));
+        assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
+        assert_eq!(name(&window, ID_START), "Start with Windows, on");
+        for (id, level, label) in SEGMENTS {
+            assert_eq!(name(&window, id), label, "{level:?}");
         }
     }
 
     #[test]
+    fn a_long_list_scrolls_in_whole_rows() {
+        let config = with_apps(&["a", "b", "c", "d", "e"]);
+        let window = SettingsWindow::open(&config, false, "Ready").unwrap();
+        let wheel = |delta: i16| (delta as u16 as usize) << 16;
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), 0);
+        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove b");
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(-360), 0);
+        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove c");
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(360), 0);
+        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove a");
+    }
+
+    #[test]
     fn closing_reports_once_and_drop_is_safe_after_close() {
-        let window = SettingsWindow::open(&Config::default(), false).unwrap();
+        let window = SettingsWindow::open(&Config::default(), false, "Ready").unwrap();
         take_events();
         send(window.hwnd, WM_CLOSE, 0, 0);
         assert!(!window.is_open());
         assert_eq!(take_events(), [UiEvent::Closed]);
         drop(window);
         assert_eq!(take_events(), []);
+    }
+
+    #[test]
+    fn escape_closes_through_the_dialog_cancel_command() {
+        let window = SettingsWindow::open(&Config::default(), false, "Ready").unwrap();
+        take_events();
+        send(window.hwnd, WM_COMMAND, IDCANCEL.0 as usize, 0);
+        assert!(!window.is_open());
+        assert_eq!(take_events(), [UiEvent::Closed]);
+    }
+
+    #[test]
+    fn a_dpi_change_rescales_the_window() {
+        let window = SettingsWindow::open(&with_apps(&["Slack"]), false, "Ready").unwrap();
+        let before = frame_width(&window);
+        let suggested = RECT::default();
+        send(
+            window.hwnd,
+            WM_DPICHANGED,
+            192 | (192 << 16),
+            &suggested as *const RECT as isize,
+        );
+        assert!(frame_width(&window) > before * 3 / 2);
+    }
+
+    #[test]
+    fn an_immersive_color_change_retheme_the_window() {
+        let window = SettingsWindow::open(&Config::default(), false, "Ready").unwrap();
+        for dark in [true, false] {
+            force_dark_theme(Some(dark));
+            send(
+                window.hwnd,
+                WM_SETTINGCHANGE,
+                0,
+                w!("ImmersiveColorSet").as_ptr() as isize,
+            );
+            let theme = current().map(|model| model.theme).unwrap();
+            assert_eq!(theme, Theme::detect());
+        }
+        force_dark_theme(None);
+    }
+
+    #[test]
+    fn every_control_fits_inside_the_window_without_overlapping() {
+        let config = with_apps(&["a", "b", "c", "d"]);
+        for dpi in [96, 120, 144, 192] {
+            let model = model::Model::new(
+                &config,
+                false,
+                "Ready",
+                (Theme::detect(), false, Scale(dpi)),
+            );
+            let layout = build(&model);
+            let visible: Vec<_> = layout
+                .controls
+                .iter()
+                .filter(|placed| placed.visible)
+                .collect();
+            assert_eq!(visible.len(), 2 + SEGMENTS.len() + MAX_APP_ROWS + 2);
+            for (index, placed) in visible.iter().enumerate() {
+                let bounds = placed.bounds;
+                assert!(
+                    bounds.left >= 0 && bounds.right <= layout.client.right,
+                    "{dpi}"
+                );
+                assert!(
+                    bounds.top >= 0 && bounds.bottom <= layout.client.bottom,
+                    "{dpi}"
+                );
+                for other in &visible[index + 1..] {
+                    let apart = bounds.right <= other.bounds.left
+                        || other.bounds.right <= bounds.left
+                        || bounds.bottom <= other.bounds.top
+                        || other.bounds.bottom <= bounds.top;
+                    assert!(apart, "{} and {} overlap at {dpi}", placed.id, other.id);
+                }
+            }
+        }
     }
 }
