@@ -358,6 +358,7 @@ impl App {
         let config = self.effective();
         self.keys.rebind(&config.keymap());
         self.reader.set_config(&config);
+        self.overlay.set_opacity(config.ghost_opacity);
         let enabled = config.enabled;
         let actions = self.engine.handle(Event::SetConfig(config));
         self.apply(actions);

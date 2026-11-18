@@ -251,6 +251,10 @@ impl Overlay {
         }
     }
 
+    pub fn set_opacity(&mut self, opacity: u8) {
+        self.opacity = opacity;
+    }
+
     pub fn show(
         &mut self,
         text: &str,

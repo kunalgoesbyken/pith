@@ -341,10 +341,7 @@ pub fn build(model: &Model) -> Layout {
             Spec {
                 text: RowText::Pair(
                     OPACITY_TITLE.to_string(),
-                    format!(
-                        "{}%. Applies after Pith restarts.",
-                        number(model.opacity.into())
-                    ),
+                    format!("{}%", number(model.opacity.into())),
                 ),
                 height: ROW,
                 control: Control::Stepper(ID_OPACITY_DOWN, ID_OPACITY_UP),
