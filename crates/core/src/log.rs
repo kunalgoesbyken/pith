@@ -5,12 +5,20 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static SINK: OnceLock<Mutex<File>> = OnceLock::new();
+const MAX_LOG_BYTES: u64 = 1 << 20;
 
 pub fn init_log(path: &Path) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(file) = OpenOptions::new().create(true).append(true).open(path) {
+    let keep = std::fs::metadata(path).is_ok_and(|m| m.len() < MAX_LOG_BYTES);
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(keep)
+        .truncate(!keep)
+        .open(path);
+    if let Ok(file) = file {
         let _ = SINK.set(Mutex::new(file));
     }
 }

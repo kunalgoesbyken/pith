@@ -1,7 +1,13 @@
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::{
     Completion, CompletionRequest, Config, FieldSnapshot, Rect, StopReason, build, check,
     clean_completion, next_word,
 };
+
+fn is_grapheme_boundary(text: &str, index: usize) -> bool {
+    index == text.len() || text.grapheme_indices(true).any(|(start, _)| start == index)
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -47,7 +53,7 @@ pub struct Engine {
     generation: u64,
     in_flight: bool,
     suggestion: Option<String>,
-    dismissed: bool,
+    dismissed: Option<(u64, String)>,
 }
 
 impl Engine {
@@ -58,7 +64,7 @@ impl Engine {
             generation: 0,
             in_flight: false,
             suggestion: None,
-            dismissed: false,
+            dismissed: None,
         }
     }
 
@@ -86,7 +92,10 @@ impl Engine {
             Event::AcceptWord => self.on_accept(true, &mut out),
             Event::Dismiss => {
                 self.reset(&mut out);
-                self.dismissed = true;
+                self.dismissed = self
+                    .field
+                    .as_ref()
+                    .map(|field| (field.field_id, field.before.clone()));
             }
             Event::SetEnabled(enabled) => {
                 self.config.enabled = enabled;
@@ -111,11 +120,13 @@ impl Engine {
 
     fn on_field(&mut self, field: FieldSnapshot, out: &mut Vec<Action>) {
         if let Some(previous) = &self.field {
-            let same_field =
-                previous.field_id == field.field_id && check(&field, &self.config).is_ok();
+            let same_field = previous.field_id == field.field_id
+                && previous.app == field.app
+                && check(&field, &self.config).is_ok();
             if same_field && previous.before == field.before && previous.after == field.after {
                 let moved = previous.caret != field.caret;
-                let unblocked = check(previous, &self.config).is_err();
+                let unblocked = check(previous, &self.config).is_err()
+                    || (previous.caret.is_none() && self.suggestion.is_none() && !self.in_flight);
                 self.field = Some(field);
                 if unblocked {
                     self.schedule(out);
@@ -139,7 +150,6 @@ impl Engine {
             }
         }
         self.reset(out);
-        self.dismissed = false;
         self.field = Some(field);
         self.schedule(out);
     }
@@ -150,12 +160,17 @@ impl Engine {
         if typed.is_empty() || previous.after != field.after {
             return None;
         }
-        suggestion.strip_prefix(typed).map(str::to_string)
+        let rest = suggestion.strip_prefix(typed)?;
+        is_grapheme_boundary(suggestion, typed.len()).then(|| rest.to_string())
     }
 
     fn schedule(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
-        if self.dismissed || check(field, &self.config).is_err() {
+        let dismissed = self
+            .dismissed
+            .as_ref()
+            .is_some_and(|(id, before)| *id == field.field_id && *before == field.before);
+        if dismissed || check(field, &self.config).is_err() {
             return;
         }
         out.push(Action::ScheduleDebounce {
@@ -530,5 +545,54 @@ mod tests {
             result: Ok(cut),
         });
         assert!(matches!(&out[0], Action::Show { text, .. } if text == " contract by"), "{out:?}");
+    }
+
+    #[test]
+    fn typing_inside_a_grapheme_requests_again() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Hello \u{928}\u{92e}", "\u{938}\u{94d}\u{924}\u{947}");
+        let out = engine.handle(Event::Field(Some(field("Hello \u{928}\u{92e}\u{938}"))));
+        assert!(!out.iter().any(|a| matches!(a, Action::Show { .. })), "{out:?}");
+    }
+
+    #[test]
+    fn dismiss_holds_through_focus_flicker_but_not_new_text() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        engine.handle(Event::Field(None));
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        assert!(out.is_empty(), "{out:?}");
+        let out = engine.handle(Event::Field(Some(field("Please sign the c"))));
+        assert!(matches!(out.last(), Some(Action::ScheduleDebounce { .. })), "{out:?}");
+    }
+
+    #[test]
+    fn caret_returning_reschedules() {
+        let mut engine = Engine::new(Config::default());
+        let mut blind = field("Please sign the");
+        blind.caret = None;
+        let out = engine.handle(Event::Field(Some(blind)));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        assert!(out.is_empty(), "{out:?}");
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        assert!(matches!(out.last(), Some(Action::ScheduleDebounce { .. })), "{out:?}");
+    }
+
+    #[test]
+    fn same_id_in_another_app_is_another_field() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        let mut other = field("Please sign the");
+        other.app = "wordpad".into();
+        let out = engine.handle(Event::Field(Some(other)));
+        assert_eq!(out[0], Action::Hide);
     }
 }

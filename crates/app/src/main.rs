@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use nib_core::{Config, init_log, log};
-use nib_infer::{Backend, download, find_local, preset};
+use nib_infer::{Backend, cpu_supported, download, find_local, preset};
 
 struct Paths {
     config: PathBuf,
@@ -20,19 +20,16 @@ fn paths() -> Paths {
     }
 }
 
-fn load_config(path: &Path) -> Config {
+fn load_config(path: &Path) -> Result<Config, String> {
     match std::fs::read_to_string(path) {
-        Ok(source) => Config::from_toml(&source).unwrap_or_else(|error| {
-            log(&format!("config error, using defaults: {error}"));
-            Config::default()
-        }),
+        Ok(source) => Config::from_toml(&source),
         Err(_) => {
             let config = Config::default();
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
             let _ = std::fs::write(path, config.to_toml());
-            config
+            Ok(config)
         }
     }
 }
@@ -48,7 +45,7 @@ fn resolve_backend(
     models: &Path,
     status: &dyn Fn(String),
 ) -> Result<Backend, String> {
-    if let Some(url) = config.remote_url.clone().filter(|u| !u.is_empty()) {
+    if let Some(url) = config.remote_url.clone() {
         return Ok(Backend::Remote {
             url,
             model: config.remote_model.clone(),
@@ -58,9 +55,11 @@ fn resolve_backend(
         .map(|n| n.get())
         .unwrap_or(4);
     let threads = config.resolved_threads(available);
-    let explicit = (!config.model_path.is_empty()).then(|| PathBuf::from(&config.model_path));
-    let spec = preset(&config.model);
-    let model_path = match explicit.or_else(|| find_local(models, spec)) {
+    cpu_supported().map_err(|missing| {
+        format!("this CPU lacks {missing}, which the built-in model needs; set remote_url in settings to use a server instead")
+    })?;
+    let spec = preset(config.model);
+    let model_path = match config.model_path.clone().or_else(|| find_local(models, spec)) {
         Some(path) => path,
         None => {
             status(format!("downloading {}", spec.file));
@@ -96,9 +95,15 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let paths = paths();
     init_log(&paths.log);
-    let mut config = load_config(&paths.config);
+    let (mut config, config_error) = match load_config(&paths.config) {
+        Ok(config) => (config, None),
+        Err(error) => {
+            log(&format!("settings error, using defaults: {error}"));
+            (Config::default(), Some(error))
+        }
+    };
     if let Some(model) = flag(&args, "--model") {
-        config.model_path = model;
+        config.model_path = Some(PathBuf::from(model));
     }
     if let Some(threads) = flag(&args, "--threads").and_then(|t| t.parse().ok()) {
         config.threads = threads;
@@ -121,7 +126,11 @@ fn main() {
                 status_waker.wake();
             })
         }),
-        Box::new(move |status| {
+        Box::new(move |status: Result<String, String>| {
+            let status = match &config_error {
+                Some(error) => status.map(|name| format!("{name}; settings ignored: {error}")),
+                None => status,
+            };
             let _ = ready_sender.send(Inbound::Ready(status));
             ready_waker.wake();
         }),

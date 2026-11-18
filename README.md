@@ -14,7 +14,7 @@ Status: Windows MVP. macOS and Linux are planned (the engine and inference crate
 | Model work per keystroke | median 160 ms, 1 prompt token re-evaluated |
 | RAM with the model loaded | ~520 MB |
 | RAM when idle (model unloads after 5 min) | ~30 MB |
-| Binary | one 6.6 MB exe, no webview, no installer |
+| Binary | one 6.9 MB exe, no webview, no installer, no runtime DLLs to install |
 | Next word predicted exactly | ~30% of word starts (offline replay) |
 
 ## How it works
@@ -25,7 +25,8 @@ Status: Windows MVP. macOS and Linux are planned (the engine and inference crate
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
 - **Inserts** accepted text with a clipboard paste that is hidden from clipboard history and restores your clipboard afterwards.
 - **Predicts** with llama.cpp embedded in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so suggestions finish the word correctly. Low-confidence suggestions are dropped.
-- **Skips** password fields, IME composition, selections, text after the caret, terminals, code editors and password managers.
+- **Skips** password fields, IME composition, selections, text after the caret, terminals, code editors and password managers. Text in password fields and blocked apps is never read.
+- **Re-reads the field** when you press Tab, Shift+Tab or Esc, and only acts if the suggestion still fits what is on screen.
 
 ```
 crates/core      engine state machine, policy, prompt, text utils (pure, unit-tested)
@@ -45,23 +46,23 @@ Download `nib.exe` and run it. On first start it downloads the model into `%LOCA
 
 Nib needs a CPU with AVX2 (most PCs since 2015). On older CPUs it says so in the tray instead of crashing; point `remote_url` at a server to use it there.
 
-Settings live in `%APPDATA%\Nib\config\config.toml` (tray menu, "Open settings"):
+Invalid settings are reported in the tray and the defaults are used until you fix them. Settings live in `%APPDATA%\Nib\config\config.toml` (tray menu, "Open settings"):
 
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | standard | `standard` or `lite` |
-| `model_path` | "" | any GGUF file; overrides `model` |
+| `model_path` | none | any GGUF file; overrides `model` |
 | `threads` | 0 | 0 = half the logical cores, max 4 |
 | `debounce_ms` | 120 | pause before asking the model |
 | `max_words` | 6 | longest suggestion |
 | `min_mean_logprob` | -1.6 | confidence gate; raise for fewer, safer suggestions |
 | `idle_unload_secs` | 300 | free the model after this much idle time (0 = never) |
-| `blocked_apps` | terminals, editors, password managers | process names to ignore |
-| `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model |
+| `blocked_apps` | [] | extra process names to ignore; terminals, editors, password managers and sign-in screens are always ignored |
+| `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; must be `https`, or `http` to this computer |
 
 ## Build
 
-Needs Rust (MSVC toolchain), CMake and libclang. Without system installs: `pip install --user cmake libclang`, then put the CMake `bin` on `PATH` and point `LIBCLANG_PATH` at the `clang/native` folder of the libclang package.
+Needs Rust (MSVC toolchain), CMake and libclang. Without system installs: `pip install --user cmake libclang`, then put the CMake `bin` on `PATH` and point `LIBCLANG_PATH` at the `clang/native` folder of the libclang package. `.cargo/config.toml` links the C runtime statically, so the exe runs on a clean Windows install.
 
 ```
 cargo build --release

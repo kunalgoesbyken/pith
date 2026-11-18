@@ -8,11 +8,9 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
-use nib_core::{Completer, Completion, CompletionRequest, StopReason};
+use nib_core::{Completer, Completion, CompletionRequest, SentenceEnd, StopReason, sentence_end};
 
-use crate::sampling::{
-    SENTENCE_ENDS, common_prefix_len, consistent_with_prefix, log_sum_exp, valid_utf8_prefix,
-};
+use crate::sampling::{common_prefix_len, consistent_with_prefix, log_sum_exp, valid_utf8_prefix};
 
 const BATCH: usize = 64;
 
@@ -97,9 +95,14 @@ impl LlamaSession<'_> {
         if keep == tokens.len() {
             keep -= 1;
         }
-        self.ctx
+        let trimmed = self
+            .ctx
             .clear_kv_cache_seq(Some(0), Some(keep as u32), None)
             .map_err(|e| e.to_string())?;
+        if !trimmed {
+            self.ctx.clear_kv_cache();
+            keep = 0;
+        }
         self.cached.truncate(keep);
         let evaluated = tokens.len() - keep;
         for chunk_start in (keep..tokens.len()).step_by(BATCH) {
@@ -162,17 +165,12 @@ impl Completer for LlamaSession<'_> {
             .saturating_sub(request.max_tokens + 16)
             .max(1);
         if tokens.len() > budget {
-            tokens.drain(..tokens.len() - budget);
+            let step = (budget / 2).max(1);
+            let excess = tokens.len() - budget;
+            tokens.drain(..excess.div_ceil(step) * step);
         }
-        let cancelled_result = |evaluated| Completion {
-            text: String::new(),
-            mean_logprob: 0.0,
-            tokens: 0,
-            prompt_tokens_evaluated: evaluated,
-            stop: StopReason::Cancelled,
-        };
         let Some(evaluated) = self.evaluate_prompt(&tokens, cancelled)? else {
-            return Ok(cancelled_result(0));
+            return Ok(Completion::cancelled(0));
         };
         let mut remaining: Vec<u8> = request.forced_prefix.as_bytes().to_vec();
         let mut output: Vec<u8> = Vec::new();
@@ -180,12 +178,17 @@ impl Completer for LlamaSession<'_> {
         let mut scored = 0usize;
         let mut produced = 0usize;
         let mut logits_index = self.batch.n_tokens() - 1;
+        let mut awaiting_space = false;
         let stop = loop {
             if cancelled() {
-                return Ok(cancelled_result(evaluated));
+                return Ok(Completion::cancelled(evaluated));
             }
-            if produced >= request.max_tokens + 8 || (scored >= request.max_tokens) {
-                break StopReason::MaxTokens;
+            if produced >= request.max_tokens + 8 || scored >= request.max_tokens {
+                break if awaiting_space {
+                    StopReason::Sentence
+                } else {
+                    StopReason::MaxTokens
+                };
             }
             let logits = self.ctx.get_logits_ith(logits_index);
             let Some((token, logprob)) = self.pick(logits, &remaining) else {
@@ -195,6 +198,10 @@ impl Completer for LlamaSession<'_> {
                 break StopReason::EndOfText;
             }
             let piece = self.handle.pieces[token.0 as usize].clone();
+            if awaiting_space && piece.first().is_some_and(u8::is_ascii_whitespace) {
+                break StopReason::Sentence;
+            }
+            awaiting_space = false;
             let forced = !remaining.is_empty();
             if forced {
                 if piece.len() >= remaining.len() {
@@ -219,8 +226,10 @@ impl Completer for LlamaSession<'_> {
                 output.truncate(newline);
                 break StopReason::Newline;
             }
-            if text.trim_end().ends_with(SENTENCE_ENDS) && text.chars().any(char::is_alphanumeric) {
-                break StopReason::Sentence;
+            match sentence_end(text) {
+                Some(SentenceEnd::Closed) => break StopReason::Sentence,
+                Some(SentenceEnd::NeedsSpace) => awaiting_space = true,
+                None => {}
             }
             self.batch.clear();
             self.batch

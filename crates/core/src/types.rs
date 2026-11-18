@@ -40,3 +40,15 @@ pub struct Completion {
     pub prompt_tokens_evaluated: usize,
     pub stop: StopReason,
 }
+
+impl Completion {
+    pub fn cancelled(prompt_tokens_evaluated: usize) -> Self {
+        Self {
+            text: String::new(),
+            mean_logprob: f32::NEG_INFINITY,
+            tokens: 0,
+            prompt_tokens_evaluated,
+            stop: StopReason::Cancelled,
+        }
+    }
+}

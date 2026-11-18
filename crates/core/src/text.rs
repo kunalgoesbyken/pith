@@ -8,16 +8,39 @@ fn is_inline_space(c: char) -> bool {
     c.is_whitespace() && c != '\n' && c != '\r'
 }
 
+const CLOSED_SENTENCE_ENDS: [char; 3] = ['。', '！', '？'];
+const SPACED_SENTENCE_ENDS: [char; 7] = ['.', '!', '?', '।', '॥', '؟', '…'];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SentenceEnd {
+    Closed,
+    NeedsSpace,
+}
+
+pub fn sentence_end(text: &str) -> Option<SentenceEnd> {
+    let trimmed = text.trim_end();
+    if !trimmed.chars().any(char::is_alphanumeric) {
+        return None;
+    }
+    if trimmed.ends_with(CLOSED_SENTENCE_ENDS) {
+        Some(SentenceEnd::Closed)
+    } else if trimmed.ends_with(SPACED_SENTENCE_ENDS) {
+        Some(SentenceEnd::NeedsSpace)
+    } else {
+        None
+    }
+}
+
 pub fn tail_chars(text: &str, window: usize) -> &str {
-    let total = text.chars().count();
+    let total = text.graphemes(true).count();
     if window == 0 || total <= window {
         return text;
     }
     let step = (window / 2).max(1);
-    let start_char = ((total - window) / step + 1) * step;
+    let start = ((total - window) / step + 1) * step;
     let start_byte = text
-        .char_indices()
-        .nth(start_char)
+        .grapheme_indices(true)
+        .nth(start)
         .map_or(text.len(), |(i, _)| i);
     let rest = &text[start_byte..];
     match rest.find(char::is_whitespace) {
@@ -176,5 +199,24 @@ mod tests {
         let long = "日本語".repeat(50);
         let tail = tail_chars(&long, 40);
         assert!(tail.chars().count() <= 40);
+    }
+
+    #[test]
+    fn sentence_end_cases() {
+        assert_eq!(sentence_end(" by Friday."), Some(SentenceEnd::NeedsSpace));
+        assert_eq!(sentence_end(" costs 3."), Some(SentenceEnd::NeedsSpace));
+        assert_eq!(sentence_end("你好。"), Some(SentenceEnd::Closed));
+        assert_eq!(sentence_end(" कल आऊँगा।"), Some(SentenceEnd::NeedsSpace));
+        assert_eq!(sentence_end(" ..."), None);
+        assert_eq!(sentence_end(" by Friday"), None);
+    }
+
+    #[test]
+    fn tail_never_starts_inside_a_grapheme() {
+        let text = "नमस्ते".repeat(40);
+        for window in 1..30 {
+            let tail = tail_chars(&text, window);
+            assert!(!tail.starts_with(|c: char| ('ऀ'..='ः').contains(&c) || ('ा'..='्').contains(&c)), "{window}");
+        }
     }
 }

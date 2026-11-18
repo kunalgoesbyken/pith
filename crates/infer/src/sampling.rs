@@ -1,5 +1,3 @@
-pub const SENTENCE_ENDS: [char; 6] = ['.', '!', '?', '。', '！', '？'];
-
 pub fn log_sum_exp(logits: &[f32]) -> f32 {
     let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let sum: f32 = logits.iter().map(|l| (l - max).exp()).sum();

@@ -1,8 +1,8 @@
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND, LPARAM, WPARAM};
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::{
     GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
@@ -18,6 +18,8 @@ use crate::util::wide;
 
 const GDI_FORMATS: [u32; 7] = [2, 3, 9, 14, 0x80, 0x82, 0x8E];
 const HANDLE_FORMATS: std::ops::RangeInclusive<u32> = 0x200..=0x3FF;
+const MODIFIER_WAIT: Duration = Duration::from_secs(2);
+const RESTORE_AFTER: Duration = Duration::from_millis(600);
 const PRIVACY_FORMATS: [&str; 3] = [
     "ExcludeClipboardContentFromMonitorProcessing",
     "CanIncludeInClipboardHistory",
@@ -52,7 +54,7 @@ fn save() -> Option<Vec<(u32, Vec<u8>)>> {
             if let Ok(handle) = GetClipboardData(format) {
                 let global = HGLOBAL(handle.0);
                 let pointer = GlobalLock(global);
-                if !pointer.is_null() {
+                if !pointer.is_null() && GlobalSize(global) > 0 {
                     saved.push((
                         format,
                         std::slice::from_raw_parts(pointer as *const u8, GlobalSize(global))
@@ -74,11 +76,14 @@ fn put(format: u32, data: &[u8]) {
         };
         let pointer = GlobalLock(global);
         if pointer.is_null() {
+            let _ = GlobalFree(Some(global));
             return;
         }
         std::ptr::copy_nonoverlapping(data.as_ptr(), pointer as *mut u8, data.len());
         let _ = GlobalUnlock(global);
-        let _ = SetClipboardData(format, Some(HANDLE(global.0)));
+        if SetClipboardData(format, Some(HANDLE(global.0))).is_err() {
+            let _ = GlobalFree(Some(global));
+        }
     }
 }
 
@@ -120,18 +125,24 @@ fn restore(saved: &[(u32, Vec<u8>)]) {
     }
 }
 
-fn insert(text: &str) {
-    if !wait_for_modifiers_released(Duration::from_secs(2)) {
-        return;
-    }
+fn sequence() -> u32 {
+    unsafe { GetClipboardSequenceNumber() }
+}
+
+fn paste_burst(first: String, queue: &Receiver<String>) {
     let Some(saved) = save() else { return };
-    if !set_text(text) {
-        return;
+    let mut ours = None;
+    let mut next = Some(first);
+    while let Some(text) = next {
+        let untouched = ours.is_none_or(|seq| seq == sequence());
+        if !untouched || !wait_for_modifiers_released(MODIFIER_WAIT) || !set_text(&text) {
+            break;
+        }
+        ours = Some(sequence());
+        send_chord(&[VK_CONTROL], VK_V);
+        next = queue.recv_timeout(RESTORE_AFTER).ok();
     }
-    let ours = unsafe { GetClipboardSequenceNumber() };
-    send_chord(&[VK_CONTROL], VK_V);
-    std::thread::sleep(Duration::from_millis(300));
-    if unsafe { GetClipboardSequenceNumber() } == ours {
+    if ours.is_some_and(|seq| seq == sequence()) {
         restore(&saved);
     }
 }
@@ -141,8 +152,8 @@ pub fn paste(text: String) {
     let queue = QUEUE.get_or_init(|| {
         let (sender, receiver) = channel::<String>();
         std::thread::spawn(move || {
-            for text in receiver {
-                insert(&text);
+            while let Ok(text) = receiver.recv() {
+                paste_burst(text, &receiver);
             }
         });
         Mutex::new(sender)

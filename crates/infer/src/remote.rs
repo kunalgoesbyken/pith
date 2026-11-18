@@ -65,13 +65,7 @@ impl Completer for RemoteCompleter {
             .read_json()
             .map_err(|e| e.to_string())?;
         if cancelled() {
-            return Ok(Completion {
-                text: String::new(),
-                mean_logprob: 0.0,
-                tokens: 0,
-                prompt_tokens_evaluated: 0,
-                stop: StopReason::Cancelled,
-            });
+            return Ok(Completion::cancelled(0));
         }
         let choice = response
             .choices

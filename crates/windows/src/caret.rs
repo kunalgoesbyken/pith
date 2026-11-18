@@ -22,7 +22,9 @@ pub fn caret_range(element: &IUIAutomationElement) -> Result<IUIAutomationTextRa
             element.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id)
         {
             let mut active = BOOL(0);
-            return pattern.GetCaretRange(&mut active);
+            if let Ok(range) = pattern.GetCaretRange(&mut active) {
+                return Ok(range);
+            }
         }
         let pattern: IUIAutomationTextPattern = element.GetCurrentPatternAs(UIA_TextPatternId)?;
         let range = pattern.GetSelection()?.GetElement(0)?;

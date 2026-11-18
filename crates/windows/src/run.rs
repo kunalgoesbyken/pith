@@ -43,7 +43,7 @@ pub struct Options {
 }
 
 pub enum Inbound {
-    Snapshot(Option<FieldSnapshot>),
+    Snapshot(Option<FieldSnapshot>, u64),
     Done(u64, Result<Completion, String>),
     Ready(Result<String, String>),
     Status(String),
@@ -134,6 +134,8 @@ struct App {
     inbound: Receiver<Inbound>,
     pending_debounce: u64,
     started: Option<Instant>,
+    keys_awaiting_read: Vec<i32>,
+    key_read: u64,
 }
 
 impl App {
@@ -182,11 +184,16 @@ impl App {
     }
 
     fn drain(&mut self) -> bool {
-        let mut latest_snapshot = None;
         let mut quit = false;
         while let Ok(message) = self.inbound.try_recv() {
             match message {
-                Inbound::Snapshot(snapshot) => latest_snapshot = Some(snapshot),
+                Inbound::Snapshot(snapshot, served) => {
+                    let actions = self.engine.handle(Event::Field(snapshot));
+                    self.apply(actions);
+                    if served >= self.key_read {
+                        self.release_keys();
+                    }
+                }
                 Inbound::Done(generation, result) => {
                     if let (Some(started), Ok(completion)) = (self.started.take(), &result) {
                         log(&format!(
@@ -220,15 +227,38 @@ impl App {
                         tray.set_status(&text);
                     }
                 }
-                Inbound::Key(id) => self.key(id),
+                Inbound::Key(id) => self.hotkey(id),
                 Inbound::Quit => quit = true,
             }
         }
-        if let Some(snapshot) = latest_snapshot {
-            let actions = self.engine.handle(Event::Field(snapshot));
-            self.apply(actions);
-        }
         quit
+    }
+
+    fn hotkey(&mut self, id: i32) {
+        if self.engine.suggestion().is_none() && self.keys_awaiting_read.is_empty() {
+            self.pass_through(id);
+            return;
+        }
+        self.keys_awaiting_read.push(id);
+        self.key_read += 1;
+        self.reader.request(self.key_read);
+    }
+
+    fn release_keys(&mut self) {
+        for id in std::mem::take(&mut self.keys_awaiting_read) {
+            if self.engine.suggestion().is_some() {
+                self.key(id);
+            } else {
+                self.pass_through(id);
+            }
+        }
+    }
+
+    fn pass_through(&mut self, id: i32) {
+        if self.options.global_keys {
+            self.keys.disarm(self.control);
+            replay(id);
+        }
     }
 
     fn signal(&mut self, signal: Signal) -> bool {
@@ -250,14 +280,7 @@ impl App {
                 self.apply(actions);
             }
             Signal::Timer(_) => {}
-            Signal::Hotkey(id) => {
-                if self.engine.suggestion().is_none() {
-                    self.keys.disarm(self.control);
-                    replay(id);
-                    return false;
-                }
-                self.key(id);
-            }
+            Signal::Hotkey(id) => self.hotkey(id),
         }
         false
     }
@@ -314,9 +337,9 @@ pub fn run(
     let snapshot_waker = waker.clone();
     let reader = Reader::spawn(
         options.source,
-        config.context_chars,
-        Box::new(move |snapshot| {
-            let _ = snapshot_sender.send(Inbound::Snapshot(snapshot));
+        config.clone(),
+        Box::new(move |snapshot, served| {
+            let _ = snapshot_sender.send(Inbound::Snapshot(snapshot, served));
             snapshot_waker.wake();
         }),
     );
@@ -324,7 +347,11 @@ pub fn run(
     unsafe {
         SetTimer(Some(control), TIMER_POLL, options.poll_ms.max(16), None);
     }
-    let tray = if options.tray { Tray::create() } else { None };
+    let tray = if options.tray {
+        Tray::create(config.enabled)
+    } else {
+        None
+    };
     let mut app = App {
         control,
         engine: Engine::new(config),
@@ -337,6 +364,8 @@ pub fn run(
         inbound: receiver,
         pending_debounce: 0,
         started: None,
+        keys_awaiting_read: Vec::new(),
+        key_read: 0,
     };
     app.reader.poke();
     let mut message = MSG::default();

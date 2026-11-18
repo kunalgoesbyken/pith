@@ -5,7 +5,6 @@ pub struct CompletionRequest {
     pub prompt: String,
     pub forced_prefix: String,
     pub max_tokens: usize,
-    pub max_words: usize,
     pub min_token_logprob: f32,
 }
 
@@ -22,7 +21,6 @@ pub fn build(field: &FieldSnapshot, config: &Config) -> CompletionRequest {
         prompt,
         forced_prefix: partial.to_string(),
         max_tokens: config.max_tokens,
-        max_words: config.max_words,
         min_token_logprob: config.min_token_logprob,
     }
 }

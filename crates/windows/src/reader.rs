@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use nib_core::FieldSnapshot;
+use nib_core::{Config, FieldSnapshot};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -23,27 +23,34 @@ pub enum Source {
     Window(isize),
 }
 
-pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>) + Send>;
+const LOOKBACK_WINDOWS: usize = 16;
+const MAX_READ_ERRORS: u32 = 3;
+
+pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, u64) + Send>;
 
 pub struct Reader {
-    pokes: Sender<()>,
+    pokes: Sender<u64>,
 }
 
 impl Reader {
-    pub fn spawn(source: Source, context_chars: usize, on_snapshot: SnapshotCallback) -> Self {
+    pub fn spawn(source: Source, config: Config, on_snapshot: SnapshotCallback) -> Self {
         let (pokes, rx) = channel();
         std::thread::Builder::new()
             .name("nib-uia".into())
-            .spawn(move || serve(source, context_chars, rx, on_snapshot))
+            .spawn(move || serve(source, &config, rx, on_snapshot))
             .expect("spawn uia thread");
         Self { pokes }
     }
 
     pub fn poke(&self) {
-        let _ = self.pokes.send(());
+        let _ = self.pokes.send(0);
     }
 
-    pub fn sender(&self) -> Sender<()> {
+    pub fn request(&self, id: u64) {
+        let _ = self.pokes.send(id);
+    }
+
+    pub fn sender(&self) -> Sender<u64> {
         self.pokes.clone()
     }
 }
@@ -61,30 +68,32 @@ fn automation() -> Result<IUIAutomation> {
     }
 }
 
-fn serve(source: Source, context_chars: usize, rx: Receiver<()>, on_snapshot: SnapshotCallback) {
+fn serve(source: Source, config: &Config, rx: Receiver<u64>, on_snapshot: SnapshotCallback) {
     let automation = match automation() {
         Ok(automation) => automation,
         Err(error) => return nib_core::log(&format!("uia unavailable: {error}")),
     };
     let own_pid = std::process::id();
     let mut last: Option<FieldSnapshot> = None;
-    let mut last_foreground = None;
     let mut first = true;
-    while rx.recv().is_ok() {
-        while rx.try_recv().is_ok() {}
-        let foreground = unsafe { GetForegroundWindow() };
-        let snapshot = match read(&automation, source, context_chars, own_pid) {
+    let mut errors = 0;
+    while let Ok(request) = rx.recv() {
+        let served = rx.try_iter().fold(request, u64::max);
+        let snapshot = match read(&automation, source, config, own_pid) {
             Ok(snapshot) => {
-                last_foreground = Some(foreground);
+                errors = 0;
                 snapshot
             }
-            Err(_) if last_foreground == Some(foreground) || source != Source::Focused => continue,
+            Err(_) if errors + 1 < MAX_READ_ERRORS && served == 0 => {
+                errors += 1;
+                continue;
+            }
             Err(_) => None,
         };
-        if first || snapshot != last {
+        if first || served > 0 || snapshot != last {
             first = false;
             last = snapshot.clone();
-            on_snapshot(snapshot);
+            on_snapshot(snapshot, served);
         }
     }
 }
@@ -100,7 +109,7 @@ fn normalize(text: String) -> String {
 fn read(
     automation: &IUIAutomation,
     source: Source,
-    context_chars: usize,
+    config: &Config,
     own_pid: u32,
 ) -> Result<Option<FieldSnapshot>> {
     unsafe {
@@ -130,23 +139,30 @@ fn read(
         if is_elevated(pid) || is_elevated(owner) {
             return Ok(None);
         }
+        let app = process_name(owner);
+        let is_password = element
+            .CurrentIsPassword()
+            .map(|b| b.as_bool())
+            .unwrap_or(true);
         let Ok(caret) = caret_range(&element) else {
             return Ok(None);
         };
-        let (before, after) = text_around(&caret, context_chars as i32, 200)?;
+        let (before, after) = if is_password || config.is_blocked(&app) {
+            (String::new(), String::new())
+        } else {
+            let lookback = config.context_chars.saturating_mul(LOOKBACK_WINDOWS);
+            text_around(&caret, i32::try_from(lookback).unwrap_or(i32::MAX), 200)?
+        };
         let (font_family, font_points, text_color) = font(&caret);
         let dpi = GetDpiForWindow(root).max(96) as f64;
         Ok(Some(FieldSnapshot {
             field_id: runtime_id(&element),
-            app: process_name(owner),
+            app,
             window_title: window_title(root),
             before: normalize(before),
             after: normalize(after),
             has_selection: has_selection(&element),
-            is_password: element
-                .CurrentIsPassword()
-                .map(|b| b.as_bool())
-                .unwrap_or(false),
+            is_password,
             composing: composing(&element),
             caret: caret_rect(&caret, foreground),
             font_family,

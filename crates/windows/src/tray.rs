@@ -7,6 +7,10 @@ pub enum TrayCommand {
     Quit,
 }
 
+fn toggle_label(enabled: bool) -> &'static str {
+    if enabled { "Pause" } else { "Resume" }
+}
+
 pub struct Tray {
     icon: TrayIcon,
     status: MenuItem,
@@ -41,10 +45,10 @@ fn glyph(active: bool) -> Icon {
 }
 
 impl Tray {
-    pub fn create() -> Option<Self> {
+    pub fn create(enabled: bool) -> Option<Self> {
         let menu = Menu::new();
         let status = MenuItem::new("Nib: starting…", false, None);
-        let toggle = MenuItem::new("Pause", true, None);
+        let toggle = MenuItem::new(toggle_label(enabled), true, None);
         let config = MenuItem::new("Open settings", true, None);
         let quit = MenuItem::new("Quit", true, None);
         menu.append(&status).ok()?;
@@ -55,7 +59,7 @@ impl Tray {
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_tooltip("Nib")
-            .with_icon(glyph(true))
+            .with_icon(glyph(enabled))
             .build()
             .ok()?;
         Some(Self {
@@ -73,8 +77,7 @@ impl Tray {
     }
 
     pub fn set_enabled(&self, enabled: bool) {
-        self.toggle
-            .set_text(if enabled { "Pause" } else { "Resume" });
+        self.toggle.set_text(toggle_label(enabled));
         let _ = self.icon.set_icon(Some(glyph(enabled)));
     }
 

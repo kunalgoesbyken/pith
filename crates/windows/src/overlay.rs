@@ -9,7 +9,8 @@ use windows::core::{PCWSTR, w};
 
 use crate::util::wide;
 
-const FALLBACK_COLOR: u32 = 0x0000_0000;
+const DARK_TEXT: u32 = 0x0000_0000;
+const LIGHT_TEXT: u32 = 0x00FF_FFFF;
 const GHOST_OPACITY: u32 = 120;
 const FALLBACK_FONT: &str = "Segoe UI";
 
@@ -25,9 +26,25 @@ unsafe extern "system" fn procedure(
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
 }
 
+fn contrasting_color(x: i32, y: i32) -> u32 {
+    let background = unsafe {
+        let screen = GetDC(None);
+        let pixel = GetPixel(screen, x, y);
+        ReleaseDC(None, screen);
+        pixel.0
+    };
+    let (red, green, blue) = (background & 0xFF, (background >> 8) & 0xFF, (background >> 16) & 0xFF);
+    if red * 299 + green * 587 + blue * 114 < 128_000 {
+        LIGHT_TEXT
+    } else {
+        DARK_TEXT
+    }
+}
+
 pub struct Overlay {
     hwnd: HWND,
     visible: bool,
+    fallback_color: u32,
 }
 
 impl Overlay {
@@ -63,6 +80,7 @@ impl Overlay {
             Ok(Self {
                 hwnd,
                 visible: false,
+                fallback_color: DARK_TEXT,
             })
         }
     }
@@ -75,7 +93,11 @@ impl Overlay {
         font_px: Option<f32>,
         color: Option<u32>,
     ) {
-        let color = color.unwrap_or(FALLBACK_COLOR);
+        if color.is_none() && !self.visible {
+            self.fallback_color =
+                contrasting_color(caret.x + caret.width.max(1) + 2, caret.y + caret.height / 2);
+        }
+        let color = color.unwrap_or(self.fallback_color);
         let (red, green, blue) = (color & 0xFF, (color >> 8) & 0xFF, (color >> 16) & 0xFF);
         let px = font_px
             .map_or(((caret.height as f32) * 0.72).round() as i32, |p| {

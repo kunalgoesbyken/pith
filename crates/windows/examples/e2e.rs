@@ -491,7 +491,7 @@ fn main() {
     let worker = Worker::spawn(
         Box::new(move || {
             Ok(Backend::Local {
-                model_path: model,
+                model_path: model.clone(),
                 threads,
                 context_tokens,
                 idle_unload_secs,

@@ -23,10 +23,6 @@ pub fn window_title(hwnd: HWND) -> String {
 }
 
 pub fn process_name(pid: u32) -> String {
-    query_process_name(pid)
-}
-
-fn query_process_name(pid: u32) -> String {
     unsafe {
         let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
             return String::new();

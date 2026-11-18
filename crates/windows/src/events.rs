@@ -5,7 +5,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-static TARGET: Mutex<Option<Sender<()>>> = Mutex::new(None);
+static TARGET: Mutex<Option<Sender<u64>>> = Mutex::new(None);
 
 const EVENTS: [u32; 5] = [
     EVENT_OBJECT_FOCUS,
@@ -37,14 +37,14 @@ unsafe extern "system" fn on_event(
     if let Ok(guard) = TARGET.lock()
         && let Some(sender) = guard.as_ref()
     {
-        let _ = sender.send(());
+        let _ = sender.send(0);
     }
 }
 
 pub struct Hooks(Vec<HWINEVENTHOOK>);
 
 impl Hooks {
-    pub fn install(target: Sender<()>) -> Self {
+    pub fn install(target: Sender<u64>) -> Self {
         if let Ok(mut guard) = TARGET.lock() {
             *guard = Some(target);
         }
