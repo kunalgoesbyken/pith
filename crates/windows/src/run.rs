@@ -1,7 +1,4 @@
-use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime};
@@ -11,8 +8,7 @@ use pith_core::{
     PauseSpan, Setting, SkipReason, Status, check, clock_after, log,
 };
 use pith_infer::Worker;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::Foundation::HWND;
 use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -21,6 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use crate::clipboard::{Trigger, paste, replace_selection, replace_selection_after};
+use crate::control::{Signal, Waker, control_window, next_signal};
 use crate::events::Hooks;
 use crate::foreground::Foreground;
 use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, TRIGGER, replay};
@@ -32,7 +29,6 @@ use crate::settings::{SettingsWindow, UiEvent, take_events};
 use crate::tray::{Tray, TrayCommand, TrayView};
 use crate::util::{leftover_notice, remove_contents, wide};
 
-const WM_WAKE: u32 = WM_APP + 1;
 const TIMER_POLL: usize = 1;
 const TIMER_DEBOUNCE: usize = 2;
 const TIMER_REARM: usize = 3;
@@ -73,20 +69,6 @@ pub enum Inbound {
     Quit,
 }
 
-#[derive(Clone, Default)]
-pub struct Waker(Arc<AtomicIsize>);
-
-impl Waker {
-    pub fn wake(&self) {
-        let hwnd = self.0.load(Ordering::SeqCst);
-        if hwnd != 0 {
-            unsafe {
-                let _ = PostMessageW(Some(HWND(hwnd as _)), WM_WAKE, WPARAM(0), LPARAM(0));
-            }
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Press {
     action: i32,
@@ -97,63 +79,6 @@ struct Press {
 impl Press {
     fn moves_caret(&self) -> bool {
         self.chord.is_some_and(|chord| chord.key == Key::Right)
-    }
-}
-
-enum Signal {
-    Wake,
-    Timer(usize),
-    Hotkey(i32),
-}
-
-thread_local! {
-    static SIGNALS: RefCell<VecDeque<Signal>> = const { RefCell::new(VecDeque::new()) };
-}
-
-unsafe extern "system" fn control_procedure(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    let signal = match message {
-        WM_WAKE => Some(Signal::Wake),
-        WM_TIMER => Some(Signal::Timer(wparam.0)),
-        WM_HOTKEY => Some(Signal::Hotkey(wparam.0 as i32)),
-        _ => None,
-    };
-    if let Some(signal) = signal {
-        SIGNALS.with(|queue| queue.borrow_mut().push_back(signal));
-        return LRESULT(0);
-    }
-    unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
-}
-
-fn control_window() -> windows::core::Result<HWND> {
-    unsafe {
-        let instance = GetModuleHandleW(None)?;
-        let class = w!("PithControl");
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(control_procedure),
-            hInstance: instance.into(),
-            lpszClassName: class,
-            ..Default::default()
-        };
-        RegisterClassW(&wc);
-        CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            class,
-            w!("pith-control"),
-            WINDOW_STYLE(0),
-            0,
-            0,
-            0,
-            0,
-            Some(HWND_MESSAGE),
-            None,
-            Some(instance.into()),
-            None,
-        )
     }
 }
 
@@ -663,7 +588,7 @@ pub fn run(
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     let control = control_window()?;
-    waker.0.store(control.0 as isize, Ordering::SeqCst);
+    waker.attach(control);
     let (sender, receiver) = inbound;
     let snapshot_sender = sender.clone();
     let snapshot_waker = waker.clone();
@@ -731,7 +656,7 @@ pub fn run(
         if app.ui_events() {
             break;
         }
-        while let Some(signal) = SIGNALS.with(|queue| queue.borrow_mut().pop_front()) {
+        while let Some(signal) = next_signal() {
             if app.signal(signal) {
                 break 'outer;
             }
