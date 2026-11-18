@@ -17,9 +17,22 @@ pub enum SentenceEnd {
     NeedsSpace,
 }
 
+fn is_initialism(word: &str) -> bool {
+    let letters: Vec<&str> = word.trim_end_matches('.').split('.').collect();
+    letters.len() > 1
+        && letters
+            .iter()
+            .all(|part| part.chars().count() == 1 && part.chars().all(char::is_alphabetic))
+}
+
+fn ends_with_initialism(text: &str) -> bool {
+    let last = text.rsplit(char::is_whitespace).next().unwrap_or_default();
+    last.ends_with('.') && is_initialism(last.trim_start_matches(|c: char| !c.is_alphanumeric()))
+}
+
 pub fn sentence_end(text: &str) -> Option<SentenceEnd> {
     let trimmed = text.trim_end();
-    if !trimmed.chars().any(char::is_alphanumeric) {
+    if !trimmed.chars().any(char::is_alphanumeric) || ends_with_initialism(trimmed) {
         return None;
     }
     if trimmed.ends_with(CLOSED_SENTENCE_ENDS) {
@@ -294,6 +307,14 @@ mod tests {
         assert_eq!(sentence_end("你好。"), Some(SentenceEnd::Closed));
         assert_eq!(sentence_end(" कल आऊँगा।"), Some(SentenceEnd::NeedsSpace));
         assert_eq!(sentence_end(" ..."), None);
+        assert_eq!(sentence_end(" costs 3.5."), Some(SentenceEnd::NeedsSpace));
+        assert_eq!(sentence_end(" on www.example.com."), Some(SentenceEnd::NeedsSpace));
+        assert_eq!(sentence_end(" at 9:30 a.m."), None);
+        assert_eq!(sentence_end(" in the U.S."), None);
+        assert_eq!(sentence_end(" (i.e."), None);
+        assert_eq!(sentence_end(" or e.g."), None);
+        assert_eq!(sentence_end(" see Plan B."), Some(SentenceEnd::NeedsSpace));
+        assert_eq!(sentence_end(" it works."), Some(SentenceEnd::NeedsSpace));
         assert_eq!(sentence_end(" by Friday"), None);
     }
 
