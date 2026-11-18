@@ -4,6 +4,7 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompletionRequest {
+    pub field_id: u64,
     pub prompt: String,
     pub forced_prefix: String,
     pub max_tokens: usize,
@@ -21,6 +22,7 @@ pub fn build(field: &FieldSnapshot, config: &Config) -> CompletionRequest {
         format!("{title}\n\n{head}")
     };
     CompletionRequest {
+        field_id: field.field_id,
         prompt,
         forced_prefix: partial.to_string(),
         max_tokens: config.max_tokens,
@@ -74,5 +76,15 @@ mod tests {
         let request = build(&field, &Config::default());
         assert_eq!(request.prompt, "Hi there");
         assert_eq!(request.forced_prefix, " ");
+    }
+
+    #[test]
+    fn request_carries_the_field_id() {
+        let field = FieldSnapshot {
+            field_id: 42,
+            before: "Hi".into(),
+            ..Default::default()
+        };
+        assert_eq!(build(&field, &Config::default()).field_id, 42);
     }
 }
