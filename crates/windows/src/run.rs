@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use pith_core::{
     Action, Chord, Completion, Config, Day, Engine, Event, FieldSnapshot, Key, Ledger, Model,
-    Pause, PauseSpan, Pauses, Setting, SkipReason, Status, check, log,
+    ModelPreset, Pause, PauseSpan, Pauses, Setting, SkipReason, Status, check, log,
 };
 use pith_infer::Worker;
 use windows::Win32::Foundation::HWND;
@@ -53,6 +53,7 @@ pub struct Options {
     pub onboarding: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
     pub notice: Option<String>,
+    pub recommended: ModelPreset,
 }
 
 pub enum Inbound {
@@ -440,6 +441,8 @@ impl App {
     }
 
     fn change(&mut self, setting: Setting) {
+        let recommended = self.options.recommended;
+        let preset = self.saved.preset(recommended);
         setting.apply(&mut self.saved);
         self.persist(&setting);
         if let Setting::GhostOpacity(_) = setting {
@@ -448,6 +451,15 @@ impl App {
             return;
         }
         self.sync();
+        if self.saved.preset(recommended) != preset {
+            self.reload_model();
+        }
+    }
+
+    fn reload_model(&mut self) {
+        self.model = Model::Loading(String::new());
+        self.worker.reload(self.saved.clone());
+        self.refresh_tray();
     }
 
     fn persist(&self, setting: &Setting) {
@@ -499,6 +511,7 @@ impl App {
         }
         match SettingsWindow::open(
             &self.saved,
+            self.options.recommended,
             registry::start_with_windows(),
             &self.status_line(),
             &self.stats_view(),

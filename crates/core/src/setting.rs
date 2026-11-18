@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::config::{MAX_GHOST_OPACITY, MIN_GHOST_OPACITY};
 use crate::stored::{patch, read, write_atomically};
-use crate::{Config, app_name};
+use crate::{Config, ModelPreset, app_name};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Suggestions {
@@ -82,6 +82,7 @@ pub enum Setting {
     Suggestions(Suggestions),
     Length(Length),
     GhostOpacity(u8),
+    Model(ModelPreset),
     Block(String),
     Unblock(String),
 }
@@ -93,6 +94,7 @@ impl Setting {
             Self::Suggestions(level) => level.apply(config),
             Self::Length(length) => length.apply(config),
             Self::GhostOpacity(percent) => config.ghost_opacity = clamp_opacity(*percent),
+            Self::Model(preset) => config.model = Some(*preset),
             Self::Block(app) => {
                 config.block_app(app);
             }

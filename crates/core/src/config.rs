@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::chord::{Chord, Key};
+use crate::preset::ModelPreset;
 use crate::stored::{read, write_atomically};
 
 pub fn app_name(path_or_name: &str) -> String {
@@ -113,7 +114,8 @@ force_trigger_key = \"WIN+shift+Space\"",
     fn validation_rejects_unsafe_or_broken_settings() {
         for (toml, ok) in [
             ("", true),
-            ("model = \"lite\"", true),
+            ("model = \"small\"", true),
+            ("model = \"lite\"", false),
             ("model = \"huge\"", false),
             ("max_words = 0", false),
             ("debounce_ms = 99999999999", false),
@@ -270,14 +272,6 @@ const MAX_CONTEXT_TOKENS: u32 = 16_384;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum ModelPreset {
-    #[default]
-    Standard,
-    Lite,
-}
-
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
 pub enum TriggerMode {
     #[default]
     Auto,
@@ -295,7 +289,7 @@ pub struct Keymap {
 #[serde(default)]
 pub struct Config {
     pub enabled: bool,
-    pub model: ModelPreset,
+    pub model: Option<ModelPreset>,
     pub model_path: Option<PathBuf>,
     pub threads: usize,
     pub context_tokens: u32,
@@ -329,7 +323,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: true,
-            model: ModelPreset::Standard,
+            model: None,
             model_path: None,
             threads: 0,
             context_tokens: 1024,
@@ -544,6 +538,14 @@ impl Config {
         } else {
             (available / 2).clamp(1, 4)
         }
+    }
+
+    pub fn preset(&self, recommended: ModelPreset) -> ModelPreset {
+        self.model.unwrap_or(recommended)
+    }
+
+    pub fn uses_preset(&self) -> bool {
+        self.remote_url.is_none() && self.model_path.is_none()
     }
 
     pub fn lookback_chars(&self) -> usize {

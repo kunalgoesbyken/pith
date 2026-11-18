@@ -44,9 +44,12 @@ fn look(model: &Model, id: i32) -> Option<Look<'static>> {
         ID_OPACITY_UP => Some(button(Tone::Standard, PLUS)),
         _ => segments()
             .find(|(segment, ..)| *segment == id)
-            .map(|(_, choice, label)| Look::Segment {
-                selected: model.selected(*choice),
-                label,
+            .map(|(_, choice, label)| {
+                let selected = model.selected(*choice);
+                Look::Segment {
+                    selected,
+                    label: choice.caption(label, selected),
+                }
             })
             .or_else(|| remove_slot(id).map(|_| button(Tone::Standard, "Remove"))),
     }

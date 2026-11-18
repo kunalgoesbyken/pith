@@ -1,11 +1,12 @@
 use windows::Win32::Foundation::RECT;
 
-use pith_core::Counts;
+use pith_core::{Counts, ModelPreset};
 
 use super::model::Model;
 use super::{
     FREQUENCY, ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA,
-    ID_REMOVE_FIRST, ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, LENGTH, MAX_APP_ROWS, Segment,
+    ID_REMOVE_FIRST, ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, LENGTH, MAX_APP_ROWS, MODELS,
+    Segment,
 };
 use crate::format::{duration, number};
 use crate::rival::Rival;
@@ -49,6 +50,7 @@ pub const GENERAL_ROWS: [(&str, &str); 3] = [
 pub const SUGGESTION_LABEL: &str = "Suggestions";
 pub const LENGTH_ROW: (&str, &str) = ("Suggestion length", "Shorter or longer suggestions.");
 pub const OPACITY_TITLE: &str = "Ghost text opacity";
+pub const MODEL_LABEL: &str = "Model";
 pub const STATS_LABEL: &str = "Your stats";
 pub const STATS_HEADINGS: (&str, &str) = ("Today", "All time");
 pub const STATS_RESET: (&str, &str) = ("Reset stats", "The counts never leave this PC.");
@@ -154,6 +156,14 @@ impl Builder {
         });
     }
 
+    fn hide(&mut self, id: i32) {
+        self.controls.push(Placed {
+            id,
+            bounds: rect(0, 0, 0, 0),
+            visible: false,
+        });
+    }
+
     fn segment_gap(&self) -> i32 {
         2 * self.px(FOCUS_MARGIN)
     }
@@ -242,6 +252,33 @@ impl Builder {
 fn pair(index: usize, rows: &[(&str, &str)]) -> RowText {
     let (title, caption) = rows[index];
     RowText::Pair(title.to_string(), caption.to_string())
+}
+
+fn model_title(preset: ModelPreset, recommended: ModelPreset) -> String {
+    if preset == recommended {
+        format!("{} \u{b7} Recommended for this PC", preset.label())
+    } else {
+        preset.label().to_string()
+    }
+}
+
+fn model_specs(recommended: ModelPreset) -> Vec<Spec> {
+    MODELS
+        .iter()
+        .zip(ModelPreset::ALL)
+        .map(|((id, ..), preset)| Spec {
+            text: RowText::Pair(
+                model_title(preset, recommended),
+                format!(
+                    "{} MB download, about {} MB of memory",
+                    (pith_infer::preset(preset).bytes + 500_000) / 1_000_000,
+                    preset.loaded_mib()
+                ),
+            ),
+            height: SLIM_ROW,
+            control: Control::Button(*id),
+        })
+        .collect()
 }
 
 fn stat_specs(model: &Model) -> Vec<Spec> {
@@ -390,16 +427,14 @@ pub fn build(model: &Model) -> Layout {
             },
         ],
     );
-    let apps_specs = app_specs(model);
-    let used = model.visible_apps().len();
-    let apps = builder.card(Some(APPS_LABEL), apps_specs);
-    for slot in used..MAX_APP_ROWS {
-        builder.controls.push(Placed {
-            id: ID_REMOVE_FIRST + slot as i32,
-            bounds: rect(0, 0, 0, 0),
-            visible: false,
-        });
-    }
+    let models = if model.preset.is_some() {
+        Some(builder.card(Some(MODEL_LABEL), model_specs(model.recommended)))
+    } else {
+        for (id, ..) in MODELS {
+            builder.hide(id);
+        }
+        None
+    };
     let left_end = builder.y;
     builder.y = columns_top;
     builder.left += builder.inner + builder.px(COLUMN_GAP);
@@ -415,6 +450,12 @@ pub fn build(model: &Model) -> Layout {
         });
     }
     let stats = builder.card(Some(STATS_LABEL), stat_specs(model));
+    let apps_specs = app_specs(model);
+    let used = model.visible_apps().len();
+    let apps = builder.card(Some(APPS_LABEL), apps_specs);
+    for slot in used..MAX_APP_ROWS {
+        builder.hide(ID_REMOVE_FIRST + slot as i32);
+    }
     let data = builder.card(
         Some(DATA_LABEL),
         vec![
@@ -438,10 +479,11 @@ pub fn build(model: &Model) -> Layout {
         mark,
         title,
         status,
-        blocks: [general, suggestions, apps]
+        blocks: [general, suggestions]
             .into_iter()
+            .chain(models)
             .chain(rival)
-            .chain([stats, data])
+            .chain([stats, apps, data])
             .collect(),
         footer,
         controls: builder.controls,

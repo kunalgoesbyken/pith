@@ -7,6 +7,7 @@ mod log;
 mod pause;
 mod placement;
 mod policy;
+mod preset;
 mod prompt;
 mod setting;
 mod stats;
@@ -17,7 +18,7 @@ mod types;
 
 pub use chord::{Chord, Key};
 pub use config::{
-    Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, ModelPreset, Reach, TriggerMode, app_name,
+    Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, Reach, TriggerMode, app_name,
 };
 pub use engine::{Action, Engine, Event};
 pub use ghost::{
@@ -28,6 +29,7 @@ pub use log::{init_log, log};
 pub use pause::{Pause, PauseSpan, Pauses, clock_after};
 pub use placement::{Placement, anchor_pill, place};
 pub use policy::{SkipReason, check, check_forced};
+pub use preset::{Hardware, ModelPreset};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use setting::{Length, Setting, Suggestions, clamp_opacity};
 pub use stats::{Counts, Day, Ledger, Stats};

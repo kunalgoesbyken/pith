@@ -15,6 +15,8 @@ pub struct Model {
     pub enabled: bool,
     pub level: Option<Suggestions>,
     pub length: Option<Length>,
+    pub recommended: ModelPreset,
+    pub preset: Option<ModelPreset>,
     pub opacity: u8,
     pub today: Counts,
     pub total: Counts,
@@ -47,17 +49,18 @@ pub fn update<R>(change: impl FnOnce(&mut Model) -> R) -> Option<R> {
     STATE.with(|slot| slot.update(change))
 }
 
-fn model_label(config: &Config) -> &'static str {
-    match (&config.remote_url, config.model) {
-        (Some(_), _) => "Remote model",
-        (None, ModelPreset::Standard) => "Standard model",
-        (None, ModelPreset::Lite) => "Lite model",
+fn model_label(config: &Config, recommended: ModelPreset) -> String {
+    match (&config.remote_url, &config.model_path) {
+        (Some(_), _) => "Remote model".to_string(),
+        (None, Some(_)) => "Custom model".to_string(),
+        (None, None) => format!("{} model", config.preset(recommended).label()),
     }
 }
 
 impl Model {
     pub fn new(
         config: &Config,
+        recommended: ModelPreset,
         start_with_windows: bool,
         status: &str,
         stats: &StatsView,
@@ -70,6 +73,8 @@ impl Model {
             enabled: false,
             level: None,
             length: None,
+            recommended,
+            preset: None,
             opacity: config.ghost_opacity,
             today: Counts::default(),
             total: Counts::default(),
@@ -95,13 +100,16 @@ impl Model {
         self.enabled = config.enabled;
         self.level = Suggestions::of(config);
         self.length = Length::of(config);
+        self.preset = config
+            .uses_preset()
+            .then(|| config.preset(self.recommended));
         self.opacity = config.ghost_opacity;
         self.today = stats.today;
         self.total = stats.total;
         self.typing_wpm = config.typing_wpm;
         self.start_with_windows = start_with_windows;
         self.blocked = config.blocked_apps.clone();
-        self.status = format!("{status} \u{b7} {}", model_label(config));
+        self.status = format!("{status} \u{b7} {}", model_label(config, self.recommended));
         self.footer = reach::footer(&config.reach());
         self.first_app = self.first_app.min(self.last_first_app());
     }
@@ -114,6 +122,7 @@ impl Model {
         match choice {
             Choice::Frequency(level) => self.level == Some(level),
             Choice::Length(length) => self.length == Some(length),
+            Choice::Model(preset) => self.preset == Some(preset),
         }
     }
 
@@ -121,6 +130,7 @@ impl Model {
         match choice {
             Choice::Frequency(level) => self.level = Some(level),
             Choice::Length(length) => self.length = Some(length),
+            Choice::Model(preset) => self.preset = Some(preset),
         }
     }
 
@@ -169,6 +179,7 @@ mod tests {
         };
         Model::new(
             &config,
+            ModelPreset::Standard,
             false,
             "Ready",
             &StatsView::default(),

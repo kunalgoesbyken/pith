@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot, Reach};
+use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot, ModelPreset, Reach};
 use pith_infer::{Backend, Worker};
 use pith_windows::{
     Inbound, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options, Outcome,
@@ -1982,7 +1982,8 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
     let worker = Worker::spawn(
-        Box::new(move || {
+        config.clone(),
+        Box::new(move |_, _| {
             Ok(Backend::Local {
                 model_path: model.clone(),
                 threads,
@@ -2118,6 +2119,7 @@ fn main() {
         global_keys: false,
         data_dir: None,
         notice: None,
+        recommended: ModelPreset::Standard,
     };
     run(config, worker, (sender, receiver), waker, options).expect("run");
     let failed = driver.join().unwrap_or(1);

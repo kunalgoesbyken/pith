@@ -285,6 +285,7 @@ fn register(instance: HINSTANCE) {
 
 pub fn create(
     config: &pith_core::Config,
+    recommended: pith_core::ModelPreset,
     start_with_windows: bool,
     status: &str,
     stats: &StatsView,
@@ -312,6 +313,7 @@ pub fn create(
     let scale = Scale(unsafe { GetDpiForWindow(window) }.max(BASE_DPI));
     let model = Model::new(
         config,
+        recommended,
         start_with_windows,
         status,
         stats,

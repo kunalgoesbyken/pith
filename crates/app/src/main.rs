@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pith_core::{Config, init_log, log};
+use pith_core::{Config, ModelPreset, init_log, log};
 use pith_infer::{Backend, cpu_supported, download, find_local, preset};
 
 struct Paths {
@@ -32,7 +32,9 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 
 fn resolve_backend(
     config: &Config,
+    recommended: ModelPreset,
     models: &Path,
+    superseded: &dyn Fn() -> bool,
     status: &dyn Fn(String),
     progress: &dyn Fn(u64, u64),
 ) -> Result<Backend, String> {
@@ -49,7 +51,7 @@ fn resolve_backend(
     cpu_supported().map_err(|missing| {
         format!("this CPU lacks {missing}, which the built-in model needs; set remote_url in settings to use a server instead")
     })?;
-    let spec = preset(config.model);
+    let spec = preset(config.preset(recommended));
     let model_path = match config
         .model_path
         .clone()
@@ -61,7 +63,7 @@ fn resolve_backend(
             status(format!("downloading {}", spec.file));
             let last = std::cell::Cell::new(0);
             let reported = std::cell::Cell::new(0);
-            download(spec, models, &|done, total| {
+            download(spec, models, superseded, &|done, total| {
                 let percent = done * 100 / total.max(1);
                 if percent > reported.get() {
                     reported.set(percent);
@@ -91,7 +93,9 @@ fn main() {
     use std::sync::mpsc::channel;
 
     use pith_infer::Worker;
-    use pith_windows::{Inbound, InsertMode, Options, Source, Waker, run, single_instance};
+    use pith_windows::{
+        Inbound, InsertMode, Options, Source, Waker, hardware, run, single_instance,
+    };
 
     let args: Vec<String> = std::env::args().collect();
     let paths = paths();
@@ -115,17 +119,27 @@ fn main() {
     }
     let (sender, receiver) = channel();
     let waker = Waker::default();
-    let prepare_config = config.clone();
+    let machine = hardware();
+    let recommended = machine.recommended_model();
+    log(&format!(
+        "{} MiB memory, {} cores, recommended model: {}",
+        machine.ram_mib,
+        machine.cores,
+        recommended.label()
+    ));
     let models = paths.models.clone();
     let (status_sender, status_waker) = (sender.clone(), waker.clone());
     let (progress_sender, progress_waker) = (sender.clone(), waker.clone());
     let (ready_sender, ready_waker) = (sender.clone(), waker.clone());
     let (done_sender, done_waker) = (sender.clone(), waker.clone());
     let worker = Worker::spawn(
-        Box::new(move || {
+        config.clone(),
+        Box::new(move |config, superseded| {
             resolve_backend(
-                &prepare_config,
+                config,
+                recommended,
                 &models,
+                superseded,
                 &|text| {
                     let _ = status_sender.send(Inbound::Status(text));
                     status_waker.wake();
@@ -156,6 +170,7 @@ fn main() {
         onboarding: (!paths.onboarded.exists()).then(|| paths.onboarded.clone()),
         data_dir: Some(paths.data.clone()),
         notice: config_error,
+        recommended,
     };
     log("pith starting");
     if let Err(error) = run(config, worker, (sender, receiver), waker, options) {

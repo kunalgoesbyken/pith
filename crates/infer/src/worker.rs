@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
-use pith_core::{Completer, Completion, CompletionRequest};
+use pith_core::{Completer, Completion, CompletionRequest, Config};
 
 use crate::RemoteCompleter;
 
@@ -23,32 +23,43 @@ pub enum Backend {
 
 pub type DoneCallback = Box<dyn Fn(u64, Result<Completion, String>) + Send>;
 pub type ReadyCallback = Box<dyn Fn(Result<String, String>) + Send>;
-pub type Prepare = Box<dyn Fn() -> Result<Backend, String> + Send>;
+pub type Prepare = Box<dyn Fn(&Config, &dyn Fn() -> bool) -> Result<Backend, String> + Send>;
 
 const RETRY_AFTER: Duration = Duration::from_secs(30);
 
 pub struct Worker {
     jobs: Sender<Message>,
     latest: Arc<AtomicU64>,
+    reloads: Arc<AtomicU64>,
     exited: Receiver<()>,
 }
 
 impl Worker {
-    pub fn spawn(prepare: Prepare, on_ready: ReadyCallback, on_done: DoneCallback) -> Self {
+    pub fn spawn(
+        config: Config,
+        prepare: Prepare,
+        on_ready: ReadyCallback,
+        on_done: DoneCallback,
+    ) -> Self {
         let (jobs, rx) = channel();
         let latest = Arc::new(AtomicU64::new(0));
-        let shared = latest.clone();
+        let reloads = Arc::new(AtomicU64::new(0));
+        let signals = Signals {
+            latest: latest.clone(),
+            reloads: reloads.clone(),
+        };
         let (alive, exited) = channel::<()>();
         std::thread::Builder::new()
             .name("pith-infer".into())
             .spawn(move || {
                 let _alive = alive;
-                work(prepare, rx, shared, on_ready, on_done)
+                work(config, prepare, rx, signals, on_ready, on_done)
             })
             .expect("spawn inference thread");
         Self {
             jobs,
             latest,
+            reloads,
             exited,
         }
     }
@@ -56,6 +67,15 @@ impl Worker {
     pub fn submit(&self, generation: u64, request: CompletionRequest) {
         self.latest.store(generation, Ordering::SeqCst);
         let _ = self.jobs.send(Message::Job((generation, request)));
+    }
+
+    pub fn reload(&self, config: Config) {
+        self.latest.store(0, Ordering::SeqCst);
+        let epoch = self.reloads.fetch_add(1, Ordering::SeqCst) + 1;
+        let _ = self.jobs.send(Message::Reload(Reload {
+            config: Box::new(config),
+            epoch,
+        }));
     }
 
     pub fn unload(&self) {
@@ -78,22 +98,44 @@ impl Worker {
 
 type Job = (u64, CompletionRequest);
 
+struct Reload {
+    config: Box<Config>,
+    epoch: u64,
+}
+
 enum Message {
     Job(Job),
     Unload,
+    Reload(Reload),
+}
+
+struct Signals {
+    latest: Arc<AtomicU64>,
+    reloads: Arc<AtomicU64>,
 }
 
 enum Exit {
     Unload,
     Closed,
+    Reload(Reload),
 }
 
-fn next_job(rx: &Receiver<Message>) -> Option<Job> {
+impl Exit {
+    fn reload(self) -> Option<Reload> {
+        match self {
+            Self::Reload(reload) => Some(reload),
+            Self::Unload | Self::Closed => None,
+        }
+    }
+}
+
+fn next_job(rx: &Receiver<Message>) -> Result<Job, Exit> {
     loop {
         match rx.recv() {
-            Ok(Message::Job(job)) => return Some(job),
+            Ok(Message::Job(job)) => return Ok(job),
             Ok(Message::Unload) => {}
-            Err(_) => return None,
+            Ok(Message::Reload(reload)) => return Err(Exit::Reload(reload)),
+            Err(_) => return Err(Exit::Closed),
         }
     }
 }
@@ -124,6 +166,7 @@ fn serve(
                 match message {
                     Message::Job(job) => job,
                     Message::Unload => return Exit::Unload,
+                    Message::Reload(reload) => return Exit::Reload(reload),
                 }
             }
         };
@@ -132,6 +175,7 @@ fn serve(
             match newer {
                 Message::Job(newer) => job = newer,
                 Message::Unload => unload = true,
+                Message::Reload(reload) => return Exit::Reload(reload),
             }
         }
         let (generation, request) = job;
@@ -149,28 +193,54 @@ fn serve(
 }
 
 fn work(
+    config: Config,
     prepare: Prepare,
     rx: Receiver<Message>,
-    latest: Arc<AtomicU64>,
+    signals: Signals,
     on_ready: ReadyCallback,
     on_done: DoneCallback,
 ) {
+    let mut active = Reload {
+        config: Box::new(config),
+        epoch: 0,
+    };
     let mut pending = None;
     loop {
-        let outcome = prepare()
-            .and_then(|backend| run(backend, &rx, &latest, &on_ready, &on_done, &mut pending));
+        let superseded = || signals.reloads.load(Ordering::SeqCst) != active.epoch;
+        let outcome = prepare(&active.config, &superseded).and_then(|backend| {
+            run(
+                backend,
+                &rx,
+                &signals.latest,
+                &on_ready,
+                &on_done,
+                &mut pending,
+            )
+        });
         match outcome {
-            Ok(()) => return,
-            Err(error) => on_ready(Err(error)),
+            Ok(None) => return,
+            Ok(Some(reload)) => {
+                active = reload;
+                continue;
+            }
+            Err(error) if !superseded() => on_ready(Err(error)),
+            Err(_) => {}
         }
         let failed_at = Instant::now();
-        pending = loop {
+        loop {
             match next_job(&rx) {
-                Some(job) if failed_at.elapsed() >= RETRY_AFTER => break Some(job),
-                Some(_) => {}
-                None => return,
+                Ok(job) if failed_at.elapsed() >= RETRY_AFTER => {
+                    pending = Some(job);
+                    break;
+                }
+                Ok(_) => {}
+                Err(Exit::Reload(reload)) => {
+                    active = reload;
+                    break;
+                }
+                Err(_) => return,
             }
-        };
+        }
     }
 }
 
@@ -181,15 +251,17 @@ fn run(
     on_ready: &ReadyCallback,
     on_done: &DoneCallback,
     pending: &mut Option<Job>,
-) -> Result<(), String> {
+) -> Result<Option<Reload>, String> {
     match backend {
         Backend::Remote { url, model } => {
             on_ready(Ok("remote server".into()));
             let mut completer = RemoteCompleter::new(&url, model);
-            while let Exit::Unload =
-                serve(&mut completer, rx, latest, on_done, None, pending.take())
-            {}
-            Ok(())
+            loop {
+                match serve(&mut completer, rx, latest, on_done, None, pending.take()) {
+                    Exit::Unload => {}
+                    exit => return Ok(exit.reload()),
+                }
+            }
         }
         #[cfg(feature = "llama")]
         Backend::Local {
@@ -207,16 +279,16 @@ fn run(
                 let handle = crate::LlamaModelHandle::load(&model_path)?;
                 let mut session = handle.session(threads, context_tokens)?;
                 on_ready(Ok(name.clone()));
-                if let Exit::Closed = serve(&mut session, rx, latest, on_done, idle, pending.take())
-                {
-                    return Ok(());
+                match serve(&mut session, rx, latest, on_done, idle, pending.take()) {
+                    Exit::Unload => {}
+                    exit => return Ok(exit.reload()),
                 }
                 drop(session);
                 drop(handle);
                 on_ready(Ok(format!("{name}, unloaded")));
                 match next_job(rx) {
-                    Some(job) => *pending = Some(job),
-                    None => return Ok(()),
+                    Ok(job) => *pending = Some(job),
+                    Err(exit) => return Ok(exit.reload()),
                 }
             }
         }
@@ -254,7 +326,12 @@ mod tests {
     use super::*;
 
     fn worker(prepare: Prepare) -> Worker {
-        Worker::spawn(prepare, Box::new(|_| {}), Box::new(|_, _| {}))
+        Worker::spawn(
+            Config::default(),
+            prepare,
+            Box::new(|_| {}),
+            Box::new(|_, _| {}),
+        )
     }
 
     struct Echo;
@@ -328,9 +405,12 @@ mod tests {
         let (tx, rx) = channel();
         tx.send(Message::Unload).unwrap();
         tx.send(Message::Job((7, request("x")))).unwrap();
-        assert_eq!(next_job(&rx).map(|(generation, _)| generation), Some(7));
+        assert_eq!(
+            next_job(&rx).ok().map(|(generation, _)| generation),
+            Some(7)
+        );
         drop(tx);
-        assert!(next_job(&rx).is_none());
+        assert!(matches!(next_job(&rx), Err(Exit::Closed)));
     }
 
     #[test]
@@ -341,7 +421,7 @@ mod tests {
         ];
         for row in rows {
             let (delay, wait, released) = row;
-            let worker = worker(Box::new(move || {
+            let worker = worker(Box::new(move |_, _| {
                 std::thread::sleep(delay);
                 Err("no model".into())
             }));
