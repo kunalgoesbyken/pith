@@ -685,7 +685,7 @@ fn accept_is_one_undo_step(rig: &mut Rig) {
     let field = rig.a;
     for (mode, through_clipboard) in [("selection insert", false), ("clipboard paste", true)] {
         THROUGH_CLIPBOARD.store(through_clipboard, Ordering::SeqCst);
-        let Some(_) = rig.suggestion_for(field, &PROSE, 2) else {
+        let Some(_) = rig.suggestion_for(field, &PROSE, 1) else {
             rig.check(
                 &format!("undo ({mode}) setup"),
                 false,
