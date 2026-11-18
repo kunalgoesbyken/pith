@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
@@ -97,5 +98,83 @@ pub fn is_elevated(pid: u32) -> bool {
         );
         let _ = CloseHandle(token);
         queried.is_err() || elevation.TokenIsElevated != 0
+    }
+}
+
+pub fn remove_contents(dir: &Path, attempts: u32, delay: Duration) -> Vec<PathBuf> {
+    let mut remaining = leftovers(dir);
+    for _ in 1..attempts {
+        if remaining.is_empty() {
+            break;
+        }
+        std::thread::sleep(delay);
+        remaining = leftovers(dir);
+    }
+    remaining
+}
+
+fn leftovers(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut failed = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let removed = match entry.file_type() {
+            Ok(kind) if kind.is_dir() => std::fs::remove_dir_all(&path),
+            _ => std::fs::remove_file(&path),
+        };
+        if removed.is_err() {
+            failed.push(path);
+        }
+    }
+    failed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pith-win-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn removes_nested_contents_and_keeps_the_folder_itself() {
+        let dir = scratch("nested");
+        std::fs::create_dir_all(dir.join("models").join("deep")).unwrap();
+        std::fs::write(dir.join("models").join("deep").join("a.gguf"), "x").unwrap();
+        std::fs::write(dir.join("pith.log"), "x").unwrap();
+        assert!(remove_contents(&dir, 1, Duration::ZERO).is_empty());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_folder_is_nothing_to_remove() {
+        let dir = scratch("missing").join("absent");
+        assert!(remove_contents(&dir, 3, Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn a_locked_file_is_reported_while_the_rest_goes() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = scratch("locked");
+        std::fs::write(dir.join("other.txt"), "x").unwrap();
+        let locked = dir.join("locked.log");
+        let _held = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(0)
+            .open(&locked)
+            .unwrap();
+        assert_eq!(remove_contents(&dir, 2, Duration::from_millis(1)), [locked]);
+        assert!(!dir.join("other.txt").exists());
+        drop(_held);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

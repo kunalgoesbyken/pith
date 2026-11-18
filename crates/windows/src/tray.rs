@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 
+use pith_core::PauseSpan;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::HWND;
@@ -8,15 +9,48 @@ use windows::Win32::UI::Shell::{
     Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 
-pub enum TrayCommand {
-    Toggle,
-    OpenConfig,
-    Quit,
-    Resume(String),
+pub const TOOLTIP: &str = "Pith \u{b7} local only, nothing leaves this PC";
+const MENU_TEXT_CHARS: usize = 100;
+
+fn menu_text(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut shown: String = flat.chars().take(MENU_TEXT_CHARS).collect();
+    if flat.chars().count() > MENU_TEXT_CHARS {
+        shown.push('\u{2026}');
+    }
+    shown.replace('&', "&&")
 }
 
-fn toggle_label(enabled: bool) -> &'static str {
-    if enabled { "Pause" } else { "Resume" }
+pub enum TrayCommand {
+    Pause(PauseSpan),
+    Resume,
+    BlockForeground,
+    Settings,
+    Quit,
+    ResumeApp(String),
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct TrayView {
+    pub status: String,
+    pub active: bool,
+    pub paused: bool,
+    pub foreground: Option<String>,
+    pub foreground_blocked: bool,
+}
+
+impl TrayView {
+    fn block_label(&self) -> String {
+        match (&self.foreground, self.foreground_blocked) {
+            (Some(app), true) => format!("Turned off in {app}"),
+            (Some(app), false) => format!("Turn off in {app}"),
+            (None, _) => "Turn off in this app".to_string(),
+        }
+    }
+
+    fn can_block(&self) -> bool {
+        self.foreground.is_some() && !self.foreground_blocked
+    }
 }
 
 fn fill(target: &mut [u16], text: &str) {
@@ -43,9 +77,12 @@ pub struct Tray {
     resumes: RefCell<Vec<(MenuItem, String)>>,
     icon: TrayIcon,
     status: MenuItem,
-    toggle: MenuItem,
-    config: MenuItem,
+    pauses: Vec<(MenuItem, PauseSpan)>,
+    resume: MenuItem,
+    block: MenuItem,
+    settings: MenuItem,
     quit: MenuItem,
+    shown: RefCell<Option<TrayView>>,
 }
 
 fn glyph(active: bool) -> Icon {
@@ -74,21 +111,32 @@ fn glyph(active: bool) -> Icon {
 }
 
 impl Tray {
-    pub fn create(enabled: bool) -> Option<Self> {
+    pub fn create(active: bool) -> Option<Self> {
         let menu = Menu::new();
-        let status = MenuItem::new("Pith: starting…", false, None);
-        let toggle = MenuItem::new(toggle_label(enabled), true, None);
-        let config = MenuItem::new("Open settings", true, None);
+        let status = MenuItem::new("Starting", false, None);
+        let pauses: Vec<(MenuItem, PauseSpan)> = PauseSpan::CHOICES
+            .into_iter()
+            .map(|span| (MenuItem::new(span.label(), true, None), span))
+            .collect();
+        let resume = MenuItem::new("Resume", false, None);
+        let block = MenuItem::new(TrayView::default().block_label(), false, None);
+        let settings = MenuItem::new("Settings\u{2026}", true, None);
         let quit = MenuItem::new("Quit", true, None);
         menu.append(&status).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
-        menu.append(&toggle).ok()?;
-        menu.append(&config).ok()?;
+        for (item, _) in &pauses {
+            menu.append(item).ok()?;
+        }
+        menu.append(&resume).ok()?;
+        menu.append(&PredefinedMenuItem::separator()).ok()?;
+        menu.append(&block).ok()?;
+        menu.append(&PredefinedMenuItem::separator()).ok()?;
+        menu.append(&settings).ok()?;
         menu.append(&quit).ok()?;
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
-            .with_tooltip("Pith")
-            .with_icon(glyph(enabled))
+            .with_tooltip(TOOLTIP)
+            .with_icon(glyph(active))
             .build()
             .ok()?;
         Some(Self {
@@ -96,15 +144,13 @@ impl Tray {
             resumes: RefCell::new(Vec::new()),
             icon,
             status,
-            toggle,
-            config,
+            pauses,
+            resume,
+            block,
+            settings,
             quit,
+            shown: RefCell::new(None),
         })
-    }
-
-    pub fn set_status(&self, text: &str) {
-        self.status.set_text(format!("Pith: {text}"));
-        let _ = self.icon.set_tooltip(Some(format!("Pith: {text}")));
     }
 
     pub fn set_auto_paused(&self, apps: &[String]) {
@@ -113,8 +159,7 @@ impl Tray {
             let _ = self.menu.remove(&item);
         }
         for (position, app) in apps.iter().enumerate() {
-            let name = app.replace('&', "&&");
-            let label = format!("Paused in {name} (ignored) \u{2014} Resume");
+            let label = format!("Paused in {} (ignored) \u{2014} Resume", menu_text(app));
             let item = MenuItem::new(label, true, None);
             if self.menu.insert(&item, 1 + position).is_ok() {
                 resumes.push((item, app.clone()));
@@ -122,9 +167,28 @@ impl Tray {
         }
     }
 
-    pub fn set_enabled(&self, enabled: bool) {
-        self.toggle.set_text(toggle_label(enabled));
-        let _ = self.icon.set_icon(Some(glyph(enabled)));
+    pub fn show(&self, view: TrayView) {
+        let mut shown = self.shown.borrow_mut();
+        let before = shown.as_ref();
+        if before == Some(&view) {
+            return;
+        }
+        if before.is_none_or(|old| old.status != view.status) {
+            self.status.set_text(menu_text(&view.status));
+        }
+        if before.is_none_or(|old| old.active != view.active) {
+            let _ = self.icon.set_icon(Some(glyph(view.active)));
+        }
+        if before.is_none_or(|old| old.paused != view.paused) {
+            self.resume.set_enabled(view.paused);
+        }
+        if before.is_none_or(|old| {
+            old.foreground != view.foreground || old.foreground_blocked != view.foreground_blocked
+        }) {
+            self.block.set_text(menu_text(&view.block_label()));
+            self.block.set_enabled(view.can_block());
+        }
+        *shown = Some(view);
     }
 
     pub fn balloon(&self, title: &str, text: &str) {
@@ -153,16 +217,52 @@ impl Tray {
             .iter()
             .find(|(item, _)| event.id == *item.id())
         {
-            return Some(TrayCommand::Resume(app.clone()));
+            return Some(TrayCommand::ResumeApp(app.clone()));
         }
-        if event.id == *self.toggle.id() {
-            Some(TrayCommand::Toggle)
-        } else if event.id == *self.config.id() {
-            Some(TrayCommand::OpenConfig)
+        if let Some((_, span)) = self.pauses.iter().find(|(item, _)| event.id == *item.id()) {
+            Some(TrayCommand::Pause(*span))
+        } else if event.id == *self.resume.id() {
+            Some(TrayCommand::Resume)
+        } else if event.id == *self.block.id() {
+            Some(TrayCommand::BlockForeground)
+        } else if event.id == *self.settings.id() {
+            Some(TrayCommand::Settings)
         } else if event.id == *self.quit.id() {
             Some(TrayCommand::Quit)
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_item_names_the_app_and_only_arms_for_one_not_yet_off() {
+        let mut view = TrayView::default();
+        assert_eq!(view.block_label(), "Turn off in this app");
+        assert!(!view.can_block());
+        view.foreground = Some("Slack".into());
+        assert_eq!(view.block_label(), "Turn off in Slack");
+        assert!(view.can_block());
+        view.foreground_blocked = true;
+        assert_eq!(view.block_label(), "Turned off in Slack");
+        assert!(!view.can_block());
+    }
+
+    #[test]
+    fn menu_text_escapes_ampersands_and_flattens_long_multiline_text() {
+        assert_eq!(menu_text("Turn off in R&D"), "Turn off in R&&D");
+        assert_eq!(menu_text("a\n  |\n1 | b\tc"), "a | 1 | b c");
+        let long = "x".repeat(300);
+        assert_eq!(menu_text(&long).chars().count(), MENU_TEXT_CHARS + 1);
+        assert!(menu_text(&long).ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn tooltip_states_the_privacy_promise() {
+        assert_eq!(TOOLTIP, "Pith \u{b7} local only, nothing leaves this PC");
     }
 }

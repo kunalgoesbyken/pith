@@ -7,6 +7,7 @@ use pith_infer::{Backend, cpu_supported, download, find_local, preset};
 
 struct Paths {
     config: PathBuf,
+    data: PathBuf,
     models: PathBuf,
     log: PathBuf,
     onboarded: PathBuf,
@@ -16,6 +17,7 @@ fn paths() -> Paths {
     let dirs = directories::ProjectDirs::from("", "", "Pith").expect("home directory");
     Paths {
         config: dirs.config_dir().join("config.toml"),
+        data: dirs.data_local_dir().to_path_buf(),
         models: dirs.data_local_dir().join("models"),
         log: dirs.data_local_dir().join("pith.log"),
         onboarded: dirs.data_local_dir().join("onboarded"),
@@ -149,10 +151,6 @@ fn main() {
             )
         }),
         Box::new(move |status: Result<String, String>| {
-            let status = match &config_error {
-                Some(error) => status.map(|name| format!("{name}; settings ignored: {error}")),
-                None => status,
-            };
             let _ = ready_sender.send(Inbound::Ready(status));
             ready_waker.wake();
         }),
@@ -170,6 +168,8 @@ fn main() {
         observer: None,
         global_keys: true,
         onboarding: (!paths.onboarded.exists()).then(|| paths.onboarded.clone()),
+        data_dir: Some(paths.data.clone()),
+        notice: config_error,
     };
     log("pith starting");
     if let Err(error) = run(config, worker, (sender, receiver), waker, options) {

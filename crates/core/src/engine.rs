@@ -26,6 +26,7 @@ pub enum Event {
     Trigger,
     SetEnabled(bool),
     Resume(String),
+    SetConfig(Config),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -143,6 +144,11 @@ impl Engine {
                     out.push(Action::AutoPaused(self.ignores.paused()));
                     self.schedule(&mut out);
                 }
+            }
+            Event::SetConfig(config) => {
+                self.config = config;
+                self.reset(&mut out);
+                self.schedule(&mut out);
             }
         }
         out
@@ -723,6 +729,24 @@ mod tests {
     }
 
     #[test]
+    fn new_config_applies_live_to_the_current_field() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        let blocked = Config {
+            blocked_apps: vec!["notepad".into()],
+            ..Config::default()
+        };
+        let out = engine.handle(Event::SetConfig(blocked));
+        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
+        assert_eq!(engine.config().blocked_apps, ["notepad"]);
+        let out = engine.handle(Event::SetConfig(Config::default()));
+        assert!(
+            matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]),
+            "{out:?}"
+        );
+    }
+
+    #[test]
     fn low_confidence_drops_cut_word() {
         let mut engine = Engine::new(Config::default());
         let out = engine.handle(Event::Field(Some(field("Please sign the"))));
@@ -1098,6 +1122,19 @@ mod tests {
             "{out:?}"
         );
         assert!(engine.handle(Event::Resume("slack".into())).is_empty());
+    }
+
+    #[test]
+    fn set_config_keeps_the_auto_paused_apps() {
+        let mut engine = pausing(1);
+        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        let config = engine.config().clone();
+        engine.handle(Event::SetConfig(config));
+        let out = engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
+        assert!(out.is_empty(), "{out:?}");
+        let out = engine.handle(Event::Resume("slack".into()));
+        assert_eq!(paused_in(&out), Some(&Vec::new()));
     }
 
     #[test]
