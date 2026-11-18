@@ -105,6 +105,11 @@ impl Engine {
                 self.reset(&mut out);
                 self.schedule(&mut out);
             }
+            Event::SetConfig(config) => {
+                self.config = config;
+                self.reset(&mut out);
+                self.schedule(&mut out);
+            }
         }
         out
     }
@@ -595,6 +600,24 @@ mod tests {
         let out = engine.handle(Event::SetEnabled(false));
         assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
         let out = engine.handle(Event::SetEnabled(true));
+        assert!(
+            matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn new_config_applies_live_to_the_current_field() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        let blocked = Config {
+            blocked_apps: vec!["notepad".into()],
+            ..Config::default()
+        };
+        let out = engine.handle(Event::SetConfig(blocked));
+        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
+        assert_eq!(engine.config().blocked_apps, ["notepad"]);
+        let out = engine.handle(Event::SetConfig(Config::default()));
         assert!(
             matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]),
             "{out:?}"
