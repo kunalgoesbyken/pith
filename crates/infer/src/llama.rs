@@ -8,7 +8,9 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
-use nib_core::{Completer, Completion, CompletionRequest, SentenceEnd, StopReason, sentence_end};
+use nib_core::{
+    Completer, Completion, CompletionRequest, SentenceEnd, StopReason, exceeds_words, sentence_end,
+};
 
 use crate::sampling::{common_prefix_len, consistent_with_prefix, log_sum_exp, valid_utf8_prefix};
 
@@ -230,6 +232,9 @@ impl Completer for LlamaSession<'_> {
                 Some(SentenceEnd::Closed) => break StopReason::Sentence,
                 Some(SentenceEnd::NeedsSpace) => awaiting_space = true,
                 None => {}
+            }
+            if exceeds_words(text, request.max_words) {
+                break StopReason::WordLimit;
             }
             self.batch.clear();
             self.batch

@@ -1,8 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    Completion, CompletionRequest, Config, FieldSnapshot, Rect, StopReason, build, check,
-    clean_completion, next_word,
+    Completion, CompletionRequest, Config, FieldSnapshot, Rect, build, check, next_word, suggestion,
 };
 
 fn is_grapheme_boundary(text: &str, index: usize) -> bool {
@@ -207,27 +206,11 @@ impl Engine {
         }
         self.in_flight = false;
         let Ok(completion) = result else { return };
-        if completion.stop == StopReason::Cancelled
-            || completion.mean_logprob.is_nan()
-            || completion.mean_logprob < self.config.min_mean_logprob
-        {
-            return;
-        }
-        let truncated = matches!(
-            completion.stop,
-            StopReason::MaxTokens | StopReason::LowConfidence
-        );
-        let Some(text) = clean_completion(&completion.text, self.config.max_words, truncated)
-        else {
-            return;
-        };
         let Some(field) = &self.field else { return };
-        let text = if field.before.ends_with(char::is_whitespace) {
-            text.trim_start().to_string()
-        } else {
-            text
+        let Some(text) = suggestion(&completion, &field.before, &self.config) else {
+            return;
         };
-        if text.is_empty() || field.caret.is_none() {
+        if field.caret.is_none() {
             return;
         }
         self.suggestion = Some(text);
@@ -284,6 +267,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StopReason;
 
     fn field(before: &str) -> FieldSnapshot {
         FieldSnapshot {
