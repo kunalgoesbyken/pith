@@ -33,6 +33,9 @@ const WIDTH: i32 = 500;
 const HEIGHT: i32 = 376;
 const MARGIN: i32 = 20;
 const MEGABYTE: u64 = 1_000_000;
+const STATUS_HEIGHT: i32 = 20;
+const NO_PREFIX: u32 = 0x80;
+const FAILURE_HEIGHT: i32 = 80;
 
 static PRACTICE: AtomicIsize = AtomicIsize::new(0);
 
@@ -240,6 +243,7 @@ pub struct Onboarding {
     step: Step,
     marker: PathBuf,
     visible: bool,
+    dpi: u32,
 }
 
 impl Onboarding {
@@ -289,7 +293,13 @@ impl Onboarding {
             let layout = Layout { dpi };
             let inner = WIDTH - 2 * MARGIN;
             let label = w!("STATIC");
-            let status = layout.add(window, Child::new(label, "", (MARGIN, 16, inner, 20)))?;
+            let status = layout.add(
+                window,
+                Child {
+                    style: NO_PREFIX,
+                    ..Child::new(label, "", (MARGIN, 16, inner, STATUS_HEIGHT))
+                },
+            )?;
             let progress = layout.add(
                 window,
                 Child::new(PROGRESS_CLASSW, "", (MARGIN, 42, inner, 16)),
@@ -353,6 +363,7 @@ impl Onboarding {
                 step: Step::Preparing,
                 marker,
                 visible,
+                dpi,
             };
             onboarding.render(&Step::Preparing);
             Ok(onboarding)
@@ -402,6 +413,20 @@ impl Onboarding {
         let status = wide(&view.status);
         unsafe {
             let _ = SetWindowTextW(controls.status, PCWSTR(status.as_ptr()));
+            let status_height = if matches!(self.step, Step::Failed(_)) {
+                FAILURE_HEIGHT
+            } else {
+                STATUS_HEIGHT
+            };
+            let _ = SetWindowPos(
+                controls.status,
+                None,
+                0,
+                0,
+                scaled(WIDTH - 2 * MARGIN, self.dpi),
+                scaled(status_height, self.dpi),
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
             let progress_visible = if view.permille.is_some() {
                 SW_SHOW
             } else {

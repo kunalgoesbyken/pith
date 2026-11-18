@@ -1542,10 +1542,10 @@ fn onboarding_failure() -> usize {
     let marker = std::env::temp_dir().join("pith-e2e-onboarding-failed");
     let mut window = Onboarding::create(marker.clone(), false).expect("onboarding window");
     let controls = window.controls();
-    window.event(OnboardingEvent::Failed("offline".into()));
+    window.event(OnboardingEvent::Failed("offline & retry".into()));
     report.check(
         "onboarding shows a startup failure",
-        control_text(controls.status).contains("offline")
+        control_text(controls.status).contains("offline & retry")
             && !shown(controls.practice)
             && unsafe { IsWindowEnabled(controls.done).as_bool() },
         control_text(controls.status),
