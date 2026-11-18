@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::stored::{read, write_atomically};
+use crate::stored::write_atomically;
 
 const CHARS_PER_WORD: u64 = 5;
 const SECONDS_PER_MINUTE: u64 = 60;
@@ -93,18 +93,33 @@ impl Stats {
         self.total
     }
 
-    pub fn load(path: &Path) -> Self {
-        read(path)
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::default());
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        match std::str::from_utf8(&bytes)
             .ok()
-            .flatten()
-            .and_then(|source| toml_edit::de::from_str(&source).ok())
-            .unwrap_or_default()
+            .and_then(|source| toml_edit::de::from_str(source).ok())
+        {
+            Some(stats) => Ok(stats),
+            None => set_aside(path).map(|()| Self::default()),
+        }
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let text = toml_edit::ser::to_string_pretty(self).map_err(|error| error.to_string())?;
         write_atomically(path, &text).map_err(|error| error.to_string())
     }
+}
+
+fn set_aside(path: &Path) -> Result<(), String> {
+    let mut kept = path.as_os_str().to_owned();
+    kept.push(".bad");
+    std::fs::rename(path, kept).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -204,7 +219,7 @@ mod tests {
         let mut stats = Stats::default();
         stats.record(counts(3, 2, 5, 31), MONDAY);
         stats.save(&path).unwrap();
-        assert_eq!(Stats::load(&path), stats);
+        assert_eq!(Stats::load(&path), Ok(stats));
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.lines().all(|line| {
             let (_, value) = line.split_once(" = ").unwrap_or(("", "0"));
@@ -214,24 +229,40 @@ mod tests {
     }
 
     #[test]
-    fn missing_or_corrupt_files_reset_to_zero() {
+    fn missing_or_corrupt_files_reset_to_zero_and_keep_the_corrupt_copy() {
         let dir = scratch("corrupt");
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(Stats::load(&dir.join("absent.toml")), Stats::default());
+        assert_eq!(Stats::load(&dir.join("absent.toml")), Ok(Stats::default()));
         let path = dir.join("stats.toml");
+        let kept = dir.join("stats.toml.bad");
         for broken in [
             "not toml [",
             "day = \"yesterday\"",
             "[today]\nshown = -4",
             "[total]\nshown = 99999999999999999999999",
             "\u{0}\u{1}",
-            "",
         ] {
             std::fs::write(&path, broken).unwrap();
-            assert_eq!(Stats::load(&path), Stats::default(), "{broken:?}");
+            assert_eq!(Stats::load(&path), Ok(Stats::default()), "{broken:?}");
+            assert!(!path.exists(), "{broken:?}");
+            assert_eq!(std::fs::read_to_string(&kept).unwrap(), broken);
         }
         std::fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
-        assert_eq!(Stats::load(&path), Stats::default());
+        assert_eq!(Stats::load(&path), Ok(Stats::default()));
+        assert_eq!(std::fs::read(&kept).unwrap(), [0xff, 0xfe, 0x00]);
+        std::fs::write(&path, "").unwrap();
+        assert_eq!(Stats::load(&path), Ok(Stats::default()));
+        assert!(path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_file_is_an_error_so_it_is_never_overwritten() {
+        let dir = scratch("unreadable");
+        let path = dir.join("stats.toml");
+        std::fs::create_dir_all(&path).unwrap();
+        assert!(Stats::load(&path).is_err());
+        assert!(path.is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -241,7 +272,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("stats.toml");
         std::fs::write(&path, "future = 1\n[total]\nshown = 7\n").unwrap();
-        assert_eq!(Stats::load(&path).total().shown, 7);
+        assert_eq!(Stats::load(&path).unwrap().total().shown, 7);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

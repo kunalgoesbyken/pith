@@ -127,20 +127,23 @@ fn serve(
                 }
             }
         };
+        let mut unload = false;
         while let Ok(newer) = rx.try_recv() {
             match newer {
                 Message::Job(newer) => job = newer,
-                Message::Unload => return Exit::Unload,
+                Message::Unload => unload = true,
             }
         }
         let (generation, request) = job;
-        if latest.load(Ordering::SeqCst) != generation {
-            continue;
+        if latest.load(Ordering::SeqCst) == generation {
+            let cancelled = || latest.load(Ordering::SeqCst) != generation;
+            let result = completer.complete(&request, &cancelled);
+            if !cancelled() {
+                on_done(generation, result);
+            }
         }
-        let cancelled = || latest.load(Ordering::SeqCst) != generation;
-        let result = completer.complete(&request, &cancelled);
-        if !cancelled() {
-            on_done(generation, result);
+        if unload {
+            return Exit::Unload;
         }
     }
 }
@@ -298,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unload_request_ends_the_session_and_leaves_later_jobs_queued() {
+    fn an_unload_request_finishes_the_latest_job_before_ending_the_session() {
         let done = Arc::default();
         let exit = serve_all(
             vec![
@@ -308,6 +311,14 @@ mod tests {
             ],
             &done,
         );
+        assert!(matches!(exit, Exit::Unload));
+        assert_eq!(*done.lock().unwrap(), ["b"]);
+    }
+
+    #[test]
+    fn an_unload_request_alone_ends_the_session() {
+        let done = Arc::default();
+        let exit = serve_all(vec![Message::Unload], &done);
         assert!(matches!(exit, Exit::Unload));
         assert!(done.lock().unwrap().is_empty());
     }

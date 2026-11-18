@@ -45,6 +45,11 @@ fn trusted(caret: Rect, element: Option<Rect>, works: &[Rect]) -> bool {
 }
 
 pub fn place(caret: Option<Rect>, element: Option<Rect>, works: &[Rect]) -> Option<Placement> {
+    if works.is_empty() {
+        return caret
+            .filter(|c| c.height > 0 && c.width >= 0)
+            .map(Placement::Inline);
+    }
     let element = visible_element(element, works);
     caret
         .filter(|c| trusted(*c, element, works))
@@ -69,11 +74,14 @@ pub fn anchor_pill(
         left(element)
     };
     let x = wanted.clamp(left(work), right(work) - i64::from(width));
+    let fits = |y: &i64| *y >= top(work) && *y + i64::from(height) <= bottom(work);
     let below = bottom(element) + i64::from(gap);
     let above = top(element) - i64::from(gap) - i64::from(height);
+    let inside = bottom(element).min(bottom(work)) - i64::from(gap) - i64::from(height);
     let y = [below, above]
         .into_iter()
-        .find(|y| *y >= top(work) && *y + i64::from(height) <= bottom(work))?;
+        .find(fits)
+        .or_else(|| (fits(&inside) && inside >= top(element)).then_some(inside))?;
     Some(Rect {
         x: x as i32,
         y: y as i32,
@@ -267,8 +275,13 @@ mod tests {
     }
 
     #[test]
-    fn no_monitors_places_nothing() {
-        assert_eq!(on(&[], Some(CARET), Some(FIELD)), None);
+    fn without_monitor_information_a_real_caret_is_trusted() {
+        assert_eq!(
+            on(&[], Some(CARET), Some(FIELD)),
+            Some(Placement::Inline(CARET))
+        );
+        assert_eq!(on(&[], Some(rect(5, 5, 1, 0)), Some(FIELD)), None);
+        assert_eq!(on(&[], None, Some(FIELD)), None);
     }
 
     fn pill(element: Rect, width: i32, height: i32, work: Rect, rtl: bool) -> Option<Rect> {
@@ -301,11 +314,19 @@ mod tests {
     }
 
     #[test]
-    fn the_pill_is_dropped_when_the_field_leaves_no_room_outside_it() {
+    fn the_pill_sits_inside_the_bottom_edge_when_the_field_leaves_no_room_outside_it() {
         let tall = rect(0, 0, 1920, 1040);
-        assert_eq!(pill(tall, 200, 28, PRIMARY, false), None);
-        let almost = rect(0, 20, 1920, 1000);
-        assert_eq!(pill(almost, 200, 28, PRIMARY, false), None);
+        assert_eq!(
+            pill(tall, 200, 28, PRIMARY, false),
+            Some(rect(0, 1008, 200, 28))
+        );
+        let below_screen = rect(0, 20, 1920, 3000);
+        assert_eq!(
+            pill(below_screen, 200, 28, PRIMARY, false),
+            Some(rect(0, 1008, 200, 28))
+        );
+        let shallow = rect(0, 1030, 1920, 10);
+        assert_eq!(pill(shallow, 200, 28, rect(0, 1020, 1920, 30), false), None);
     }
 
     #[test]

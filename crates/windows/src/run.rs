@@ -102,8 +102,10 @@ struct App {
     settings: Option<SettingsWindow>,
     delete_data: bool,
     stats: Stats,
+    stats_file: Option<PathBuf>,
     stats_dirty: bool,
     stats_saved: Instant,
+    unloaded_for_power: bool,
     worker: Worker,
     overlay: Overlay,
     keys: Keys<HWND>,
@@ -384,9 +386,11 @@ impl App {
         let actions = self.engine.handle(Event::SetConfig(config));
         self.apply(actions);
         self.sync_trigger(enabled);
-        if self.power_paused() {
+        let power_paused = self.power_paused();
+        if power_paused && !self.unloaded_for_power {
             self.worker.unload();
         }
+        self.unloaded_for_power = power_paused;
         self.refresh_tray();
     }
 
@@ -473,6 +477,11 @@ impl App {
     fn change(&mut self, setting: Setting) {
         setting.apply(&mut self.saved);
         self.persist(&setting);
+        if let Setting::GhostOpacity(_) = setting {
+            self.overlay.set_opacity(self.saved.ghost_opacity);
+            self.refresh_settings();
+            return;
+        }
         self.sync();
     }
 
@@ -492,6 +501,21 @@ impl App {
             .map(|dir| dir.join(STATS_FILE))
     }
 
+    fn load_stats(&mut self) {
+        let Some(path) = self.stats_path() else {
+            return;
+        };
+        match Stats::load(&path) {
+            Ok(stats) => {
+                self.stats = stats;
+                self.stats_file = Some(path);
+            }
+            Err(error) => log(&format!(
+                "stats not loaded, not saving them this session: {error}"
+            )),
+        }
+    }
+
     fn stats_view(&self) -> StatsView {
         StatsView {
             today: self.stats.today(today()),
@@ -504,6 +528,7 @@ impl App {
         if !counts.is_empty() {
             self.stats.record(counts, today());
             self.stats_dirty = true;
+            self.refresh_settings();
         }
         if self.stats_dirty && self.stats_saved.elapsed() >= STATS_FLUSH {
             self.flush_stats();
@@ -511,7 +536,7 @@ impl App {
     }
 
     fn flush_stats(&mut self) {
-        let Some(path) = self.stats_path() else {
+        let Some(path) = self.stats_file.clone() else {
             return;
         };
         match self.stats.save(&path) {
@@ -524,6 +549,7 @@ impl App {
     fn reset_stats(&mut self) {
         self.engine.take_counts();
         self.stats = Stats::default();
+        self.stats_file = self.stats_path();
         self.stats_dirty = true;
         self.flush_stats();
         self.refresh_settings();
@@ -678,11 +704,9 @@ pub fn run(
         foreground: Foreground::default(),
         settings: None,
         delete_data: false,
-        stats: options
-            .data_dir
-            .as_ref()
-            .map(|dir| Stats::load(&dir.join(STATS_FILE)))
-            .unwrap_or_default(),
+        stats: Stats::default(),
+        stats_file: None,
+        unloaded_for_power: false,
         stats_dirty: false,
         stats_saved: Instant::now(),
         engine: Engine::new(config),
@@ -698,6 +722,7 @@ pub fn run(
         keys_awaiting_read: Vec::new(),
         key_read: 0,
     };
+    app.load_stats();
     app.sync_trigger(enabled);
     if app.power_paused() {
         app.sync();

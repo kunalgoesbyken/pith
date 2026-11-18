@@ -55,8 +55,14 @@ impl Length {
         }
     }
 
+    fn tokens(self) -> usize {
+        let defaults = Config::default();
+        (self.words() * defaults.max_tokens).div_ceil(defaults.max_words)
+    }
+
     pub fn apply(self, config: &mut Config) {
         config.max_words = self.words();
+        config.max_tokens = self.tokens();
     }
 
     pub fn of(config: &Config) -> Option<Self> {
@@ -224,6 +230,7 @@ max_words = 6 # short ones
             "# mine
 ghost_opacity = 70 # faint
 max_words = 10 # short ones
+max_tokens = 27
 "
         );
         let _ = std::fs::remove_dir_all(&dir);

@@ -10,11 +10,8 @@ const INPUT_SETTINGS_KEY: &str = r"Software\Microsoft\Input\Settings";
 const HARDWARE_KEYBOARD_SUGGESTIONS: &str = "EnableHwkbTextPrediction";
 const SUGGESTIONS_ON: u32 = 1;
 
-const PREDICTORS: [(&str, &str); 3] = [
-    ("Grammarly.Desktop", "Grammarly"),
-    ("PhraseExpress", "PhraseExpress"),
-    ("Lightkey", "Lightkey"),
-];
+const PREDICTORS: [(&str, &str); 2] =
+    [("PhraseExpress", "PhraseExpress"), ("Lightkey", "Lightkey")];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Rival {
@@ -94,17 +91,22 @@ mod tests {
 
     #[test]
     fn unrelated_and_look_alike_processes_are_not_predictors() {
-        let running = images(&["explorer.exe", "lightkeyboard.exe", "Grammarly.exe", ""]);
+        let running = images(&[
+            "explorer.exe",
+            "lightkeyboard.exe",
+            "phraseexpressor.exe",
+            "",
+        ]);
         assert_eq!(find_predictor(&PREDICTORS, &running), None);
         assert_eq!(find_predictor(&PREDICTORS, &[]), None);
     }
 
     #[test]
     fn the_first_table_entry_wins_when_several_are_running() {
-        let running = images(&["lightkey.exe", "Grammarly.Desktop.exe"]);
+        let running = images(&["lightkey.exe", "PhraseExpress.exe"]);
         assert_eq!(
             find_predictor(&PREDICTORS, &running),
-            Some(Rival::App("Grammarly"))
+            Some(Rival::App("PhraseExpress"))
         );
     }
 
