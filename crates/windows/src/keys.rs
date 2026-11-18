@@ -116,47 +116,66 @@ fn is_wanted(binding: &Binding, armed: bool, trigger_on: bool) -> bool {
     }
 }
 
+struct Slot {
+    binding: Binding,
+    registered: bool,
+}
+
+fn slots(keymap: &Keymap) -> Vec<Slot> {
+    bindings(keymap)
+        .into_iter()
+        .map(|binding| Slot {
+            binding,
+            registered: false,
+        })
+        .collect()
+}
+
+fn hotkey_id(index: usize) -> i32 {
+    index as i32 + 1
+}
+
 pub struct Keys<R: Registrar> {
     registrar: R,
-    bindings: Vec<Binding>,
-    registered: Vec<bool>,
+    slots: Vec<Slot>,
     armed: bool,
     trigger_on: bool,
 }
 
 impl<R: Registrar> Keys<R> {
     pub fn new(keymap: &Keymap, registrar: R) -> Self {
-        let bindings = bindings(keymap);
         Self {
             registrar,
-            registered: vec![false; bindings.len()],
-            bindings,
+            slots: slots(keymap),
             armed: false,
             trigger_on: false,
         }
     }
 
     pub fn binding(&self, id: i32) -> Option<Binding> {
-        let index = usize::try_from(id).ok()?.checked_sub(1)?;
-        self.bindings.get(index).copied()
+        (0..self.slots.len())
+            .find(|index| hotkey_id(*index) == id)
+            .map(|index| self.slots[index].binding)
     }
 
     fn reconcile(&mut self) {
-        for (index, binding) in self.bindings.iter().enumerate() {
-            let id = index as i32 + 1;
-            let wanted = is_wanted(binding, self.armed, self.trigger_on);
-            if wanted == self.registered[index] {
+        for (index, slot) in self.slots.iter_mut().enumerate() {
+            let wanted = is_wanted(&slot.binding, self.armed, self.trigger_on);
+            if wanted == slot.registered {
                 continue;
             }
             if !wanted {
-                self.registrar.unregister(id);
-                self.registered[index] = false;
-            } else if self.registrar.register(id, &binding.chord) {
-                self.registered[index] = true;
+                self.registrar.unregister(hotkey_id(index));
+                slot.registered = false;
+            } else if self
+                .registrar
+                .register(hotkey_id(index), &slot.binding.chord)
+            {
+                slot.registered = true;
             } else {
                 log(&format!(
                     "hotkey {:?} is taken by another program",
-                    binding.chord
+                    slot.binding.chord
                 ));
             }
         }
@@ -178,16 +197,17 @@ impl<R: Registrar> Keys<R> {
     }
 
     pub fn rebind(&mut self, keymap: &Keymap) {
-        let next = bindings(keymap);
-        if next == self.bindings {
+        let unchanged = bindings(keymap)
+            .into_iter()
+            .eq(self.slots.iter().map(|slot| slot.binding));
+        if unchanged {
             return;
         }
         let (armed, trigger_on) = (self.armed, self.trigger_on);
         self.armed = false;
         self.trigger_on = false;
         self.reconcile();
-        self.registered = vec![false; next.len()];
-        self.bindings = next;
+        self.slots = slots(keymap);
         self.armed = armed;
         self.trigger_on = trigger_on;
         self.reconcile();
