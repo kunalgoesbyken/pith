@@ -5,9 +5,10 @@ use pith_core::Counts;
 use super::model::Model;
 use super::{
     FREQUENCY, ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA,
-    ID_REMOVE_FIRST, ID_RESET_STATS, ID_START, LENGTH, MAX_APP_ROWS, Segment,
+    ID_REMOVE_FIRST, ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, LENGTH, MAX_APP_ROWS, Segment,
 };
 use crate::format::{duration, number};
+use crate::rival::Rival;
 use crate::ui::{BUTTON_HEIGHT, FOCUS_MARGIN, Role, Scale, expand, height, rect, toggle_width};
 
 const COLUMN_WIDTH: i32 = 472;
@@ -47,6 +48,12 @@ pub const OPACITY_TITLE: &str = "Ghost text opacity";
 pub const STATS_LABEL: &str = "Your stats";
 pub const STATS_HEADINGS: (&str, &str) = ("Today", "All time");
 pub const STATS_RESET: (&str, &str) = ("Reset stats", "The counts never leave this PC.");
+pub const RIVAL_OS_ROW: (&str, &str) = (
+    "Windows text suggestions are on",
+    "They can show a second suggestion in the same fields.",
+);
+pub const RIVAL_APP_CAPTION: &str = "Two tools suggesting in one field can clash.";
+pub const RIVAL_OPEN_NAME: &str = "Open Windows typing settings";
 pub const APPS_LABEL: &str = "Turned off in these apps";
 pub const APPS_EMPTY: &str =
     "Nothing is turned off. Choose Turn off in this app from the tray menu.";
@@ -260,6 +267,27 @@ fn stat_specs(model: &Model) -> Vec<Spec> {
     ]
 }
 
+fn rival_specs(rival: &Rival) -> Vec<Spec> {
+    let (text, control) = match rival {
+        Rival::TextSuggestions => (
+            RowText::Pair(RIVAL_OS_ROW.0.to_string(), RIVAL_OS_ROW.1.to_string()),
+            Control::Button(ID_RIVAL_OPEN),
+        ),
+        Rival::App(name) => (
+            RowText::Pair(
+                format!("{name} is also suggesting text"),
+                RIVAL_APP_CAPTION.to_string(),
+            ),
+            Control::None,
+        ),
+    };
+    vec![Spec {
+        text,
+        height: ROW,
+        control,
+    }]
+}
+
 fn app_specs(model: &Model) -> Vec<Spec> {
     let apps = model.visible_apps();
     if apps.is_empty() {
@@ -360,6 +388,17 @@ pub fn build(model: &Model) -> Layout {
     let left_end = builder.y;
     builder.y = columns_top;
     builder.left += builder.inner + builder.px(COLUMN_GAP);
+    let rival = model
+        .rival
+        .as_ref()
+        .map(|rival| builder.card(None, rival_specs(rival)));
+    if model.rival != Some(Rival::TextSuggestions) {
+        builder.controls.push(Placed {
+            id: ID_RIVAL_OPEN,
+            bounds: rect(0, 0, 0, 0),
+            visible: false,
+        });
+    }
     let stats = builder.card(Some(STATS_LABEL), stat_specs(model));
     let data = builder.card(
         Some(DATA_LABEL),
@@ -383,7 +422,11 @@ pub fn build(model: &Model) -> Layout {
         client: rect(0, 0, scale.px(CLIENT_WIDTH), builder.y + margin),
         title,
         status,
-        blocks: vec![general, suggestions, apps, stats, data],
+        blocks: [general, suggestions, apps]
+            .into_iter()
+            .chain(rival)
+            .chain([stats, data])
+            .collect(),
         footer,
         controls: builder.controls,
     }

@@ -64,6 +64,7 @@ Invalid settings are reported in the tray and the defaults are used until you fi
 | `force_trigger` | true | register the force-trigger key |
 | `force_trigger_key` | Ctrl+Shift+Space | asks for a suggestion now, even in fields skipped for short or non-prose text |
 | `idle_unload_secs` | 300 | free the model after this much idle time (0 = never) |
+| `pause_on_battery_saver` | true | pause suggestions and free the model while Windows battery saver is on; PCs without a battery are unaffected |
 | `auto_pause_after` | 12 | stop suggesting in an app after this many shown suggestions in a row were ignored (0 = never); the tray offers "Resume" |
 | `smart_space` | false | add a trailing space when you accept the last word of a suggestion |
 | `blocked_apps` | [] | extra process names to ignore; terminals, editors, password managers and sign-in screens are always ignored |

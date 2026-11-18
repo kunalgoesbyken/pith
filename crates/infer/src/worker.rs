@@ -28,7 +28,7 @@ pub type Prepare = Box<dyn Fn() -> Result<Backend, String> + Send>;
 const RETRY_AFTER: Duration = Duration::from_secs(30);
 
 pub struct Worker {
-    jobs: Sender<Job>,
+    jobs: Sender<Message>,
     latest: Arc<AtomicU64>,
     exited: Receiver<()>,
 }
@@ -55,7 +55,11 @@ impl Worker {
 
     pub fn submit(&self, generation: u64, request: CompletionRequest) {
         self.latest.store(generation, Ordering::SeqCst);
-        let _ = self.jobs.send((generation, request));
+        let _ = self.jobs.send(Message::Job((generation, request)));
+    }
+
+    pub fn unload(&self) {
+        let _ = self.jobs.send(Message::Unload);
     }
 
     pub fn cancel(&self) {
@@ -74,14 +78,29 @@ impl Worker {
 
 type Job = (u64, CompletionRequest);
 
+enum Message {
+    Job(Job),
+    Unload,
+}
+
 enum Exit {
-    Idle,
+    Unload,
     Closed,
+}
+
+fn next_job(rx: &Receiver<Message>) -> Option<Job> {
+    loop {
+        match rx.recv() {
+            Ok(Message::Job(job)) => return Some(job),
+            Ok(Message::Unload) => {}
+            Err(_) => return None,
+        }
+    }
 }
 
 fn serve(
     completer: &mut dyn Completer,
-    rx: &Receiver<Job>,
+    rx: &Receiver<Message>,
     latest: &AtomicU64,
     on_done: &DoneCallback,
     idle: Option<Duration>,
@@ -90,20 +109,29 @@ fn serve(
     loop {
         let mut job = match pending.take() {
             Some(job) => job,
-            None => match idle {
-                Some(limit) => match rx.recv_timeout(limit) {
-                    Ok(job) => job,
-                    Err(RecvTimeoutError::Timeout) => return Exit::Idle,
-                    Err(RecvTimeoutError::Disconnected) => return Exit::Closed,
-                },
-                None => match rx.recv() {
-                    Ok(job) => job,
-                    Err(_) => return Exit::Closed,
-                },
-            },
+            None => {
+                let message = match idle {
+                    Some(limit) => match rx.recv_timeout(limit) {
+                        Ok(message) => message,
+                        Err(RecvTimeoutError::Timeout) => return Exit::Unload,
+                        Err(RecvTimeoutError::Disconnected) => return Exit::Closed,
+                    },
+                    None => match rx.recv() {
+                        Ok(message) => message,
+                        Err(_) => return Exit::Closed,
+                    },
+                };
+                match message {
+                    Message::Job(job) => job,
+                    Message::Unload => return Exit::Unload,
+                }
+            }
         };
         while let Ok(newer) = rx.try_recv() {
-            job = newer;
+            match newer {
+                Message::Job(newer) => job = newer,
+                Message::Unload => return Exit::Unload,
+            }
         }
         let (generation, request) = job;
         if latest.load(Ordering::SeqCst) != generation {
@@ -119,7 +147,7 @@ fn serve(
 
 fn work(
     prepare: Prepare,
-    rx: Receiver<Job>,
+    rx: Receiver<Message>,
     latest: Arc<AtomicU64>,
     on_ready: ReadyCallback,
     on_done: DoneCallback,
@@ -134,10 +162,10 @@ fn work(
         }
         let failed_at = Instant::now();
         pending = loop {
-            match rx.recv() {
-                Ok(job) if failed_at.elapsed() >= RETRY_AFTER => break Some(job),
-                Ok(_) => {}
-                Err(_) => return,
+            match next_job(&rx) {
+                Some(job) if failed_at.elapsed() >= RETRY_AFTER => break Some(job),
+                Some(_) => {}
+                None => return,
             }
         };
     }
@@ -145,7 +173,7 @@ fn work(
 
 fn run(
     backend: Backend,
-    rx: &Receiver<Job>,
+    rx: &Receiver<Message>,
     latest: &AtomicU64,
     on_ready: &ReadyCallback,
     on_done: &DoneCallback,
@@ -154,14 +182,10 @@ fn run(
     match backend {
         Backend::Remote { url, model } => {
             on_ready(Ok("remote server".into()));
-            serve(
-                &mut RemoteCompleter::new(&url, model),
-                rx,
-                latest,
-                on_done,
-                None,
-                pending.take(),
-            );
+            let mut completer = RemoteCompleter::new(&url, model);
+            while let Exit::Unload =
+                serve(&mut completer, rx, latest, on_done, None, pending.take())
+            {}
             Ok(())
         }
         #[cfg(feature = "llama")]
@@ -186,10 +210,10 @@ fn run(
                 }
                 drop(session);
                 drop(handle);
-                on_ready(Ok(format!("{name}, unloaded while idle")));
-                match rx.recv() {
-                    Ok(job) => *pending = Some(job),
-                    Err(_) => return Ok(()),
+                on_ready(Ok(format!("{name}, unloaded")));
+                match next_job(rx) {
+                    Some(job) => *pending = Some(job),
+                    None => return Ok(()),
                 }
             }
         }
@@ -228,6 +252,82 @@ mod tests {
 
     fn worker(prepare: Prepare) -> Worker {
         Worker::spawn(prepare, Box::new(|_| {}), Box::new(|_, _| {}))
+    }
+
+    struct Echo;
+
+    impl Completer for Echo {
+        fn complete(
+            &mut self,
+            request: &CompletionRequest,
+            _cancelled: &dyn Fn() -> bool,
+        ) -> Result<Completion, String> {
+            Ok(Completion {
+                text: request.prompt.clone(),
+                mean_logprob: 0.0,
+                tokens: 1,
+                prompt_tokens_evaluated: 0,
+                stop: pith_core::StopReason::EndOfText,
+            })
+        }
+    }
+
+    fn request(prompt: &str) -> CompletionRequest {
+        CompletionRequest {
+            field_id: 1,
+            prompt: prompt.into(),
+            forced_prefix: String::new(),
+            max_tokens: 1,
+            max_words: 1,
+            min_token_logprob: 0.0,
+        }
+    }
+
+    fn serve_all(messages: Vec<Message>, done: &Arc<std::sync::Mutex<Vec<String>>>) -> Exit {
+        let (tx, rx) = channel();
+        for message in messages {
+            tx.send(message).unwrap();
+        }
+        let sink = done.clone();
+        let on_done: DoneCallback = Box::new(move |_, result| {
+            sink.lock().unwrap().push(result.unwrap().text);
+        });
+        drop(tx);
+        let latest = AtomicU64::new(1);
+        serve(&mut Echo, &rx, &latest, &on_done, None, None)
+    }
+
+    #[test]
+    fn an_unload_request_ends_the_session_and_leaves_later_jobs_queued() {
+        let done = Arc::default();
+        let exit = serve_all(
+            vec![
+                Message::Job((1, request("a"))),
+                Message::Unload,
+                Message::Job((1, request("b"))),
+            ],
+            &done,
+        );
+        assert!(matches!(exit, Exit::Unload));
+        assert!(done.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_closed_queue_still_ends_the_session_as_closed() {
+        let done = Arc::default();
+        let exit = serve_all(vec![Message::Job((1, request("a")))], &done);
+        assert!(matches!(exit, Exit::Closed));
+        assert_eq!(*done.lock().unwrap(), ["a"]);
+    }
+
+    #[test]
+    fn waiting_for_work_skips_unload_requests() {
+        let (tx, rx) = channel();
+        tx.send(Message::Unload).unwrap();
+        tx.send(Message::Job((7, request("x")))).unwrap();
+        assert_eq!(next_job(&rx).map(|(generation, _)| generation), Some(7));
+        drop(tx);
+        assert!(next_job(&rx).is_none());
     }
 
     #[test]

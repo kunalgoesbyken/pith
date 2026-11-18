@@ -23,8 +23,10 @@ use crate::foreground::Foreground;
 use crate::keys::{KeyAction, Keys, replay};
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::overlay::Overlay;
+use crate::power::{self, Power};
 use crate::reader::{Reader, Source};
 use crate::registry;
+use crate::rival;
 use crate::settings::{SettingsWindow, StatsView, UiEvent, take_events};
 use crate::tray::{Tray, TrayCommand, TrayView};
 
@@ -93,6 +95,7 @@ struct App {
     engine: Engine,
     saved: Config,
     pause: Option<ActivePause>,
+    power: Power,
     model: Model,
     skip: Option<SkipReason>,
     foreground: Foreground,
@@ -329,6 +332,13 @@ impl App {
                 }
             }
             Signal::Timer(_) => {}
+            Signal::Power => {
+                let power = Power::read();
+                if power != self.power {
+                    self.power = power;
+                    self.sync();
+                }
+            }
             Signal::Hotkey(id) => {
                 if let Some(binding) = self.keys.binding(id) {
                     self.hotkey(Press {
@@ -347,9 +357,20 @@ impl App {
         self.apply(actions);
     }
 
+    fn power_paused(&self) -> bool {
+        self.saved.enabled && self.saved.pause_on_battery_saver && self.power == Power::BatterySaver
+    }
+
+    fn shown_pause(&self) -> Option<Pause> {
+        self.pause
+            .as_ref()
+            .map(|pause| pause.shown.clone())
+            .or_else(|| self.power_paused().then_some(Pause::BatterySaver))
+    }
+
     fn effective(&self) -> Config {
         Config {
-            enabled: self.saved.enabled && self.pause.is_none(),
+            enabled: self.saved.enabled && self.pause.is_none() && !self.power_paused(),
             ..self.saved.clone()
         }
     }
@@ -363,6 +384,9 @@ impl App {
         let actions = self.engine.handle(Event::SetConfig(config));
         self.apply(actions);
         self.sync_trigger(enabled);
+        if self.power_paused() {
+            self.worker.unload();
+        }
         self.refresh_tray();
     }
 
@@ -385,7 +409,7 @@ impl App {
     fn status_line(&self) -> String {
         Status {
             model: self.model.clone(),
-            pause: self.pause.as_ref().map(|pause| pause.shown.clone()),
+            pause: self.shown_pause(),
             enabled: self.saved.enabled,
             skip: self.skip,
             notice: self.options.notice.clone(),
@@ -401,6 +425,7 @@ impl App {
             status: self.status_line(),
             active: self.engine.config().enabled,
             paused: self.pause.is_some(),
+            power_paused: self.shown_pause() == Some(Pause::BatterySaver),
             foreground: app.map(str::to_string),
             foreground_blocked: app.is_some_and(|name| self.saved.is_blocked(name)),
         });
@@ -518,6 +543,7 @@ impl App {
     fn open_settings(&mut self) {
         if let Some(window) = self.settings.as_ref().filter(|window| window.is_open()) {
             window.show();
+            window.set_rival(rival::detect());
             return;
         }
         match SettingsWindow::open(
@@ -528,6 +554,7 @@ impl App {
         ) {
             Ok(window) => {
                 window.show();
+                window.set_rival(rival::detect());
                 self.settings = Some(window);
             }
             Err(error) => log(&format!("settings window failed: {error}")),
@@ -572,6 +599,9 @@ impl App {
                     self.refresh_settings();
                 }
                 UiEvent::ResetStats => self.reset_stats(),
+                UiEvent::OpenTypingSettings => {
+                    crate::util::open_target(rival::TYPING_SETTINGS_PAGE)
+                }
                 UiEvent::Closed => self.settings = None,
             }
         }
@@ -621,6 +651,7 @@ pub fn run(
         }),
     );
     let _hooks = Hooks::install(reader.sender());
+    let _power_watch = power::watch(control);
     unsafe {
         SetTimer(Some(control), TIMER_POLL, options.poll_ms.max(16), None);
     }
@@ -641,6 +672,7 @@ pub fn run(
         overlay: Overlay::create(config.ghost_opacity)?,
         saved: config.clone(),
         pause: None,
+        power: Power::read(),
         model: Model::Loading(String::new()),
         skip: None,
         foreground: Foreground::default(),
@@ -667,6 +699,9 @@ pub fn run(
         key_read: 0,
     };
     app.sync_trigger(enabled);
+    if app.power_paused() {
+        app.sync();
+    }
     app.reader.poke();
     let mut message = MSG::default();
     'outer: while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {

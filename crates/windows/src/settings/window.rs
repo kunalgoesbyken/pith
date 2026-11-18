@@ -14,7 +14,7 @@ use super::model::{self, Model, current, update};
 use super::view::{draw_item, name, paint_page};
 use super::{
     ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA, ID_REMOVE_FIRST,
-    ID_RESET_STATS, ID_START, MAX_APP_ROWS, StatsView, UiEvent, emit, segments,
+    ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, MAX_APP_ROWS, StatsView, UiEvent, emit, segments,
 };
 use crate::ui::{self, BASE_DPI, Parent, Scale, Theme, width};
 use crate::util::wide;
@@ -52,6 +52,7 @@ fn sync_names(window: HWND, model: &Model) {
         ID_OPEN_DATA,
         ID_DELETE_DATA,
         ID_RESET_STATS,
+        ID_RIVAL_OPEN,
         ID_OPACITY_DOWN,
         ID_OPACITY_UP,
     ]
@@ -153,6 +154,7 @@ fn command(window: HWND, id: i32, code: u32) {
         ID_OPEN_DATA => emit(UiEvent::OpenDataFolder),
         ID_DELETE_DATA => emit(UiEvent::DeleteData),
         ID_RESET_STATS => emit(UiEvent::ResetStats),
+        ID_RIVAL_OPEN => emit(UiEvent::OpenTypingSettings),
         ID_OPACITY_DOWN | ID_OPACITY_UP => flip(window, |model| {
             let percent = model.step_opacity(id == ID_OPACITY_UP)?;
             Some(UiEvent::Apply(Setting::GhostOpacity(percent)))

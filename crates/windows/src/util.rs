@@ -98,7 +98,11 @@ pub fn single_instance(name: &str) -> bool {
 }
 
 pub fn open_path(path: &Path) {
-    let target = wide(&path.to_string_lossy());
+    open_target(&path.to_string_lossy());
+}
+
+pub fn open_target(target: &str) {
+    let target = wide(target);
     unsafe {
         ShellExecuteW(
             None,

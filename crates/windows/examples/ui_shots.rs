@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use pith_core::{Config, Counts, Reach};
-use pith_windows::{Onboarding, OnboardingEvent, SettingsWindow, StatsView, force_dark_theme};
+use pith_windows::{
+    Onboarding, OnboardingEvent, Rival, SettingsWindow, StatsView, force_dark_theme,
+};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
@@ -178,7 +180,7 @@ fn sample_stats() -> StatsView {
     }
 }
 
-fn settings(name: &str, apps: &[&str], dpi: u32, fallback: [u8; 3]) {
+fn settings(name: &str, apps: &[&str], rival: Option<Rival>, dpi: u32, fallback: [u8; 3]) {
     let config = Config {
         blocked_apps: apps.iter().map(|app| app.to_string()).collect(),
         ghost_opacity: 70,
@@ -186,6 +188,7 @@ fn settings(name: &str, apps: &[&str], dpi: u32, fallback: [u8; 3]) {
         ..Config::default()
     };
     let window = SettingsWindow::open(&config, true, "Ready", &sample_stats()).unwrap();
+    window.set_rival(rival);
     park(window.hwnd(), dpi);
     capture(window.hwnd(), name, fallback);
 }
@@ -307,12 +310,31 @@ fn main() {
         force_dark_theme(Some(dark));
         for dpi in DPIS {
             let tag = format!("{theme}-{dpi}");
-            settings(&format!("settings-{tag}"), &many[..3], dpi, fallback);
+            settings(&format!("settings-{tag}"), &many[..3], None, dpi, fallback);
             onboarding(&format!("onboarding-practice-{tag}"), &ready, dpi, fallback);
         }
         states(&format!("states-{theme}"), card);
-        settings(&format!("settings-empty-{theme}-96"), &[], 96, fallback);
-        settings(&format!("settings-many-{theme}-96"), &many, 96, fallback);
+        settings(
+            &format!("settings-empty-{theme}-96"),
+            &[],
+            None,
+            96,
+            fallback,
+        );
+        settings(
+            &format!("settings-many-{theme}-96"),
+            &many,
+            None,
+            96,
+            fallback,
+        );
+        for (kind, rival) in [
+            ("os", Rival::TextSuggestions),
+            ("app", Rival::App("Lightkey")),
+        ] {
+            let name = format!("settings-rival-{kind}-{theme}-96");
+            settings(&name, &many[..3], Some(rival), 96, fallback);
+        }
         onboarding(
             &format!("onboarding-download-{theme}-96"),
             &download,

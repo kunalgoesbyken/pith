@@ -34,6 +34,7 @@ pub enum Signal {
     Wake,
     Timer(usize),
     Hotkey(i32),
+    Power,
 }
 
 thread_local! {
@@ -50,11 +51,13 @@ unsafe extern "system" fn control_procedure(
         WM_WAKE => Some(Signal::Wake),
         WM_TIMER => Some(Signal::Timer(wparam.0)),
         WM_HOTKEY => Some(Signal::Hotkey(wparam.0 as i32)),
+        WM_POWERBROADCAST if wparam.0 as u32 == PBT_POWERSETTINGCHANGE => Some(Signal::Power),
         _ => None,
     };
     if let Some(signal) = signal {
+        let handled = LRESULT(isize::from(matches!(signal, Signal::Power)));
         SIGNALS.with(|queue| queue.borrow_mut().push_back(signal));
-        return LRESULT(0);
+        return handled;
     }
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
 }

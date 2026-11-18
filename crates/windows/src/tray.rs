@@ -11,6 +11,7 @@ use windows::Win32::UI::Shell::{
     Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 
+pub const POWER_TOOLTIP: &str = "Pith \u{b7} paused while battery saver is on";
 const MENU_TEXT_CHARS: usize = 100;
 
 fn menu_text(text: &str) -> String {
@@ -36,6 +37,7 @@ pub struct TrayView {
     pub status: String,
     pub active: bool,
     pub paused: bool,
+    pub power_paused: bool,
     pub foreground: Option<String>,
     pub foreground_blocked: bool,
 }
@@ -83,7 +85,16 @@ pub struct Tray {
     block: MenuItem,
     settings: MenuItem,
     quit: MenuItem,
+    resting_tooltip: String,
     shown: RefCell<Option<TrayView>>,
+}
+
+fn tooltip_for<'a>(view: &TrayView, resting: &'a str) -> &'a str {
+    if view.power_paused {
+        POWER_TOOLTIP
+    } else {
+        resting
+    }
 }
 
 fn glyph(active: bool) -> Icon {
@@ -134,9 +145,10 @@ impl Tray {
         menu.append(&PredefinedMenuItem::separator()).ok()?;
         menu.append(&settings).ok()?;
         menu.append(&quit).ok()?;
+        let resting_tooltip = tooltip(reach);
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
-            .with_tooltip(tooltip(reach))
+            .with_tooltip(&resting_tooltip)
             .with_icon(glyph(active))
             .build()
             .ok()?;
@@ -150,6 +162,7 @@ impl Tray {
             block,
             settings,
             quit,
+            resting_tooltip,
             shown: RefCell::new(None),
         })
     }
@@ -179,6 +192,11 @@ impl Tray {
         }
         if before.is_none_or(|old| old.active != view.active) {
             let _ = self.icon.set_icon(Some(glyph(view.active)));
+        }
+        if before.is_none_or(|old| old.power_paused != view.power_paused) {
+            let _ = self
+                .icon
+                .set_tooltip(Some(tooltip_for(&view, &self.resting_tooltip)));
         }
         if before.is_none_or(|old| old.paused != view.paused) {
             self.resume.set_enabled(view.paused);
@@ -260,5 +278,15 @@ mod tests {
         let long = "x".repeat(300);
         assert_eq!(menu_text(&long).chars().count(), MENU_TEXT_CHARS + 1);
         assert!(menu_text(&long).ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn tooltip_names_battery_saver_only_while_paused_for_it() {
+        let mut view = TrayView::default();
+        assert_eq!(tooltip_for(&view, "resting"), "resting");
+        view.paused = true;
+        assert_eq!(tooltip_for(&view, "resting"), "resting");
+        view.power_paused = true;
+        assert_eq!(tooltip_for(&view, "resting"), POWER_TOOLTIP);
     }
 }

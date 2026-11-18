@@ -40,6 +40,7 @@ pub enum Model {
 pub enum Pause {
     Until(String),
     UntilResumed,
+    BatterySaver,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +78,7 @@ impl Status {
         match (&self.pause, &self.model) {
             (Some(Pause::Until(clock)), _) => format!("Paused until {clock}"),
             (Some(Pause::UntilResumed), _) => "Paused until you resume".to_string(),
+            (Some(Pause::BatterySaver), _) => "Paused while battery saver is on".to_string(),
             (None, _) if !self.enabled => "Turned off".to_string(),
             (None, Model::Failed(error)) => format!("Error: {error}"),
             (None, Model::Loading(text)) if text.starts_with("downloading") => capitalised(text),
@@ -194,6 +196,10 @@ mod tests {
             (
                 status(Model::Ready, Some(Pause::UntilResumed), false, None),
                 "Paused until you resume",
+            ),
+            (
+                status(Model::Ready, Some(Pause::BatterySaver), true, skip),
+                "Paused while battery saver is on",
             ),
         ];
         for (status, expected) in rows {

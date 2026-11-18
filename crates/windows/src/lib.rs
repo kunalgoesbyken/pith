@@ -11,9 +11,11 @@ mod keys;
 mod onboarding;
 mod overlay;
 mod pill;
+mod power;
 mod reach;
 mod reader;
 mod registry;
+mod rival;
 mod run;
 mod settings;
 mod tray;
@@ -28,6 +30,7 @@ pub use onboarding::{
     View as OnboardingView,
 };
 pub use reader::{Reader, SnapshotCallback, Source};
+pub use rival::Rival;
 pub use run::{Inbound, InsertMode, Options, run};
 pub use settings::{SettingsWindow, StatsView};
 pub use ui::force_dark_theme;

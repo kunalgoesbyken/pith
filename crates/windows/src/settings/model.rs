@@ -4,6 +4,7 @@ use pith_core::{
 
 use super::{Choice, MAX_APP_ROWS, OPACITY_STEP, StatsView};
 use crate::reach;
+use crate::rival::Rival;
 use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,6 +24,7 @@ pub struct Model {
     pub first_app: usize,
     pub status: String,
     pub footer: String,
+    pub rival: Option<Rival>,
 }
 
 thread_local! {
@@ -77,6 +79,7 @@ impl Model {
             first_app: 0,
             status: String::new(),
             footer: String::new(),
+            rival: None,
         };
         model.refresh(config, start_with_windows, status, stats);
         model

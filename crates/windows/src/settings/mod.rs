@@ -11,6 +11,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, IsWindow, SW_SHOWNORMAL, SetForegroundWindow, ShowWindow,
 };
 
+use crate::rival::Rival;
 use model::update;
 
 const ID_ENABLED: i32 = 101;
@@ -26,6 +27,7 @@ const ID_OPEN_DATA: i32 = 112;
 const ID_DELETE_DATA: i32 = 113;
 const ID_START: i32 = 114;
 const ID_RESET_STATS: i32 = 115;
+const ID_RIVAL_OPEN: i32 = 116;
 const ID_REMOVE_FIRST: i32 = 120;
 const MAX_APP_ROWS: usize = 3;
 const OPACITY_STEP: u8 = 10;
@@ -75,6 +77,7 @@ pub enum UiEvent {
     DeleteData,
     StartWithWindows(bool),
     ResetStats,
+    OpenTypingSettings,
     Closed,
 }
 
@@ -117,6 +120,12 @@ impl SettingsWindow {
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_SHOWNORMAL);
             let _ = SetForegroundWindow(self.hwnd);
+        }
+    }
+
+    pub fn set_rival(&self, rival: Option<Rival>) {
+        if update(|model| model.rival = rival).is_some() {
+            window::relayout(self.hwnd);
         }
     }
 
@@ -397,6 +406,36 @@ mod tests {
             assert_eq!(theme, Theme::detect());
         }
         force_dark_theme(None);
+    }
+
+    #[test]
+    fn a_rival_line_appears_only_when_set_and_only_the_system_feature_has_an_action() {
+        let window =
+            SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
+                .unwrap();
+        assert!(!shown(&window, ID_RIVAL_OPEN));
+        let plain_height = current().map(|model| build(&model).client.bottom).unwrap();
+        take_events();
+
+        window.set_rival(Some(Rival::TextSuggestions));
+        assert!(shown(&window, ID_RIVAL_OPEN));
+        assert_eq!(name(&window, ID_RIVAL_OPEN), "Open Windows typing settings");
+        click(&window, ID_RIVAL_OPEN);
+        assert_eq!(take_events(), [UiEvent::OpenTypingSettings]);
+
+        window.set_rival(Some(Rival::App("Lightkey")));
+        assert!(!shown(&window, ID_RIVAL_OPEN));
+
+        window.refresh(&Config::default(), false, "Ready", &StatsView::default());
+        assert_eq!(
+            current().and_then(|model| model.rival),
+            Some(Rival::App("Lightkey"))
+        );
+
+        window.set_rival(None);
+        assert!(!shown(&window, ID_RIVAL_OPEN));
+        let after = current().map(|model| build(&model).client.bottom).unwrap();
+        assert_eq!(after, plain_height);
     }
 
     #[test]

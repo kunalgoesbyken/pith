@@ -2,13 +2,13 @@ use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 
 use super::layout::{
-    Block, DATA_ROWS, FIGURE_COLUMN, GENERAL_ROWS, Layout, OPACITY_TITLE, Row, RowText,
-    STATS_RESET, TITLE,
+    Block, DATA_ROWS, FIGURE_COLUMN, GENERAL_ROWS, Layout, OPACITY_TITLE, RIVAL_OPEN_NAME, Row,
+    RowText, STATS_RESET, TITLE,
 };
 use super::model::Model;
 use super::{
     ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA, ID_REMOVE_FIRST,
-    ID_RESET_STATS, ID_START, MAX_APP_ROWS, segments,
+    ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, MAX_APP_ROWS, segments,
 };
 use crate::ui::{
     self, Align, CARD_RADIUS, Canvas, Look, Role, STROKE, Text, Tone, height, measure, rect, width,
@@ -38,6 +38,7 @@ fn look(model: &Model, id: i32) -> Option<Look<'static>> {
         ID_OPEN_DATA => Some(button(Tone::Standard, "Open")),
         ID_DELETE_DATA => Some(button(Tone::Danger, "Delete")),
         ID_RESET_STATS => Some(button(Tone::Danger, "Reset")),
+        ID_RIVAL_OPEN => Some(button(Tone::Standard, "Review")),
         ID_OPACITY_DOWN => Some(button(Tone::Standard, MINUS)),
         ID_OPACITY_UP => Some(button(Tone::Standard, PLUS)),
         _ => segments()
@@ -58,6 +59,7 @@ pub fn name(model: &Model, id: i32) -> String {
         ID_OPEN_DATA => DATA_ROWS[0].0.to_string(),
         ID_DELETE_DATA => DATA_ROWS[1].0.to_string(),
         ID_RESET_STATS => STATS_RESET.0.to_string(),
+        ID_RIVAL_OPEN => RIVAL_OPEN_NAME.to_string(),
         ID_OPACITY_DOWN => format!("Lower {}", OPACITY_TITLE.to_lowercase()),
         ID_OPACITY_UP => format!("Raise {}", OPACITY_TITLE.to_lowercase()),
         _ => segments()
