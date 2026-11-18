@@ -80,7 +80,10 @@ mod tests {
         ] {
             assert_eq!(Config::from_toml(toml).is_ok(), ok, "{toml}");
         }
-        assert_eq!(Config::from_toml("model_path = \"\"").unwrap().model_path, None);
+        assert_eq!(
+            Config::from_toml("model_path = \"\"").unwrap().model_path,
+            None
+        );
     }
 
     #[test]
@@ -122,6 +125,7 @@ const ALWAYS_BLOCKED: [&str; 23] = [
 ];
 
 const MIN_CONTEXT_HEADROOM: u32 = 64;
+const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
 const MIN_GHOST_OPACITY: u8 = 10;
 
@@ -227,7 +231,10 @@ impl Config {
                 !self.min_token_logprob.is_nan() && !self.min_mean_logprob.is_nan(),
                 "logprob thresholds must be numbers",
             ),
-            (self.debounce_ms <= MAX_DEBOUNCE_MS, "debounce_ms must be at most 5000"),
+            (
+                self.debounce_ms <= MAX_DEBOUNCE_MS,
+                "debounce_ms must be at most 5000",
+            ),
             (
                 (MIN_GHOST_OPACITY..=100).contains(&self.ghost_opacity),
                 "ghost_opacity must be a percentage from 10 to 100",
@@ -253,6 +260,10 @@ impl Config {
         } else {
             (available / 2).clamp(1, 4)
         }
+    }
+
+    pub fn lookback_chars(&self) -> usize {
+        self.context_chars.saturating_mul(LOOKBACK_WINDOWS)
     }
 
     pub fn is_blocked(&self, app: &str) -> bool {

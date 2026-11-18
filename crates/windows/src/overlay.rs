@@ -33,7 +33,11 @@ fn contrasting_color(x: i32, y: i32) -> u32 {
         ReleaseDC(None, screen);
         pixel.0
     };
-    let (red, green, blue) = (background & 0xFF, (background >> 8) & 0xFF, (background >> 16) & 0xFF);
+    let (red, green, blue) = (
+        background & 0xFF,
+        (background >> 8) & 0xFF,
+        (background >> 16) & 0xFF,
+    );
     if red * 299 + green * 587 + blue * 114 < 128_000 {
         LIGHT_TEXT
     } else {
