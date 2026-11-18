@@ -1,4 +1,4 @@
-# Pith
+<h1 align="center"><img src="assets/logo.svg" alt="Pith" width="280"></h1>
 
 Local autocomplete for every text box on Windows. Pause while you type and Pith shows the rest of your sentence in grey at the caret. Tab keeps all of it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, and Ctrl+Shift+Space asks for a suggestion right away.
 

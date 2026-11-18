@@ -9,7 +9,9 @@ use super::{
 };
 use crate::format::{duration, number};
 use crate::rival::Rival;
-use crate::ui::{BUTTON_HEIGHT, FOCUS_MARGIN, Role, Scale, expand, height, rect, toggle_width};
+use crate::ui::{
+    BUTTON_HEIGHT, FOCUS_MARGIN, Role, Scale, expand, height, mark_width, rect, toggle_width,
+};
 
 const COLUMN_WIDTH: i32 = 472;
 const COLUMN_GAP: i32 = 24;
@@ -26,6 +28,8 @@ const STEP_WIDTH: i32 = 40;
 const SECTION_GAP: i32 = 20;
 const LABEL_GAP: i32 = 8;
 const HEADER_GAP: i32 = 4;
+const MARK_HEIGHT: i32 = 44;
+const MARK_GAP: i32 = 14;
 const SEGMENT_WIDTH: i32 = 64;
 const BUTTON_WIDTH: i32 = 88;
 const TOGGLE_LABEL: i32 = 28;
@@ -100,6 +104,7 @@ pub struct Placed {
 #[derive(Clone, Debug)]
 pub struct Layout {
     pub client: RECT,
+    pub mark: RECT,
     pub title: RECT,
     pub status: RECT,
     pub blocks: Vec<Block>,
@@ -332,9 +337,19 @@ pub fn build(model: &Model) -> Layout {
         y: margin,
         controls: Vec::new(),
     };
-    let title = builder.take(Role::Subtitle.line());
+    let header_top = builder.y;
+    let mut title = builder.take(Role::Subtitle.line());
     builder.y += scale.px(HEADER_GAP);
-    let status = builder.take(Role::Caption.line());
+    let mut status = builder.take(Role::Caption.line());
+    let mark_height = scale.px(MARK_HEIGHT);
+    let mark = rect(
+        margin,
+        header_top + (status.bottom - header_top - mark_height) / 2,
+        mark_width(mark_height),
+        mark_height,
+    );
+    title.left = mark.right + scale.px(MARK_GAP);
+    status.left = title.left;
     builder.y += scale.px(SECTION_GAP);
     let columns_top = builder.y;
     let general = builder.card(
@@ -420,6 +435,7 @@ pub fn build(model: &Model) -> Layout {
     let footer = builder.take(Role::Caption.line());
     Layout {
         client: rect(0, 0, scale.px(CLIENT_WIDTH), builder.y + margin),
+        mark,
         title,
         status,
         blocks: [general, suggestions, apps]

@@ -7,7 +7,7 @@ use super::step::Glyph;
 use super::{DONE_ID, HINT_ID, KEYS_ID, PROGRESS_ID, STATUS_ID};
 use crate::ui::{
     self, Align, CARD_RADIUS, CONTROL_RADIUS, Canvas, Look, Role, STROKE, Text, Tone, height,
-    measure, paint_backdrop, rect, width,
+    measure, paint_backdrop, paint_mark, rect, width,
 };
 
 const KEYCAP_HEIGHT: i32 = 28;
@@ -55,6 +55,13 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     let scale = model.scale;
     let radius = scale.px(CARD_RADIUS);
     canvas.clear(model.page());
+    paint_mark(
+        canvas,
+        (layout.mark.left, layout.mark.top),
+        height(layout.mark),
+        palette.accent.base,
+        palette.mark_ghost,
+    );
     canvas.text(layout.title, TITLE, Text::new(Role::Title, palette.text));
     canvas.text(
         layout.promise,

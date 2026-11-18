@@ -11,7 +11,8 @@ use super::{
     ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, MAX_APP_ROWS, segments,
 };
 use crate::ui::{
-    self, Align, CARD_RADIUS, Canvas, Look, Role, STROKE, Text, Tone, height, measure, rect, width,
+    self, Align, CARD_RADIUS, Canvas, Look, Role, STROKE, Text, Tone, height, measure, paint_mark,
+    rect, width,
 };
 
 const MINUS: &str = "\u{2212}";
@@ -182,6 +183,13 @@ fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
 pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     let palette = &model.theme.palette;
     canvas.clear(model.page());
+    paint_mark(
+        canvas,
+        (layout.mark.left, layout.mark.top),
+        height(layout.mark),
+        palette.accent.base,
+        palette.mark_ghost,
+    );
     canvas.text(layout.title, TITLE, Text::new(Role::Subtitle, palette.text));
     canvas.text(
         layout.status,

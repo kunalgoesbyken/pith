@@ -1,5 +1,6 @@
 #![cfg(windows)]
 
+pub mod brand;
 mod caret;
 mod clipboard;
 mod control;

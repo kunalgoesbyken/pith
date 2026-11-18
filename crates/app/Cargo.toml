@@ -11,3 +11,6 @@ directories.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 pith-windows.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+winresource.workspace = true

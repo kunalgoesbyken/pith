@@ -2,7 +2,7 @@ use windows::Win32::Foundation::RECT;
 
 use super::model::Model;
 use super::step::Glyph;
-use crate::ui::{BUTTON_HEIGHT, Role, Text, expand, inset, measure, rect};
+use crate::ui::{BUTTON_HEIGHT, Role, Text, expand, inset, mark_width, measure, rect};
 
 pub const TITLE: &str = "Welcome to Pith";
 pub const HINT: &str = "Try it. Click at the end of the sentence below and pause for a second. The rest of the sentence appears in grey.";
@@ -21,6 +21,7 @@ const PAD: i32 = 16;
 const GAP: i32 = 16;
 const HERO_GAP: i32 = 20;
 const PROMISE_GAP: i32 = 4;
+const MARK_GAP: i32 = 14;
 const NOTE_GAP: i32 = 8;
 const GLYPH: i32 = 20;
 const GLYPH_GAP: i32 = 12;
@@ -37,6 +38,7 @@ pub const DONE_WIDTH: i32 = 96;
 #[derive(Clone, Copy, Debug)]
 pub struct Layout {
     pub client: RECT,
+    pub mark: RECT,
     pub title: RECT,
     pub promise: RECT,
     pub status_card: RECT,
@@ -59,7 +61,10 @@ pub fn build(model: &Model) -> Layout {
     let left = px(MARGIN);
     let inner = px(WIDTH) - 2 * left;
     let mut y = px(MARGIN);
-    let title = rect(left, y, inner, px(Role::Title.line()));
+    let mark_height = px(Role::Title.line());
+    let mark = rect(left, y, mark_width(mark_height), mark_height);
+    let title_left = mark.right + px(MARK_GAP);
+    let title = rect(title_left, y, left + inner - title_left, mark_height);
     y = title.bottom;
     let (_, promise_height) = measure(
         scale,
@@ -132,6 +137,7 @@ pub fn build(model: &Model) -> Layout {
     );
     Layout {
         client: rect(0, 0, px(WIDTH), footer.bottom),
+        mark,
         title,
         promise,
         status_card,
