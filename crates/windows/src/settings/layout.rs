@@ -288,11 +288,15 @@ fn model_specs(recommended: ModelPreset) -> Vec<Spec> {
 
 fn stat_specs(model: &Model) -> Vec<Spec> {
     let both = |title: &str, value: &dyn Fn(&Counts) -> String| Spec {
-        text: RowText::Figures(title.to_string(), value(&model.today), value(&model.total)),
+        text: RowText::Figures(
+            title.to_string(),
+            value(&model.snapshot.today),
+            value(&model.snapshot.total),
+        ),
         height: STAT_ROW,
         control: Control::None,
     };
-    let saved = |counts: &Counts| duration(counts.seconds_saved(model.typing_wpm), number);
+    let saved = |counts: &Counts| duration(counts.seconds_saved(model.snapshot.typing_wpm), number);
     vec![
         Spec {
             text: RowText::Heading(STATS_HEADINGS.0.to_string(), STATS_HEADINGS.1.to_string()),
@@ -353,14 +357,14 @@ fn app_specs(model: &Model) -> Vec<Spec> {
             control: Control::Button(ID_REMOVE_FIRST + slot as i32),
         })
         .collect();
-    if model.blocked.len() > MAX_APP_ROWS {
+    if model.snapshot.blocked.len() > MAX_APP_ROWS {
         let end = model.first_app + apps.len();
         specs.push(Spec {
             text: RowText::Note(format!(
                 "{}\u{2013}{} of {}. Scroll to see more.",
                 model.first_app + 1,
                 end,
-                model.blocked.len()
+                model.snapshot.blocked.len()
             )),
             height: NOTE_ROW,
             control: Control::None,
@@ -439,14 +443,14 @@ pub fn build(model: &Model) -> Layout {
             Spec {
                 text: RowText::Pair(
                     OPACITY_TITLE.to_string(),
-                    format!("{}%", number(model.opacity.into())),
+                    format!("{}%", number(model.snapshot.opacity.into())),
                 ),
                 height: ROW,
                 control: Control::Stepper(ID_OPACITY_DOWN, ID_OPACITY_UP),
             },
         ],
     );
-    let models = if model.preset.is_some() {
+    let models = if model.snapshot.preset.is_some() {
         Some(builder.card(Some(MODEL_LABEL), model_specs(model.recommended)))
     } else {
         for (id, ..) in MODELS {

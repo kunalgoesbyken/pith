@@ -12,7 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use super::layout::{Layout, build};
-use super::model::{self, Model, current, update};
+use super::model::{self, Model, read, update};
 use super::view::{draw_item, name, paint_page};
 use super::{
     ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA, ID_REMOVE_FIRST,
@@ -109,12 +109,12 @@ fn fit_to_work_area(window: HWND, scale: Scale, content: RECT) -> i32 {
 }
 
 fn arrange(window: HWND) {
-    let Some(model) = current() else { return };
-    let content = build(&model).client;
-    let visible = fit_to_work_area(window, model.scale, content);
+    let Some((content, scale)) = read(|model| (build(model).client, model.scale)) else {
+        return;
+    };
+    let visible = fit_to_work_area(window, scale, content);
     update(|model| model.set_page_room(ui::height(content) - visible));
-    let Some(model) = current() else { return };
-    place_controls(window, &build(&model));
+    read(|model| place_controls(window, &build(model)));
     unsafe {
         let _ = RedrawWindow(Some(window), None, None, RDW_INVALIDATE | RDW_ALLCHILDREN);
     }
@@ -143,8 +143,7 @@ fn place_controls(window: HWND, layout: &Layout) {
 }
 
 pub fn relayout(window: HWND) {
-    let Some(model) = current() else { return };
-    sync_names(window, &model);
+    read(|model| sync_names(window, model));
     arrange(window);
 }
 
@@ -165,10 +164,11 @@ fn retheme(window: HWND) {
 }
 
 fn paint_client(window: HWND, hdc: HDC) {
-    let Some(model) = current() else { return };
-    let layout = build(&model);
-    ui::paint(hdc, client(window), model.scale, |canvas| {
-        paint_page(canvas, &model, &layout);
+    read(|model| {
+        let layout = build(model);
+        ui::paint(hdc, client(window), model.scale, |canvas| {
+            paint_page(canvas, model, &layout);
+        });
     });
 }
 
@@ -176,10 +176,8 @@ fn flip(window: HWND, change: impl FnOnce(&mut Model) -> Option<UiEvent>) {
     if let Some(event) = update(change).flatten() {
         emit(event);
     }
-    if let Some(model) = current() {
-        sync_names(window, &model);
-        repaint_all(window);
-    }
+    read(|model| sync_names(window, model));
+    repaint_all(window);
 }
 
 fn command(window: HWND, id: i32, code: u32) {
@@ -188,19 +186,21 @@ fn command(window: HWND, id: i32, code: u32) {
     }
     match id {
         ID_ENABLED => flip(window, |model| {
-            model.enabled = !model.enabled;
-            Some(UiEvent::Apply(Setting::Enabled(model.enabled)))
+            let snapshot = &mut model.snapshot;
+            snapshot.enabled = !snapshot.enabled;
+            Some(UiEvent::Apply(Setting::Enabled(snapshot.enabled)))
         }),
         ID_START => flip(window, |model| {
-            model.start_with_windows = !model.start_with_windows;
-            Some(UiEvent::StartWithWindows(model.start_with_windows))
+            let snapshot = &mut model.snapshot;
+            snapshot.start_with_windows = !snapshot.start_with_windows;
+            Some(UiEvent::StartWithWindows(snapshot.start_with_windows))
         }),
         ID_OPEN_DATA => emit(UiEvent::OpenDataFolder),
         ID_DELETE_DATA => emit(UiEvent::DeleteData),
         ID_RESET_STATS => emit(UiEvent::ResetStats),
         ID_RIVAL_OPEN => emit(UiEvent::OpenTypingSettings),
         ID_OPACITY_DOWN | ID_OPACITY_UP => flip(window, |model| {
-            let percent = model.step_opacity(id == ID_OPACITY_UP)?;
+            let percent = model.snapshot.step_opacity(id == ID_OPACITY_UP)?;
             Some(UiEvent::Apply(Setting::GhostOpacity(percent)))
         }),
         _ => segment_or_remove(window, id),
@@ -211,37 +211,38 @@ fn segment_or_remove(window: HWND, id: i32) {
     if let Some((_, choice, _)) = segments().find(|(segment, ..)| *segment == id) {
         let choice = *choice;
         flip(window, |model| {
-            model.select(choice);
+            model.snapshot.select(choice);
             Some(UiEvent::Apply(choice.setting()))
         });
         return;
     }
-    let app = current().and_then(|model| {
-        let slot = usize::try_from(id - ID_REMOVE_FIRST).ok()?;
-        model.visible_apps().get(slot).cloned()
-    });
+    let app = usize::try_from(id - ID_REMOVE_FIRST)
+        .ok()
+        .and_then(|slot| read(|model| model.visible_apps().get(slot).cloned()).flatten());
     if let Some(app) = app {
         emit(UiEvent::Apply(Setting::Unblock(app)));
     }
 }
 
-fn over_app_list(window: HWND, model: &Model, lparam: LPARAM) -> bool {
+fn over_app_list(window: HWND, app_list: RECT, lparam: LPARAM) -> bool {
     let mut cursor = POINT {
         x: (lparam.0 & 0xFFFF) as i16 as i32,
         y: ((lparam.0 >> 16) & 0xFFFF) as i16 as i32,
     };
     unsafe {
         let _ = ScreenToClient(window, &mut cursor);
-        PtInRect(&build(model).app_list, cursor).as_bool()
+        PtInRect(&app_list, cursor).as_bool()
     }
 }
 
 fn scroll(window: HWND, wheel: i32, lparam: LPARAM) {
-    let Some(model) = current() else { return };
+    let Some((app_list, scale)) = read(|model| (build(model).app_list, model.scale)) else {
+        return;
+    };
     let rows = -(wheel / WHEEL_STEP) as isize;
-    let list_moved = over_app_list(window, &model, lparam)
+    let list_moved = over_app_list(window, app_list, lparam)
         && update(|model| model.scroll(rows)).unwrap_or(false);
-    let page_by = -wheel * model.scale.px(PAGE_STEP) / WHEEL_STEP;
+    let page_by = -wheel * scale.px(PAGE_STEP) / WHEEL_STEP;
     if list_moved || update(|model| model.scroll_page(page_by)).unwrap_or(false) {
         relayout(window);
     }
@@ -256,7 +257,7 @@ fn reveal(window: HWND, control: HWND) {
         MapWindowPoints(None, Some(window), corners);
         let _ = GetClientRect(window, &mut client);
     }
-    let Some(margin) = current().map(|model| model.scale.px(REVEAL_MARGIN)) else {
+    let Some(margin) = read(|model| model.scale.px(REVEAL_MARGIN)) else {
         return;
     };
     let by = if bounds.top < margin {
@@ -313,9 +314,7 @@ unsafe extern "system" fn procedure(
         }
         WM_DRAWITEM => {
             let item = unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) };
-            if let Some(model) = current() {
-                draw_item(item, &model);
-            }
+            read(|model| draw_item(item, model));
             let gained_focus =
                 item.itemAction.0 & ODA_FOCUS.0 != 0 && item.itemState.0 & ODS_FOCUS.0 != 0;
             if gained_focus {
@@ -419,8 +418,8 @@ pub fn create(
         stats,
         (theme, mica, scale),
     );
-    model::install(model.clone());
     let layout = build(&model);
+    model::install(model);
     let parent = Parent {
         hwnd: window,
         instance,
@@ -428,7 +427,6 @@ pub fn create(
     for placed in &layout.controls {
         parent.button(placed.id, "", placed.bounds)?;
     }
-    sync_names(window, &model);
-    arrange(window);
+    relayout(window);
     Ok(window)
 }

@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 pub struct Slot<T>(RefCell<Option<T>>);
 
-impl<T: Clone> Slot<T> {
+impl<T> Slot<T> {
     pub const fn new() -> Self {
         Self(RefCell::new(None))
     }
@@ -15,8 +15,8 @@ impl<T: Clone> Slot<T> {
         *self.0.borrow_mut() = None;
     }
 
-    pub fn current(&self) -> Option<T> {
-        self.0.borrow().clone()
+    pub fn read<R>(&self, view: impl FnOnce(&T) -> R) -> Option<R> {
+        self.0.borrow().as_ref().map(view)
     }
 
     pub fn update<R>(&self, change: impl FnOnce(&mut T) -> R) -> Option<R> {

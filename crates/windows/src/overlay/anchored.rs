@@ -1,0 +1,81 @@
+use pith_core::{Flow, Rect, anchor_pill, layout};
+use windows::Win32::Foundation::{POINT, SIZE};
+
+use super::face::{FALLBACK_FAMILY, Face};
+use super::pill::{Pill, Style};
+use super::scene::{Frame, Placed, Scene};
+use super::shading::Shading;
+use crate::ui::{Role, STROKE};
+
+const PADDING_X: i32 = 10;
+const PADDING_Y: i32 = 5;
+const GAP: i32 = 4;
+const MIN_WIDTH: i32 = 240;
+
+pub fn compose<'a>(frame: &Frame<'a>, element: Rect, style: Style) -> Option<Scene<'a>> {
+    let Frame {
+        text, rtl, monitor, ..
+    } = *frame;
+    let (work, scale) = (monitor.work, monitor.scale);
+    let (padding_x, padding_y) = (scale.px(PADDING_X), scale.px(PADDING_Y));
+    let room = element.width.max(scale.px(MIN_WIDTH)).min(work.width) - 2 * padding_x;
+    let face = Face::new(
+        frame.screen,
+        FALLBACK_FAMILY,
+        scale.size(Role::Body.size()).round() as i32,
+    );
+    let flow = Flow {
+        caret: Rect {
+            x: if rtl { room } else { -1 },
+            y: 0,
+            width: 0,
+            height: face.line_height,
+        },
+        top: 0,
+        line_height: face.line_height,
+        bounds: Rect {
+            x: 0,
+            y: 0,
+            width: room,
+            height: face.line_height,
+        },
+        rtl,
+        max_lines: 1,
+    };
+    let line = *layout(text, &flow, &|segment| face.measure(segment)).first()?;
+    let height = face.line_height + 2 * padding_y;
+    let pill = anchor_pill(
+        element,
+        line.width + 2 * padding_x,
+        height,
+        scale.px(GAP),
+        work,
+        rtl,
+    )?;
+    let placed = Placed {
+        lines: vec![line],
+        origin: POINT {
+            x: line.x - padding_x,
+            y: -padding_y,
+        },
+        destination: POINT {
+            x: pill.x,
+            y: pill.y,
+        },
+        size: SIZE {
+            cx: pill.width,
+            cy: pill.height,
+        },
+    };
+    let shape = Pill {
+        width: pill.width,
+        height: pill.height,
+        edge: scale.px(STROKE).max(1),
+    };
+    Some(Scene::new(
+        frame,
+        face,
+        placed,
+        Shading::Pill { style, shape },
+    ))
+}

@@ -11,7 +11,6 @@ mod format;
 mod keys;
 mod onboarding;
 mod overlay;
-mod pill;
 mod power;
 mod reach;
 mod reader;
@@ -27,7 +26,6 @@ pub use clipboard::{Trigger, paste};
 pub use keys::KeyAction;
 pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
-    View as OnboardingView,
 };
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use rival::Rival;

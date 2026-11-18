@@ -7,15 +7,11 @@ use crate::reach;
 use crate::rival::Rival;
 use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Model {
-    pub theme: Theme,
-    pub mica: bool,
-    pub scale: Scale,
+#[derive(Debug, PartialEq)]
+pub struct Snapshot {
     pub enabled: bool,
     pub level: Option<Suggestions>,
     pub length: Option<Length>,
-    pub recommended: ModelPreset,
     pub preset: Option<ModelPreset>,
     pub opacity: u8,
     pub today: Counts,
@@ -23,11 +19,20 @@ pub struct Model {
     pub typing_wpm: u32,
     pub start_with_windows: bool,
     pub blocked: Vec<String>,
+    pub status: String,
+    pub footer: String,
+}
+
+#[derive(Debug)]
+pub struct Model {
+    pub theme: Theme,
+    pub mica: bool,
+    pub scale: Scale,
+    pub snapshot: Snapshot,
+    pub recommended: ModelPreset,
     pub first_app: usize,
     pub page_offset: i32,
     pub page_room: i32,
-    pub status: String,
-    pub footer: String,
     pub rival: Option<Rival>,
 }
 
@@ -43,8 +48,8 @@ pub fn clear() {
     STATE.with(Slot::clear);
 }
 
-pub fn current() -> Option<Model> {
-    STATE.with(Slot::current)
+pub fn read<R>(view: impl FnOnce(&Model) -> R) -> Option<R> {
+    STATE.with(|slot| slot.read(view))
 }
 
 pub fn update<R>(change: impl FnOnce(&mut Model) -> R) -> Option<R> {
@@ -59,67 +64,28 @@ fn model_label(config: &Config, recommended: ModelPreset) -> String {
     }
 }
 
-impl Model {
-    pub fn new(
+impl Snapshot {
+    pub fn of(
         config: &Config,
         recommended: ModelPreset,
         start_with_windows: bool,
         status: &str,
         stats: &StatsView,
-        (theme, mica, scale): (Theme, bool, Scale),
     ) -> Self {
-        let mut model = Self {
-            theme,
-            mica,
-            scale,
-            enabled: false,
-            level: None,
-            length: None,
-            recommended,
-            preset: None,
+        Self {
+            enabled: config.enabled,
+            level: Suggestions::of(config),
+            length: Length::of(config),
+            preset: config.uses_preset().then(|| config.preset(recommended)),
             opacity: config.ghost_opacity,
-            today: Counts::default(),
-            total: Counts::default(),
+            today: stats.today,
+            total: stats.total,
             typing_wpm: config.typing_wpm,
-            start_with_windows: false,
-            blocked: Vec::new(),
-            first_app: 0,
-            page_offset: 0,
-            page_room: 0,
-            status: String::new(),
-            footer: String::new(),
-            rival: None,
-        };
-        model.refresh(config, start_with_windows, status, stats);
-        model
-    }
-
-    pub fn refresh(
-        &mut self,
-        config: &Config,
-        start_with_windows: bool,
-        status: &str,
-        stats: &StatsView,
-    ) {
-        self.enabled = config.enabled;
-        self.level = Suggestions::of(config);
-        self.length = Length::of(config);
-        self.preset = config
-            .uses_preset()
-            .then(|| config.preset(self.recommended));
-        self.opacity = config.ghost_opacity;
-        self.today = stats.today;
-        self.total = stats.total;
-        self.typing_wpm = config.typing_wpm;
-        self.start_with_windows = start_with_windows;
-        self.blocked = config.blocked_apps.clone();
-        self.status = format!("{status} \u{b7} {}", model_label(config, self.recommended));
-        self.footer = reach::footer(&config.reach());
-        self.first_app = self.first_app.min(self.last_first_app());
-    }
-
-    fn last_first_app(&self) -> usize {
-        self.blocked.len().saturating_sub(MAX_APP_ROWS)
+            start_with_windows,
+            blocked: config.blocked_apps.clone(),
+            status: format!("{status} \u{b7} {}", model_label(config, recommended)),
+            footer: reach::footer(&config.reach()),
+        }
     }
 
     pub fn selected(&self, choice: Choice) -> bool {
@@ -148,6 +114,49 @@ impl Model {
             stepped
         })
     }
+}
+
+impl Model {
+    pub fn new(
+        config: &Config,
+        recommended: ModelPreset,
+        start_with_windows: bool,
+        status: &str,
+        stats: &StatsView,
+        (theme, mica, scale): (Theme, bool, Scale),
+    ) -> Self {
+        Self {
+            theme,
+            mica,
+            scale,
+            snapshot: Snapshot::of(config, recommended, start_with_windows, status, stats),
+            recommended,
+            first_app: 0,
+            page_offset: 0,
+            page_room: 0,
+            rival: None,
+        }
+    }
+
+    pub fn refresh(
+        &mut self,
+        config: &Config,
+        start_with_windows: bool,
+        status: &str,
+        stats: &StatsView,
+    ) -> bool {
+        let next = Snapshot::of(config, self.recommended, start_with_windows, status, stats);
+        if next == self.snapshot {
+            return false;
+        }
+        self.snapshot = next;
+        self.first_app = self.first_app.min(self.last_first_app());
+        true
+    }
+
+    fn last_first_app(&self) -> usize {
+        self.snapshot.blocked.len().saturating_sub(MAX_APP_ROWS)
+    }
 
     pub fn scroll(&mut self, rows: isize) -> bool {
         let moved = self
@@ -172,8 +181,9 @@ impl Model {
     }
 
     pub fn visible_apps(&self) -> &[String] {
-        let end = (self.first_app + MAX_APP_ROWS).min(self.blocked.len());
-        &self.blocked[self.first_app.min(end)..end]
+        let blocked = &self.snapshot.blocked;
+        let end = (self.first_app + MAX_APP_ROWS).min(blocked.len());
+        &blocked[self.first_app.min(end)..end]
     }
 
     pub fn surface(&self) -> Surface {
@@ -223,23 +233,24 @@ mod tests {
             blocked_apps: vec!["only".into()],
             ..Config::default()
         };
-        model.refresh(&config, true, "Paused", &StatsView::default());
+        assert!(model.refresh(&config, true, "Paused", &StatsView::default()));
         assert_eq!(model.first_app, 0);
         assert_eq!(model.visible_apps(), ["only"]);
-        assert!(model.start_with_windows);
+        assert!(model.snapshot.start_with_windows);
+        assert!(!model.refresh(&config, true, "Paused", &StatsView::default()));
     }
 
     #[test]
     fn opacity_steps_stay_inside_the_valid_range_and_report_only_changes() {
-        let mut model = with_apps(0);
-        model.opacity = 95;
-        assert_eq!(model.step_opacity(true), Some(100));
-        assert_eq!(model.step_opacity(true), None);
-        model.opacity = 14;
-        assert_eq!(model.step_opacity(false), Some(10));
-        assert_eq!(model.step_opacity(false), None);
-        model.opacity = 50;
-        assert_eq!(model.step_opacity(true), Some(60));
-        assert_eq!(model.step_opacity(false), Some(50));
+        let mut snapshot = with_apps(0).snapshot;
+        snapshot.opacity = 95;
+        assert_eq!(snapshot.step_opacity(true), Some(100));
+        assert_eq!(snapshot.step_opacity(true), None);
+        snapshot.opacity = 14;
+        assert_eq!(snapshot.step_opacity(false), Some(10));
+        assert_eq!(snapshot.step_opacity(false), None);
+        snapshot.opacity = 50;
+        assert_eq!(snapshot.step_opacity(true), Some(60));
+        assert_eq!(snapshot.step_opacity(false), Some(50));
     }
 }

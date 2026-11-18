@@ -1,0 +1,57 @@
+use pith_core::Line;
+use windows::Win32::Foundation::{POINT, SIZE};
+
+use super::emphasis::Emphasis;
+use super::face::Face;
+use super::screen::{Monitor, ScreenDc};
+use super::shading::Shading;
+
+#[derive(Clone, Copy)]
+pub struct Frame<'a> {
+    pub text: &'a str,
+    pub rtl: bool,
+    pub screen: &'a ScreenDc,
+    pub monitor: Monitor,
+}
+
+pub struct Placed {
+    pub lines: Vec<Line>,
+    pub origin: POINT,
+    pub destination: POINT,
+    pub size: SIZE,
+}
+
+pub struct Scene<'a> {
+    pub text: &'a str,
+    pub rtl: bool,
+    pub face: Face,
+    pub placed: Placed,
+    emphasis: Emphasis,
+    shading: Shading,
+}
+
+impl<'a> Scene<'a> {
+    pub fn new(frame: &Frame<'a>, face: Face, placed: Placed, shading: Shading) -> Self {
+        let emphasis = Emphasis::of(
+            frame.text,
+            &placed.lines,
+            frame.rtl,
+            &face,
+            placed.origin,
+            placed.size.cy,
+        );
+        Self {
+            text: frame.text,
+            rtl: frame.rtl,
+            face,
+            placed,
+            emphasis,
+            shading,
+        }
+    }
+
+    pub fn shade(&self, column: i32, row: i32, coverage: u32) -> u32 {
+        let strong = self.emphasis.covers(column, row);
+        self.shading.pixel(column, row, coverage, strong)
+    }
+}

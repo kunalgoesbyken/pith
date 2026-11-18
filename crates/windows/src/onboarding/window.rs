@@ -15,8 +15,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use super::layout::{DONE_LABEL, HINT, KEYS_NAME, Layout, build};
-use super::model::{self, Model, current, update};
-use super::step::{Event, View};
+use super::model::{self, Model, read, update};
+use super::step::{Event, Step};
 use super::view::{draw_item, paint_page};
 use super::{Controls, DONE_ID, HINT_ID, KEYS_ID, PRACTICE_ID, PROGRESS_ID, STATUS_ID};
 use crate::ui::{self, BASE_DPI, Parent, Role, Scale, Theme, height, width};
@@ -73,16 +73,16 @@ fn place(window: HWND, id: usize, bounds: RECT, visible: bool) {
 }
 
 fn arrange(window: HWND, model: &Model, layout: &Layout) {
-    let view: &View = &model.view;
+    let practice = model.step.practice_enabled();
     place(window, STATUS_ID, layout.status, true);
     place(
         window,
         PROGRESS_ID,
         layout.progress,
-        view.permille.is_some(),
+        model.step.permille().is_some(),
     );
-    place(window, HINT_ID, layout.hint, view.practice_enabled);
-    place(window, PRACTICE_ID, layout.practice, view.practice_enabled);
+    place(window, HINT_ID, layout.hint, practice);
+    place(window, PRACTICE_ID, layout.practice, practice);
     place(window, KEYS_ID, layout.keys, true);
     place(window, DONE_ID, layout.done, true);
     let (frame_width, frame_height) = ui::frame_size(layout.client, WINDOW, model.scale.0);
@@ -101,8 +101,7 @@ fn arrange(window: HWND, model: &Model, layout: &Layout) {
 }
 
 pub fn relayout(window: HWND) {
-    let Some(model) = current() else { return };
-    arrange(window, &model, &build(&model));
+    read(|model| arrange(window, model, &build(model)));
 }
 
 fn style_practice(window: HWND, model: &Model) {
@@ -156,9 +155,7 @@ fn retheme(window: HWND) {
         model.theme = theme;
         model.mica = mica;
     });
-    if let Some(model) = current() {
-        style_practice(window, &model);
-    }
+    read(|model| style_practice(window, model));
     unsafe {
         let _ = RedrawWindow(Some(window), None, None, RDW_INVALIDATE | RDW_ALLCHILDREN);
     }
@@ -167,9 +164,7 @@ fn retheme(window: HWND) {
 fn dpi_changed(window: HWND, wparam: WPARAM, lparam: LPARAM) {
     let dpi = (wparam.0 & 0xFFFF) as u32;
     update(|model| model.scale = Scale(dpi.max(BASE_DPI)));
-    if let Some(model) = current() {
-        style_practice(window, &model);
-    }
+    read(|model| style_practice(window, model));
     relayout(window);
     let suggested = unsafe { *(lparam.0 as *const RECT) };
     unsafe {
@@ -186,10 +181,11 @@ fn dpi_changed(window: HWND, wparam: WPARAM, lparam: LPARAM) {
 }
 
 fn paint_client(window: HWND, hdc: HDC) {
-    let Some(model) = current() else { return };
-    let layout = build(&model);
-    ui::paint(hdc, client(window), model.scale, |canvas| {
-        paint_page(canvas, &model, &layout);
+    read(|model| {
+        let layout = build(model);
+        ui::paint(hdc, client(window), model.scale, |canvas| {
+            paint_page(canvas, model, &layout);
+        });
     });
 }
 
@@ -214,9 +210,7 @@ unsafe extern "system" fn procedure(
     }
     match message {
         WM_DRAWITEM => {
-            if let Some(model) = current() {
-                draw_item(unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) }, &model);
-            }
+            read(|model| draw_item(unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) }, model));
             return LRESULT(1);
         }
         WM_ERASEBKGND => return LRESULT(1),
@@ -273,7 +267,7 @@ fn center(window: HWND, layout: &Layout, scale: Scale) {
     }
 }
 
-pub fn create(initial: &View, promise: String) -> windows::core::Result<Controls> {
+pub fn create(promise: String) -> windows::core::Result<Controls> {
     unsafe {
         let _ = LoadLibraryW(w!("Msftedit.dll"));
         let instance: HINSTANCE = GetModuleHandleW(None)?.into();
@@ -299,11 +293,11 @@ pub fn create(initial: &View, promise: String) -> windows::core::Result<Controls
             theme,
             mica,
             scale,
-            view: initial.clone(),
+            step: Step::Preparing,
             promise,
         };
-        model::install(model.clone());
         let layout = build(&model);
+        model::install(model);
         let parent = Parent {
             hwnd: window,
             instance,
@@ -321,8 +315,10 @@ pub fn create(initial: &View, promise: String) -> windows::core::Result<Controls
         ui::make_opaque(practice);
         let keys = parent.label(KEYS_ID as i32, KEYS_NAME, layout.keys)?;
         let done = parent.button(DONE_ID as i32, DONE_LABEL, layout.done)?;
-        style_practice(window, &model);
-        arrange(window, &model, &layout);
+        read(|model| {
+            style_practice(window, model);
+            arrange(window, model, &layout);
+        });
         center(window, &layout, scale);
         Ok(Controls {
             window,

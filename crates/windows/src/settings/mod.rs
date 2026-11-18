@@ -160,11 +160,7 @@ impl SettingsWindow {
         status: &str,
         stats: &StatsView,
     ) {
-        let changed = update(|model| {
-            let before = model.clone();
-            model.refresh(config, start_with_windows, status, stats);
-            *model != before
-        });
+        let changed = update(|model| model.refresh(config, start_with_windows, status, stats));
         if changed == Some(true) {
             window::relayout(self.hwnd);
         }
@@ -184,7 +180,7 @@ impl Drop for SettingsWindow {
 #[cfg(test)]
 mod tests {
     use super::layout::build;
-    use super::model::current;
+    use super::model::read;
     use super::*;
     use crate::ui::{self, Scale, Theme, force_dark_theme};
     use windows::Win32::Foundation::{LPARAM, POINT, RECT, WPARAM};
@@ -306,7 +302,7 @@ mod tests {
             );
             assert_eq!(name(&window, ID_SHORT), "Short, selected");
             assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
-            assert_eq!(current().map(|model| model.opacity), Some(90));
+            assert_eq!(read(|model| model.snapshot.opacity), Some(90));
         }
     }
 
@@ -336,8 +332,8 @@ mod tests {
                 },
             };
             window.refresh(&Config::default(), false, "Ready", &stats);
-            let model = current().unwrap();
-            assert_eq!((model.today.shown, model.total.shown), (3, 12));
+            let shown = read(|model| (model.snapshot.today.shown, model.snapshot.total.shown));
+            assert_eq!(shown, Some((3, 12)));
         }
         {
             let mut config = with_apps(&["Slack"]);
@@ -413,7 +409,7 @@ mod tests {
         )
         .unwrap();
         let wheel = |delta: i16| (delta as u16 as usize) << 16;
-        let list = build(&current().unwrap()).app_list;
+        let list = read(|model| build(model).app_list).unwrap();
         let over_list = screen_point(
             &window,
             (list.left + list.right) / 2,
@@ -426,13 +422,13 @@ mod tests {
         send(window.hwnd, WM_MOUSEWHEEL, wheel(360), over_list);
         assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove a");
 
-        let overflows = current().unwrap().page_room > 0;
+        let overflows = read(|model| model.page_room).unwrap() > 0;
         let elsewhere = screen_point(&window, 1, 1);
         send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), elsewhere);
-        assert_eq!(current().unwrap().page_offset > 0, overflows);
+        assert_eq!(read(|model| model.page_offset).unwrap() > 0, overflows);
         assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove a");
         send(window.hwnd, WM_MOUSEWHEEL, wheel(1200), elsewhere);
-        assert_eq!(current().unwrap().page_offset, 0);
+        assert_eq!(read(|model| model.page_offset), Some(0));
     }
 
     #[test]
@@ -495,7 +491,7 @@ mod tests {
                 0,
                 w!("ImmersiveColorSet").as_ptr() as isize,
             );
-            let theme = current().map(|model| model.theme).unwrap();
+            let theme = read(|model| model.theme).unwrap();
             assert_eq!(theme, Theme::detect());
         }
         force_dark_theme(None);
@@ -512,7 +508,7 @@ mod tests {
         )
         .unwrap();
         assert!(!shown(&window, ID_RIVAL_OPEN));
-        let plain_height = current().map(|model| build(&model).client.bottom).unwrap();
+        let plain_height = read(|model| build(model).client.bottom).unwrap();
         take_events();
 
         window.set_rival(Some(Rival::TextSuggestions));
@@ -526,13 +522,13 @@ mod tests {
 
         window.refresh(&Config::default(), false, "Ready", &StatsView::default());
         assert_eq!(
-            current().and_then(|model| model.rival),
+            read(|model| model.rival.clone()).flatten(),
             Some(Rival::App("Lightkey"))
         );
 
         window.set_rival(None);
         assert!(!shown(&window, ID_RIVAL_OPEN));
-        let after = current().map(|model| build(&model).client.bottom).unwrap();
+        let after = read(|model| build(model).client.bottom).unwrap();
         assert_eq!(after, plain_height);
     }
 
