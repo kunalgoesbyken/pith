@@ -68,6 +68,17 @@ mod tests {
             ("remote_url = \"http://localhost\"", true),
             ("remote_url = \"http://192.168.1.5:8080\"", false),
             ("remote_url = \"http://localhost.evil.com\"", false),
+            ("remote_url = 'http://evil.com\\@localhost'", false),
+            ("remote_url = 'http://localhost\\.evil.com'", false),
+            ("remote_url = \"http://localhost /v1\"", false),
+            ("remote_url = \"https://\"", false),
+            ("remote_url = \"https:///v1\"", false),
+            ("remote_url = \"https://user@\"", false),
+            ("remote_url = \"http://\"", false),
+            ("threads = 8", true),
+            ("threads = 100000", false),
+            ("context_tokens = 4000000000", false),
+            ("context_tokens = 8192", true),
             ("remote_url = \"http://127.0.0.1@evil.com\"", false),
             ("model_path = \"\"", true),
             ("model_path = \"Z:/missing/model.gguf\"", false),
@@ -186,6 +197,8 @@ const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
 const MIN_GHOST_OPACITY: u8 = 10;
 const MAX_ACCEPT_RACE_MS: u64 = 1_000;
+const MAX_THREADS: usize = 256;
+const MAX_CONTEXT_TOKENS: u32 = 16_384;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -282,11 +295,16 @@ fn shortest_decimal<S: serde::Serializer>(value: &f32, serializer: S) -> Result<
 }
 
 fn is_private_remote(url: &str) -> bool {
-    if url.starts_with("https://") {
-        return true;
-    }
-    let Some(rest) = url.strip_prefix("http://") else {
+    if url
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '\\')
+    {
         return false;
+    }
+    let (secure, rest) = match (url.strip_prefix("https://"), url.strip_prefix("http://")) {
+        (Some(rest), _) => (true, rest),
+        (None, Some(rest)) => (false, rest),
+        (None, None) => return false,
     };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     let host = authority.rsplit('@').next().unwrap_or_default();
@@ -294,10 +312,12 @@ fn is_private_remote(url: &str) -> bool {
         Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
         None => host.split(':').next().unwrap_or_default(),
     };
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
+    !host.is_empty()
+        && (secure
+            || host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback()))
 }
 
 impl Config {
@@ -369,6 +389,11 @@ impl Config {
             (
                 !self.min_token_logprob.is_nan() && !self.min_mean_logprob.is_nan(),
                 "logprob thresholds must be numbers",
+            ),
+            (self.threads <= MAX_THREADS, "threads must be at most 256"),
+            (
+                self.context_tokens <= MAX_CONTEXT_TOKENS,
+                "context_tokens must be at most 16384",
             ),
             (
                 self.debounce_ms <= MAX_DEBOUNCE_MS,

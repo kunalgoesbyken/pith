@@ -52,7 +52,7 @@ Invalid settings are reported in the tray and the defaults are used until you fi
 |---|---|---|
 | `model` | standard | `standard` or `lite` |
 | `model_path` | none | any GGUF file; overrides `model` |
-| `threads` | 0 | 0 = half the logical cores, max 4 |
+| `threads` | 0 | 0 = half the logical cores, max 4; at most 256 |
 | `debounce_ms` | 120 | pause before asking the model |
 | `max_words` | 6 | longest suggestion |
 | `min_mean_logprob` | -1.6 | confidence gate; raise for fewer, safer suggestions |
