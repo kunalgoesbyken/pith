@@ -11,16 +11,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SPI_GETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
 };
 
-use crate::registry::{apps_use_dark_theme, read_dword};
+use crate::registry::apps_use_dark_theme;
 
-const ACCENT_KEY: &str = r"Software\Microsoft\Windows\DWM";
-const ACCENT_VALUE: &str = "AccentColor";
-const DEFAULT_ACCENT: Rgb = Rgb(0x0067C0);
 const WHITE: Rgb = Rgb(0xFFFFFF);
-const BLACK: Rgb = Rgb(0x000000);
-const ACCENT_HOVER_MIX: f32 = 0.12;
-const ACCENT_PRESSED_MIX: f32 = 0.24;
-const BRIGHT_ACCENT: f32 = 0.45;
+pub const INK: Rgb = Rgb(0x1C1814);
+pub const CITRUS: Rgb = Rgb(0xE0600A);
+pub const AMBER: Rgb = Rgb(0xF5A04A);
+pub const CREAM: Rgb = Rgb(0xFBF3E6);
 const CHANNEL_SHIFTS: [u32; 3] = [16, 8, 0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,7 +29,7 @@ impl Rgb {
     }
 
     pub fn d2d(self) -> D2D1_COLOR_F {
-        let [r, g, b] = CHANNEL_SHIFTS.map(|shift| self.channel(shift) as f32 / 255.0);
+        let [r, g, b] = self.unit_channels();
         D2D1_COLOR_F { r, g, b, a: 1.0 }
     }
 
@@ -41,18 +38,8 @@ impl Rgb {
         COLORREF(r | (g << 8) | (b << 16))
     }
 
-    pub fn mix(self, other: Rgb, amount: f32) -> Rgb {
-        let blended = CHANNEL_SHIFTS.map(|shift| {
-            let from = self.channel(shift) as f32;
-            let to = other.channel(shift) as f32;
-            ((from + (to - from) * amount).round() as u32) << shift
-        });
-        Rgb(blended.iter().sum())
-    }
-
-    pub fn luminance(self) -> f32 {
-        let [r, g, b] = CHANNEL_SHIFTS.map(|shift| self.channel(shift) as f32 / 255.0);
-        0.2126 * r + 0.7152 * g + 0.0722 * b
+    pub fn unit_channels(self) -> [f32; 3] {
+        CHANNEL_SHIFTS.map(|shift| self.channel(shift) as f32 / 255.0)
     }
 
     fn from_colorref(color: u32) -> Rgb {
@@ -73,24 +60,18 @@ pub struct Accent {
 }
 
 impl Accent {
-    fn of(base: Rgb) -> Self {
-        let (on, toward) = if base.luminance() > BRIGHT_ACCENT {
-            (BLACK, WHITE)
-        } else {
-            (WHITE, BLACK)
-        };
-        Self {
-            base,
-            hover: base.mix(toward, ACCENT_HOVER_MIX),
-            pressed: base.mix(toward, ACCENT_PRESSED_MIX),
-            on,
-        }
-    }
-
-    fn system() -> Self {
-        let registered = read_dword(ACCENT_KEY, ACCENT_VALUE).map(Rgb::from_colorref);
-        Self::of(registered.unwrap_or(DEFAULT_ACCENT))
-    }
+    const LIGHT: Accent = Accent {
+        base: Rgb(0xCC4C08),
+        hover: Rgb(0xB84407),
+        pressed: Rgb(0xA33C06),
+        on: WHITE,
+    };
+    const DARK: Accent = Accent {
+        base: AMBER,
+        hover: Rgb(0xF7AC5E),
+        pressed: Rgb(0xE8913A),
+        on: INK,
+    };
 
     fn highlight() -> Self {
         let base = Rgb::system(COLOR_HIGHLIGHT);
@@ -117,12 +98,13 @@ pub struct Palette {
     pub strong_stroke: Rgb,
     pub track: Rgb,
     pub accent: Accent,
+    pub mark_ghost: Rgb,
     pub danger: Rgb,
     pub success: Rgb,
 }
 
 impl Palette {
-    fn light(accent: Accent) -> Self {
+    fn light() -> Self {
         Self {
             page: Rgb(0xF3F3F3),
             card: WHITE,
@@ -135,13 +117,14 @@ impl Palette {
             control_stroke: Rgb(0xD6D6D6),
             strong_stroke: Rgb(0x7A7A7A),
             track: Rgb(0xD0D0D0),
-            accent,
+            accent: Accent::LIGHT,
+            mark_ghost: Rgb(0xBBB2A6),
             danger: Rgb(0xC42B1C),
             success: Rgb(0x0F7B0F),
         }
     }
 
-    fn dark(accent: Accent) -> Self {
+    fn dark() -> Self {
         Self {
             page: Rgb(0x202020),
             card: Rgb(0x2B2B2B),
@@ -154,7 +137,8 @@ impl Palette {
             control_stroke: Rgb(0x4A4A4A),
             strong_stroke: Rgb(0x9B9B9B),
             track: Rgb(0x5C5C5C),
-            accent,
+            accent: Accent::DARK,
+            mark_ghost: Rgb(0x6B645C),
             danger: Rgb(0xFF99A4),
             success: Rgb(0x6CCB5F),
         }
@@ -178,6 +162,7 @@ impl Palette {
             strong_stroke: text,
             track: face,
             accent,
+            mark_ghost: Rgb::system(COLOR_GRAYTEXT),
             danger: text,
             success: text,
         }
@@ -224,8 +209,8 @@ impl Theme {
                 .unwrap_or_else(apps_use_dark_theme);
         let palette = match (contrast, dark) {
             (true, _) => Palette::contrast(),
-            (false, true) => Palette::dark(Accent::system()),
-            (false, false) => Palette::light(Accent::system()),
+            (false, true) => Palette::dark(),
+            (false, false) => Palette::light(),
         };
         Self {
             palette,
@@ -246,19 +231,6 @@ mod tests {
     }
 
     #[test]
-    fn mixing_moves_each_channel_toward_the_other_color() {
-        assert_eq!(BLACK.mix(WHITE, 0.0), BLACK);
-        assert_eq!(BLACK.mix(WHITE, 1.0), WHITE);
-        assert_eq!(Rgb(0x102030).mix(Rgb(0x304050), 0.5), Rgb(0x203040));
-    }
-
-    #[test]
-    fn text_on_accent_follows_the_accent_brightness() {
-        assert_eq!(Accent::of(Rgb(0x0067C0)).on, WHITE);
-        assert_eq!(Accent::of(Rgb(0x4CC2FF)).on, BLACK);
-    }
-
-    #[test]
     fn the_forced_theme_overrides_the_registry_until_cleared() {
         force_dark_theme(Some(true));
         let forced = Theme::detect();
@@ -270,11 +242,8 @@ mod tests {
 
     #[test]
     fn backgrounds_are_never_pure_white_or_black() {
-        for palette in [
-            Palette::light(Accent::of(DEFAULT_ACCENT)),
-            Palette::dark(Accent::of(DEFAULT_ACCENT)),
-        ] {
-            assert!(palette.page != WHITE && palette.page != BLACK);
+        for palette in [Palette::light(), Palette::dark()] {
+            assert!(palette.page != WHITE && palette.page != Rgb(0));
         }
     }
 }

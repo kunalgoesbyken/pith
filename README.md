@@ -1,4 +1,4 @@
-# Pith
+<h1 align="center"><img src="assets/logo.svg" alt="Pith" width="280"></h1>
 
 Local autocomplete for every text box. Pause while typing in any app and Pith shows the rest of your sentence in grey at the caret. Tab keeps it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, Ctrl+Shift+Space asks for a suggestion right now.
 

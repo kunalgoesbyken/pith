@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Pith">
+  <rect width="256" height="256" rx="56.32" fill="#1C1814"/>
+  <g transform="translate(76.8 51.2) scale(2.048)" fill="none" stroke-width="14" stroke-linecap="round">
+    <circle cx="25" cy="31" r="18" stroke="#FBF3E6" stroke-opacity="0.45"/>
+    <line x1="7" y1="7" x2="7" y2="68" stroke="#F5A04A"/>
+  </g>
+</svg>

@@ -232,6 +232,19 @@ impl Canvas {
         }
     }
 
+    pub fn ring(&self, center: (f32, f32), radius: f32, thickness: f32, color: Rgb) {
+        let shape = D2D1_ELLIPSE {
+            point: point(center.0, center.1),
+            radiusX: radius,
+            radiusY: radius,
+        };
+        unsafe {
+            self.resources
+                .target
+                .DrawEllipse(&shape, self.paint_with(color), thickness, None);
+        }
+    }
+
     pub fn line(&self, from: (f32, f32), to: (f32, f32), thickness: f32, color: Rgb) {
         unsafe {
             self.resources.target.DrawLine(

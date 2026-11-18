@@ -4,7 +4,9 @@ use super::model::Model;
 use super::{
     ID_DELETE_DATA, ID_ENABLED, ID_OPEN_DATA, ID_REMOVE_FIRST, ID_START, MAX_APP_ROWS, SEGMENTS,
 };
-use crate::ui::{BUTTON_HEIGHT, FOCUS_MARGIN, Role, Scale, expand, height, rect, toggle_width};
+use crate::ui::{
+    BUTTON_HEIGHT, FOCUS_MARGIN, Role, Scale, expand, height, mark_width, rect, toggle_width,
+};
 
 pub const CLIENT_WIDTH: i32 = 520;
 const MARGIN: i32 = 24;
@@ -15,6 +17,8 @@ const NOTE_ROW: i32 = 36;
 const SECTION_GAP: i32 = 20;
 const LABEL_GAP: i32 = 8;
 const HEADER_GAP: i32 = 4;
+const MARK_HEIGHT: i32 = 44;
+const MARK_GAP: i32 = 14;
 const SEGMENT_WIDTH: i32 = 64;
 const BUTTON_WIDTH: i32 = 88;
 const TOGGLE_LABEL: i32 = 28;
@@ -76,6 +80,7 @@ pub struct Placed {
 #[derive(Clone, Debug)]
 pub struct Layout {
     pub client: RECT,
+    pub mark: RECT,
     pub title: RECT,
     pub status: RECT,
     pub blocks: Vec<Block>,
@@ -251,9 +256,19 @@ pub fn build(model: &Model) -> Layout {
         y: margin,
         controls: Vec::new(),
     };
-    let title = builder.take(Role::Subtitle.line());
+    let header_top = builder.y;
+    let mut title = builder.take(Role::Subtitle.line());
     builder.y += scale.px(HEADER_GAP);
-    let status = builder.take(Role::Caption.line());
+    let mut status = builder.take(Role::Caption.line());
+    let mark_height = scale.px(MARK_HEIGHT);
+    let mark = rect(
+        margin,
+        header_top + (status.bottom - header_top - mark_height) / 2,
+        mark_width(mark_height),
+        mark_height,
+    );
+    title.left = mark.right + scale.px(MARK_GAP);
+    status.left = title.left;
     builder.y += scale.px(SECTION_GAP);
     let general = builder.card(
         None,
@@ -303,6 +318,7 @@ pub fn build(model: &Model) -> Layout {
     let footer = builder.take(Role::Caption.line());
     Layout {
         client: rect(0, 0, scale.px(CLIENT_WIDTH), builder.y + margin),
+        mark,
         title,
         status,
         blocks: vec![general, apps, data],

@@ -247,6 +247,7 @@ fn register(instance: HINSTANCE) -> windows::core::Result<()> {
     let class = WNDCLASSW {
         lpfnWndProc: Some(procedure),
         hInstance: instance,
+        hIcon: ui::app_icon(instance),
         lpszClassName: CLASS,
         hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
         ..Default::default()

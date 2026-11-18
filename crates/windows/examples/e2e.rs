@@ -1678,7 +1678,11 @@ fn idle_unload(rig: &mut Rig, unload_after: Duration) {
     let loaded = rig.suggestion_for(field, &PROSE, 1).is_some();
     rig.fresh(field, "");
     while rig.statuses.try_recv().is_ok() {}
-    rig.check("model is loaded before the idle period", loaded, String::new());
+    rig.check(
+        "model is loaded before the idle period",
+        loaded,
+        String::new(),
+    );
     print_memory("loaded, after typing");
     let unloaded = loop {
         match rig

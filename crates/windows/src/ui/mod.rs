@@ -4,6 +4,7 @@ mod chrome;
 mod control;
 mod font;
 mod hover;
+mod mark;
 mod metrics;
 mod opaque;
 mod slot;
@@ -16,12 +17,13 @@ pub use control::{
     toggle_width,
 };
 pub use font::gdi_font;
+pub use mark::{app_icon, mark_width, paint_mark};
 pub use metrics::{
     BASE_DPI, CARD_RADIUS, CONTROL_RADIUS, Role, STROKE, Scale, height, inset, rect, width,
 };
 pub use opaque::make_opaque;
 pub use slot::Slot;
-pub use theme::{Rgb, Theme, force_dark_theme};
+pub use theme::{AMBER, CITRUS, CREAM, INK, Rgb, Theme, force_dark_theme};
 
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{SPI_SETHIGHCONTRAST, WM_SETTINGCHANGE};

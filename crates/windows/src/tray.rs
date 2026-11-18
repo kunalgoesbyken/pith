@@ -4,10 +4,14 @@ use pith_core::PauseSpan;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows::Win32::UI::Shell::{
     NIF_INFO, NIIF_INFO, NIM_MODIFY, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
     Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
+use windows::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
+
+use crate::brand;
 
 pub const TOOLTIP: &str = "Pith \u{b7} local only, nothing leaves this PC";
 const MENU_TEXT_CHARS: usize = 100;
@@ -60,6 +64,10 @@ fn fill(target: &mut [u16], text: &str) {
     }
 }
 
+fn tray_icon_size() -> u32 {
+    unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) as u32 }
+}
+
 fn icon_id(hwnd: HWND) -> Option<u32> {
     (1..=256).find(|&id| {
         let identifier = NOTIFYICONIDENTIFIER {
@@ -86,28 +94,13 @@ pub struct Tray {
 }
 
 fn glyph(active: bool) -> Icon {
-    let size = 32u32;
-    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
-    let (r, g, b) = if active {
-        (64, 158, 255)
+    let size = tray_icon_size();
+    let look = if active {
+        &brand::ACTIVE
     } else {
-        (150, 150, 150)
+        &brand::PAUSED
     };
-    for y in 0..size {
-        for x in 0..size {
-            let dx = x as f32 - 15.5;
-            let dy = y as f32 - 15.5;
-            let distance = (dx * dx + dy * dy).sqrt();
-            let alpha = ((14.5 - distance).clamp(0.0, 1.0) * 255.0) as u8;
-            let pith = (x as f32 - 15.5).abs() < 2.5 && (9..23).contains(&y);
-            if pith {
-                rgba.extend_from_slice(&[255, 255, 255, alpha])
-            } else {
-                rgba.extend_from_slice(&[r, g, b, alpha])
-            }
-        }
-    }
-    Icon::from_rgba(rgba, size, size).expect("icon")
+    Icon::from_rgba(brand::render(size, look), size, size).expect("icon")
 }
 
 impl Tray {

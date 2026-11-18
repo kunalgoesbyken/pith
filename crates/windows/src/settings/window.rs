@@ -258,6 +258,7 @@ fn register(instance: HINSTANCE) {
     let class = WNDCLASSW {
         lpfnWndProc: Some(procedure),
         hInstance: instance,
+        hIcon: ui::app_icon(instance),
         lpszClassName: CLASS,
         hCursor: unsafe { LoadCursorW(None, IDC_ARROW).unwrap_or_default() },
         ..Default::default()
