@@ -897,4 +897,136 @@ mod tests {
         assert!(again.is_empty(), "{again:?}");
         assert_eq!(engine.suggestion(), Some(" contract"));
     }
+
+    fn pausing(limit: u32) -> Engine {
+        Engine::new(Config {
+            auto_pause_after: limit,
+            ..Config::default()
+        })
+    }
+
+    fn in_app(app: &str, before: &str) -> FieldSnapshot {
+        FieldSnapshot {
+            app: app.into(),
+            ..field(before)
+        }
+    }
+
+    fn suggest_in(engine: &mut Engine, app: &str, before: &str, text: &str) {
+        let out = engine.handle(Event::Field(Some(in_app(app, before))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(text)),
+        });
+        assert!(engine.suggestion().is_some());
+    }
+
+    fn paused_in(out: &[Action]) -> Option<&Vec<String>> {
+        out.iter().find_map(|action| match action {
+            Action::AutoPaused(apps) => Some(apps),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn mismatched_typing_counts_as_ignored_until_the_app_pauses() {
+        let mut engine = pausing(3);
+        for round in 0..3 {
+            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign thez"))));
+            assert_eq!(paused_in(&out).is_some(), round == 2, "{round}: {out:?}");
+        }
+        let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign thezz"))));
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn dismissals_count_and_report_the_paused_app() {
+        let mut engine = pausing(2);
+        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
+        assert!(paused_in(&engine.handle(Event::Dismiss)).is_none());
+        suggest_in(&mut engine, "Slack", "Please sign the d", " contract");
+        let out = engine.handle(Event::Dismiss);
+        assert_eq!(paused_in(&out), Some(&vec!["Slack".to_string()]));
+    }
+
+    #[test]
+    fn accepting_resets_the_streak() {
+        let mut engine = pausing(2);
+        for _ in 0..4 {
+            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            assert!(paused_in(&engine.handle(Event::Dismiss)).is_none());
+            suggest_in(&mut engine, "notepad", "Please sign the d", " contract");
+            engine.handle(Event::AcceptAll);
+        }
+    }
+
+    #[test]
+    fn typing_the_suggestion_through_counts_as_accepted() {
+        let mut engine = pausing(2);
+        for _ in 0..4 {
+            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            engine.handle(Event::Dismiss);
+            suggest_in(&mut engine, "notepad", "Please sign the d", " contract");
+            let out = engine.handle(Event::Field(Some(in_app(
+                "notepad",
+                "Please sign the d contract",
+            ))));
+            assert!(paused_in(&out).is_none(), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn dismissing_after_a_partial_accept_is_not_an_ignore() {
+        let mut engine = pausing(1);
+        suggest_in(&mut engine, "notepad", "Please sign the", " contract by Friday");
+        engine.handle(Event::AcceptWord);
+        assert!(engine.suggestion().is_some());
+        let out = engine.handle(Event::Dismiss);
+        assert!(paused_in(&out).is_none(), "{out:?}");
+    }
+
+    #[test]
+    fn pause_is_per_app() {
+        let mut engine = pausing(1);
+        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        let out = engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
+        assert!(out.is_empty(), "{out:?}");
+        let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign the"))));
+        assert!(
+            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn resume_restarts_suggesting_in_the_paused_app() {
+        let mut engine = pausing(1);
+        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
+        let out = engine.handle(Event::Resume("slack".into()));
+        assert_eq!(paused_in(&out), Some(&Vec::new()));
+        assert!(
+            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
+            "{out:?}"
+        );
+        assert!(engine.handle(Event::Resume("slack".into())).is_empty());
+    }
+
+    #[test]
+    fn zero_limit_disables_auto_pause() {
+        let mut engine = pausing(0);
+        for round in 0..30 {
+            let before = format!("Please sign the {round}");
+            suggest_in(&mut engine, "notepad", &before, " contract");
+            let out = engine.handle(Event::Dismiss);
+            assert!(paused_in(&out).is_none());
+        }
+    }
 }
