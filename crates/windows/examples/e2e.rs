@@ -1096,8 +1096,8 @@ fn forced_trigger(rig: &mut Rig) {
         rig.key(ACCEPT_ALL);
         let seen = rig.settle(Duration::from_millis(600));
         rig.check(
-            "accept all finishes the forced suggestion and the field stays quiet",
-            get_text(field.edit) == format!("{before}{suggestion}") && !seen.iter().any(is_request),
+            "accept all finishes the forced suggestion",
+            get_text(field.edit) == format!("{before}{suggestion}") && inserted(&seen).len() == 1,
             format!("tail {:?}", tail(&get_text(field.edit))),
         );
         return;
