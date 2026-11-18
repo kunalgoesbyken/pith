@@ -37,12 +37,7 @@ struct Entry {
 }
 
 fn running() -> Version {
-    let part = |value: &str| value.parse().unwrap_or_default();
-    Version::new(
-        part(env!("CARGO_PKG_VERSION_MAJOR")),
-        part(env!("CARGO_PKG_VERSION_MINOR")),
-        part(env!("CARGO_PKG_VERSION_PATCH")),
-    )
+    Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or(Version::new(0, 0, 0))
 }
 
 fn releases_url() -> String {
@@ -68,7 +63,6 @@ fn releases() -> Result<Vec<Entry>, UpdateFailure> {
         .into();
     match agent.get(releases_url()).header("Accept", ACCEPT).call() {
         Ok(mut response) => response.body_mut().read_json().map_err(failure),
-        Err(ureq::Error::StatusCode(404)) => Ok(Vec::new()),
         Err(error) => Err(failure(error)),
     }
 }

@@ -7,7 +7,7 @@ use crate::chord::{Chord, Key};
 use crate::preset::ModelPreset;
 use crate::stored::{read, write_atomically};
 
-pub fn app_name(path_or_name: &str) -> String {
+pub fn app_name(path_or_name: &str) -> &str {
     let leaf = path_or_name
         .rsplit(['\\', '/'])
         .next()
@@ -17,7 +17,7 @@ pub fn app_name(path_or_name: &str) -> String {
     while stem.to_ascii_lowercase().ends_with(".exe") {
         stem = stem[..stem.len() - 4].trim_end();
     }
-    stem.to_string()
+    stem
 }
 
 #[cfg(test)]
@@ -452,7 +452,11 @@ impl Config {
         if !self.keys_are_distinct() {
             return Err("each key can be bound to only one action, and Esc hides".into());
         }
-        self.allowed_apps = editors_among(&self.allowed_apps);
+        let blocked = &self.blocked_apps;
+        self.allowed_apps = editors_among(&self.allowed_apps)
+            .into_iter()
+            .filter(|app| !blocked.iter().any(|name| same_app(name, app)))
+            .collect();
         self.model_path = self.model_path.filter(|p| !p.as_os_str().is_empty());
         self.remote_url = self
             .remote_url

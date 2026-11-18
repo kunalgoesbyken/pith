@@ -83,7 +83,7 @@ pub fn process_name(pid: u32) -> Option<String> {
         let _ = CloseHandle(handle);
         result.ok()?;
         let path = String::from_utf16_lossy(&buffer[..length as usize]);
-        Some(pith_core::app_name(&path))
+        Some(pith_core::app_name(&path).to_string())
     }
 }
 

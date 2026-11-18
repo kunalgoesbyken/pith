@@ -51,7 +51,7 @@ fn running_images() -> Vec<String> {
 }
 
 fn find_predictor(table: &[(&'static str, &'static str)], images: &[String]) -> Option<Rival> {
-    let running: Vec<String> = images
+    let running: Vec<&str> = images
         .iter()
         .map(|image| pith_core::app_name(image))
         .collect();

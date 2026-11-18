@@ -34,14 +34,14 @@ fn app_name_is_idempotent_and_stable_under_blocking() {
     for _ in 0..CASES {
         let raw = app(&mut rng);
         let once = app_name(&raw);
-        assert_eq!(app_name(&once), once, "{raw:?}");
+        assert_eq!(app_name(once), once, "{raw:?}");
         let config = Config {
             blocked_apps: vec![raw.clone()],
             ..Config::default()
         };
         if !once.is_empty() {
             assert!(config.is_blocked(&raw), "{raw:?}");
-            assert!(config.is_blocked(&once), "{raw:?} {once:?}");
+            assert!(config.is_blocked(once), "{raw:?} {once:?}");
         }
     }
 }

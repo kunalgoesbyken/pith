@@ -23,7 +23,7 @@ impl AppRule {
     pub fn title(&self) -> String {
         match self {
             Self::Off(name) => format!("{name} \u{b7} off"),
-            Self::On(name) => format!("{name} \u{b7} on, prose only"),
+            Self::On(name) => format!("{name} \u{b7} on"),
         }
     }
 

@@ -63,7 +63,7 @@ impl Access {
 }
 
 pub fn same_app(a: &str, b: &str) -> bool {
-    app_name(a).eq_ignore_ascii_case(&app_name(b))
+    app_name(a).eq_ignore_ascii_case(app_name(b))
 }
 
 pub fn surface(app: &str) -> Option<(Surface, &'static str)> {

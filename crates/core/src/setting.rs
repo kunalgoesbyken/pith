@@ -130,7 +130,7 @@ impl Config {
     pub fn block_app(&mut self, app: &str) -> bool {
         match self.access(app) {
             Access::On => {
-                self.blocked_apps.push(app_name(app));
+                self.blocked_apps.push(app_name(app).to_string());
                 true
             }
             Access::OptedIn => self.disallow_app(app),

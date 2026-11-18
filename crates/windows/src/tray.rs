@@ -62,7 +62,7 @@ impl TrayView {
             Some(ForegroundApp {
                 name,
                 access: Access::OffByDefault,
-            }) => format!("Allow Pith in {name} (prose only)"),
+            }) => format!("Allow Pith in {name}"),
             Some(ForegroundApp { name, .. }) => format!("Turn off in {name}"),
             None => "Turn off in this app".to_string(),
         }
@@ -288,11 +288,7 @@ mod tests {
         for (access, label, armed) in [
             (Access::On, "Turn off in Slack", true),
             (Access::OptedIn, "Turn off in Slack", true),
-            (
-                Access::OffByDefault,
-                "Allow Pith in Slack (prose only)",
-                true,
-            ),
+            (Access::OffByDefault, "Allow Pith in Slack", true),
             (Access::Off, "Turned off in Slack", false),
         ] {
             view.foreground = Some(ForegroundApp {
