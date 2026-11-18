@@ -18,7 +18,7 @@ mod ui;
 mod util;
 
 pub use control::Waker;
-pub use keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, TRIGGER};
+pub use keys::KeyAction;
 pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
     View as OnboardingView,

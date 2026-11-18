@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot};
 use pith_infer::{Backend, Worker};
 use pith_windows::{
-    ACCEPT_ALL, ACCEPT_WORD, DISMISS, Inbound, InsertMode, Onboarding, OnboardingEvent,
-    OnboardingStep, Options, Outcome, Reader, Source, TRIGGER, Waker, run,
+    Inbound, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options, Outcome,
+    Reader, Source, Waker, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -482,8 +482,8 @@ struct Rig {
 }
 
 impl Rig {
-    fn key(&self, id: i32) {
-        let _ = self.inbound.send(Inbound::Key(id));
+    fn key(&self, action: KeyAction) {
+        let _ = self.inbound.send(Inbound::Key(action));
         self.waker.wake();
     }
 
@@ -667,7 +667,7 @@ fn accept_word_then_rest(rig: &mut Rig) {
         return rig.check("accept flow", false, "no suggestion".into());
     };
     let before = get_text(field.edit);
-    rig.key(ACCEPT_WORD);
+    rig.key(KeyAction::AcceptWord);
     let seen = rig.settle(Duration::from_millis(500));
     let words = inserted(&seen);
     let word = words.first().cloned().unwrap_or_default();
@@ -694,7 +694,7 @@ fn accept_word_then_rest(rig: &mut Rig) {
         last_show(&seen).as_deref() == Some(rest.as_str()) && !seen.iter().any(is_request),
         format!("rest {rest:?}, shown {:?}", last_show(&seen)),
     );
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(500));
     let text = get_text(field.edit);
     rig.check(
@@ -720,7 +720,7 @@ fn accept_is_one_undo_step(rig: &mut Rig) {
         let clipboard_before = clipboard_text();
         let sequence_before = unsafe { GetClipboardSequenceNumber() };
         let before = get_text(field.edit);
-        rig.key(ACCEPT_WORD);
+        rig.key(KeyAction::AcceptWord);
         let seen = rig.settle(Duration::from_millis(1500));
         let words = inserted(&seen);
         let landed = get_text(field.edit);
@@ -779,7 +779,7 @@ fn auto_pause_on_ignore(rig: &mut Rig) {
         };
         std::thread::sleep(Duration::from_millis(200));
         if !accepted_once && ignored == limit / 2 {
-            rig.key(ACCEPT_ALL);
+            rig.key(KeyAction::AcceptAll);
             let seen = rig.settle(Duration::from_millis(400));
             rig.check(
                 "an accept in the middle resets the ignore streak",
@@ -790,7 +790,7 @@ fn auto_pause_on_ignore(rig: &mut Rig) {
             ignored = 0;
             continue;
         }
-        rig.key(DISMISS);
+        rig.key(KeyAction::Dismiss);
         ignored += 1;
         let seen = rig.settle(Duration::from_millis(400));
         if seen.iter().any(is_auto_paused) {
@@ -850,7 +850,7 @@ fn typing_through_and_escape(rig: &mut Rig) {
             last_show(&seen)
         ),
     );
-    rig.key(DISMISS);
+    rig.key(KeyAction::Dismiss);
     let seen = rig.settle(Duration::from_millis(900));
     rig.check(
         "escape dismisses and stays dismissed",
@@ -968,7 +968,7 @@ fn scripts(rig: &mut Rig) {
             continue;
         };
         let before = get_text(field.edit);
-        rig.key(ACCEPT_ALL);
+        rig.key(KeyAction::AcceptAll);
         let seen = rig.settle(Duration::from_millis(500));
         let after = get_text(field.edit);
         rig.check(
@@ -1119,7 +1119,7 @@ fn long_document(rig: &mut Rig) {
         return rig.check("long document accept flow", false, "no suggestion".into());
     };
     let text_before = get_text(field.edit);
-    rig.key(ACCEPT_WORD);
+    rig.key(KeyAction::AcceptWord);
     let seen = rig.settle(Duration::from_millis(1500));
     let word = inserted(&seen).first().cloned().unwrap_or_default();
     let rest = suggestion[word.len().min(suggestion.len())..].to_string();
@@ -1214,7 +1214,7 @@ fn rapid_accept_chain(rig: &mut Rig) {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
     for _ in 0..words + 3 {
-        rig.key(ACCEPT_WORD);
+        rig.key(KeyAction::AcceptWord);
         std::thread::sleep(Duration::from_millis(gap));
     }
     let seen = rig.settle(Duration::from_millis(700));
@@ -1242,7 +1242,7 @@ fn forced_trigger(rig: &mut Rig) {
             !auto.iter().any(is_request) && last_show(&auto).is_none(),
             format!("{text:?}"),
         );
-        rig.key(TRIGGER);
+        rig.key(KeyAction::Trigger);
         let Some(first) = rig.wait_show(Duration::from_secs(20)) else {
             rig.check(
                 "force trigger shows a suggestion",
@@ -1258,7 +1258,7 @@ fn forced_trigger(rig: &mut Rig) {
             !suggestion.trim().is_empty(),
             format!("{text:?} -> {suggestion:?}"),
         );
-        rig.key(TRIGGER);
+        rig.key(KeyAction::Trigger);
         let again = rig.settle(Duration::from_millis(500));
         rig.check(
             "force trigger while a suggestion is visible does nothing",
@@ -1269,7 +1269,7 @@ fn forced_trigger(rig: &mut Rig) {
             continue;
         }
         let before = get_text(field.edit);
-        rig.key(ACCEPT_WORD);
+        rig.key(KeyAction::AcceptWord);
         let seen = rig.settle(Duration::from_millis(600));
         let words = inserted(&seen);
         let word = words.first().cloned().unwrap_or_default();
@@ -1282,7 +1282,7 @@ fn forced_trigger(rig: &mut Rig) {
                 && !seen.iter().any(is_request),
             format!("rest {rest:?}, shown {:?}, seen {seen:?}", last_show(&seen)),
         );
-        rig.key(ACCEPT_ALL);
+        rig.key(KeyAction::AcceptAll);
         let seen = rig.settle(Duration::from_millis(600));
         rig.check(
             "accept all finishes the forced suggestion",
@@ -1297,7 +1297,11 @@ fn keys_without_a_suggestion(rig: &mut Rig) {
     let field = rig.a;
     rig.fresh(field, "");
     let base = get_text(field.edit);
-    for key in [ACCEPT_ALL, ACCEPT_WORD, DISMISS] {
+    for key in [
+        KeyAction::AcceptAll,
+        KeyAction::AcceptWord,
+        KeyAction::Dismiss,
+    ] {
         rig.key(key);
     }
     let seen = rig.settle(Duration::from_millis(500));
@@ -1315,7 +1319,7 @@ fn stale_keys(rig: &mut Rig) {
     };
     let base = get_text(field.edit);
     send_text(field.edit, "z");
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(700));
     rig.check(
         "tab right after a diverging keystroke never pastes the stale suggestion",
@@ -1333,7 +1337,7 @@ fn stale_keys(rig: &mut Rig) {
     let base = get_text(field.edit);
     let first: String = suggestion.chars().take(1).collect();
     send_text(field.edit, &first);
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(700));
     rig.check(
         "tab right after typing the first suggested character completes without doubling",
@@ -1352,7 +1356,7 @@ fn stale_keys(rig: &mut Rig) {
         field.edit,
         "Completely different text that the model never saw",
     );
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(700));
     rig.check(
         "tab right after the text was replaced never pastes the stale suggestion",
@@ -1366,7 +1370,7 @@ fn stale_keys(rig: &mut Rig) {
     };
     let base = get_text(field.edit);
     select_range(field.edit, 0, 5);
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(700));
     rig.check(
         "tab right after selecting text never pastes over the selection",
@@ -1380,7 +1384,7 @@ fn escape_then_flicker(rig: &mut Rig) {
     let Some((typed, _)) = rig.suggestion_for(field, &PROSE, 1) else {
         return rig.check("escape setup", false, "no suggestion".into());
     };
-    rig.key(DISMISS);
+    rig.key(KeyAction::Dismiss);
     rig.settle(Duration::from_millis(300));
     select(field.edit, 0);
     std::thread::sleep(Duration::from_millis(250));
@@ -1424,7 +1428,7 @@ fn selection_while_visible(rig: &mut Rig) {
             && !overlay_visible(),
         format!("{seen:?}"),
     );
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(500));
     rig.check(
         "tab with a selection inserts nothing",
@@ -1470,7 +1474,7 @@ fn password_field(rig: &mut Rig) {
         !seen.iter().any(is_request) && !seen.iter().any(is_show),
         format!("{seen:?}"),
     );
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(400));
     rig.check(
         "tab in a password field inserts nothing",
@@ -1535,7 +1539,7 @@ fn pause_and_resume(rig: &mut Rig) {
         format!("{seen:?}"),
     );
     rig.type_slowly(field.edit, " and so", 30);
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(1200));
     rig.check(
         "paused: typing requests nothing and tab inserts nothing",
@@ -1578,7 +1582,7 @@ fn switching_fields(rig: &mut Rig) {
     };
     rig.drain();
     rig.use_field(b);
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(900));
     rig.check(
         "switching to a field with identical text never pastes the old suggestion",
@@ -1631,7 +1635,7 @@ fn overlay_geometry(rig: &mut Rig) {
         ghost_monitor == field_monitor && ghost_monitor.is_some_and(|m| !m.is_invalid()),
         format!("{ghost_monitor:?} vs {field_monitor:?}"),
     );
-    rig.key(DISMISS);
+    rig.key(KeyAction::Dismiss);
     rig.settle(Duration::from_millis(300));
     rig.check("ghost hides on escape", !overlay_visible(), String::new());
 }
@@ -1707,7 +1711,7 @@ fn idle_unload(rig: &mut Rig, unload_after: Duration) {
     );
     print_memory("after reload");
     let text = get_text(field.edit);
-    rig.key(ACCEPT_ALL);
+    rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(500));
     rig.check(
         "accept works right after a reload",

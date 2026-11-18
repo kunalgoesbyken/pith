@@ -21,7 +21,7 @@ use crate::control::{Signal, Waker, control_window, next_signal};
 use crate::erase::erase;
 use crate::events::Hooks;
 use crate::foreground::Foreground;
-use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, TRIGGER, replay};
+use crate::keys::{KeyAction, Keys, replay};
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::overlay::Overlay;
 use crate::reader::{Reader, Source};
@@ -60,7 +60,7 @@ pub enum Inbound {
     Ready(Result<String, String>),
     Status(String),
     Progress(u64, u64),
-    Key(i32),
+    Key(KeyAction),
     SetEnabled(bool),
     Resume(String),
     Quit,
@@ -68,7 +68,7 @@ pub enum Inbound {
 
 #[derive(Clone, Copy)]
 struct Press {
-    action: i32,
+    action: KeyAction,
     chord: Option<Chord>,
     at: Instant,
 }
@@ -261,7 +261,7 @@ impl App {
     }
 
     fn hotkey(&mut self, press: Press) {
-        let needs_field = press.action == TRIGGER;
+        let needs_field = press.action == KeyAction::Trigger;
         if !needs_field && self.engine.suggestion().is_none() && self.keys_awaiting_read.is_empty()
         {
             self.pass_through(press);
@@ -275,9 +275,11 @@ impl App {
     fn release_keys(&mut self) {
         for press in std::mem::take(&mut self.keys_awaiting_read) {
             let handled = match press.action {
-                TRIGGER => true,
-                DISMISS => self.engine.suggestion().is_some(),
-                _ => self.engine.can_accept(press.at, press.moves_caret()),
+                KeyAction::Trigger => true,
+                KeyAction::Dismiss => self.engine.suggestion().is_some(),
+                KeyAction::AcceptAll | KeyAction::AcceptWord => {
+                    self.engine.can_accept(press.at, press.moves_caret())
+                }
             };
             if handled {
                 self.key(press.action);
@@ -345,15 +347,8 @@ impl App {
         false
     }
 
-    fn key(&mut self, id: i32) {
-        let event = match id {
-            ACCEPT_ALL => Event::AcceptAll,
-            ACCEPT_WORD => Event::AcceptWord,
-            DISMISS => Event::Dismiss,
-            TRIGGER => Event::Trigger,
-            _ => return,
-        };
-        let actions = self.engine.handle(event);
+    fn key(&mut self, action: KeyAction) {
+        let actions = self.engine.handle(action.event());
         self.apply(actions);
     }
 

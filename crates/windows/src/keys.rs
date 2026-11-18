@@ -1,27 +1,44 @@
 use std::time::{Duration, Instant};
 
-use pith_core::{Chord, Key, Keymap, log};
+use pith_core::{Chord, Event, Key, Keymap, log};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 
-pub const ACCEPT_ALL: i32 = 1;
-pub const ACCEPT_WORD: i32 = 2;
-pub const DISMISS: i32 = 3;
-pub const TRIGGER: i32 = 4;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyAction {
+    AcceptAll,
+    AcceptWord,
+    Dismiss,
+    Trigger,
+}
+
+impl KeyAction {
+    pub fn event(self) -> Event {
+        match self {
+            KeyAction::AcceptAll => Event::AcceptAll,
+            KeyAction::AcceptWord => Event::AcceptWord,
+            KeyAction::Dismiss => Event::Dismiss,
+            KeyAction::Trigger => Event::Trigger,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Binding {
-    pub action: i32,
+    pub action: KeyAction,
     pub chord: Chord,
 }
 
 fn bindings(keymap: &Keymap) -> Vec<Binding> {
-    let accept_all = keymap.accept_all.iter().map(|c| (ACCEPT_ALL, *c));
-    let accept_word = keymap.accept_word.iter().map(|c| (ACCEPT_WORD, *c));
-    let trigger = keymap.trigger.iter().map(|c| (TRIGGER, *c));
+    let accept_all = keymap.accept_all.iter().map(|c| (KeyAction::AcceptAll, *c));
+    let accept_word = keymap
+        .accept_word
+        .iter()
+        .map(|c| (KeyAction::AcceptWord, *c));
+    let trigger = keymap.trigger.iter().map(|c| (KeyAction::Trigger, *c));
     accept_all
         .chain(accept_word)
-        .chain([(DISMISS, Chord::ESCAPE)])
+        .chain([(KeyAction::Dismiss, Chord::ESCAPE)])
         .chain(trigger)
         .map(|(action, chord)| Binding { action, chord })
         .collect()
@@ -92,7 +109,7 @@ impl Registrar for HWND {
 }
 
 fn is_wanted(binding: &Binding, armed: bool, trigger_on: bool) -> bool {
-    if binding.action == TRIGGER {
+    if binding.action == KeyAction::Trigger {
         trigger_on
     } else {
         armed
@@ -292,16 +309,30 @@ mod tests {
     #[test]
     fn default_bindings_cover_every_action_once_per_chord() {
         let all = bindings(&keymap());
-        let actions: Vec<i32> = all.iter().map(|b| b.action).collect();
+        let actions: Vec<KeyAction> = all.iter().map(|b| b.action).collect();
         assert_eq!(
             actions,
-            [ACCEPT_ALL, ACCEPT_WORD, ACCEPT_WORD, DISMISS, TRIGGER]
+            [
+                KeyAction::AcceptAll,
+                KeyAction::AcceptWord,
+                KeyAction::AcceptWord,
+                KeyAction::Dismiss,
+                KeyAction::Trigger
+            ]
         );
         let fake = Fake::default();
         let keys = Keys::new(&keymap(), &fake);
         for (index, binding) in all.iter().enumerate() {
             assert_eq!(keys.binding(index as i32 + 1), Some(*binding));
         }
+    }
+
+    #[test]
+    fn every_action_maps_to_its_own_engine_event() {
+        assert_eq!(KeyAction::AcceptAll.event(), Event::AcceptAll);
+        assert_eq!(KeyAction::AcceptWord.event(), Event::AcceptWord);
+        assert_eq!(KeyAction::Dismiss.event(), Event::Dismiss);
+        assert_eq!(KeyAction::Trigger.event(), Event::Trigger);
     }
 
     #[test]
@@ -320,7 +351,7 @@ mod tests {
             ..Default::default()
         };
         let all = bindings(&config.keymap());
-        assert!(all.iter().all(|b| b.action != TRIGGER));
+        assert!(all.iter().all(|b| b.action != KeyAction::Trigger));
     }
 
     #[test]
