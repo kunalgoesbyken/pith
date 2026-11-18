@@ -8,6 +8,8 @@ use crate::{
     check, check_forced, continue_window, ends_spaced_word, next_word, suggestion,
 };
 
+const READ_TIME: Duration = Duration::from_millis(500);
+
 fn is_grapheme_boundary(text: &str, index: usize) -> bool {
     index == text.len() || text.grapheme_indices(true).any(|(start, _)| start == index)
 }
@@ -152,6 +154,11 @@ impl Engine {
             }
         }
         out
+    }
+
+    fn was_readable(&self) -> bool {
+        self.shown_at
+            .is_some_and(|shown| shown.elapsed() >= READ_TIME)
     }
 
     fn unengaged_app(&self) -> Option<String> {
@@ -305,7 +312,7 @@ impl Engine {
                 }
                 return;
             }
-            if same_field && previous.before != field.before {
+            if same_field && previous.before != field.before && self.was_readable() {
                 ignored = self.unengaged_app();
             }
         }
@@ -1048,16 +1055,31 @@ mod tests {
         })
     }
 
+    fn read_by_user(engine: &mut Engine) {
+        engine.shown_at = engine.shown_at.map(|shown| shown - READ_TIME);
+    }
+
     #[test]
     fn mismatched_typing_counts_as_ignored_until_the_app_pauses() {
         let mut engine = pausing(3);
         for round in 0..3 {
             suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            read_by_user(&mut engine);
             let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign thez"))));
             assert_eq!(paused_in(&out).is_some(), round == 2, "{round}: {out:?}");
         }
         let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign thezz"))));
         assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn typing_past_a_suggestion_too_brief_to_read_is_not_an_ignore() {
+        let mut engine = pausing(3);
+        for round in 0..6 {
+            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign thez"))));
+            assert!(paused_in(&out).is_none(), "{round}: {out:?}");
+        }
     }
 
     #[test]
