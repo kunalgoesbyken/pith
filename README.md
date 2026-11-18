@@ -1,96 +1,152 @@
 # Pith
 
-Local autocomplete for every text box. Pause while typing in any app and Pith shows the rest of your sentence in grey at the caret. Tab keeps it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, Ctrl+Shift+Space asks for a suggestion right now.
+Local autocomplete for every text box on Windows. Pause while you type and Pith shows the rest of your sentence in grey at the caret. Tab keeps all of it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, and Ctrl+Shift+Space asks for a suggestion right away.
 
-Everything runs on your machine: a 0.6B model on the CPU, no account, no network after the one-time model download. It is built for ordinary laptops: 8 GB RAM, no GPU.
+A 0.6B model runs on your CPU. There is no account, no telemetry and no network use after the one-time model download. It is built for ordinary laptops with 8 GB RAM and no GPU.
 
-Status: Windows MVP. macOS and Linux are planned (the engine and inference crates are platform-free).
+Status: Windows MVP. macOS and Linux are planned; the engine and inference crates are already platform-free.
 
-## Numbers (i5-9300H laptop, CPU only, 4 threads)
+## What stays on your PC
 
 | | |
 |---|---|
-| Last keystroke to ghost text | 230-390 ms (includes the 120 ms pause detection) |
-| Model work per keystroke | median 160 ms, 1 prompt token re-evaluated |
-| RAM with the model loaded | ~520 MB |
-| RAM when idle (model unloads after 5 min) | ~30 MB |
-| Binary | one 6.9 MB exe, no webview, no installer, no runtime DLLs to install |
-| Next word predicted exactly | ~30% of word starts (offline replay) |
+| Text you type | Read from the focused field only, held in memory for the prompt, never written to disk or sent anywhere |
+| Network | One download of the model from Hugging Face (pinned revision, SHA-256 checked). Nothing else, unless you set `remote_url` |
+| Telemetry | None |
+| Keystrokes | Never seen. There is no keyboard hook |
+| Password fields, password managers, sign-in screens, blocked apps | Never read |
+| Clipboard | Accepting pastes through the clipboard, excluded from clipboard history, cloud clipboard and clipboard monitors, then restores what you had |
+| On disk | `config.toml` (your settings), `stats.toml` (counts of suggestions shown and accepted, no text), `pith.log` (timings, errors and app names, capped at 1 MB) and the model |
+
+Settings > Delete model and data removes everything except your settings.
+
+With `remote_url` set, the text before the caret is sent to that server. Pith accepts only `https`, or `http` to this computer. The tray tooltip, the Settings footer and the welcome window then name the server, and say "on this PC" only when it really is.
+
+## Numbers
+
+i5-9300H laptop, CPU only, 4 threads, `standard` model. Latency and accuracy come from `typing_bench` replaying 12 samples in 9 languages (English email, chat and Slack, German, Spanish, Hindi, Japanese, Chinese, lists, numbers and URLs, edits, a long document). Memory and the first-suggestion time come from `e2e`.
+
+| | |
+|---|---|
+| Model work per keystroke while typing | median 229 ms, p90 577 ms, plus the 120 ms pause detection |
+| First suggestion in a field you just opened | 1.1-1.6 s (the context is read once, then reused) |
+| Keystrokes saved if every right suggestion is accepted | 29% |
+| Next word shown and right, at the start of a word | 12% |
+| RAM with the model loaded | ~610 MB |
+| RAM idle | ~30 MB before the first suggestion, ~50 MB after the model unloads |
+| Binary | one 7.3 MB exe, no webview, no installer, no runtime DLLs |
+
+Hindi and long Spanish sentences are the slowest (p90 1.3-1.9 s) because they take more tokens per word.
+
+## Use it
+
+Download `pith.exe` and run it. On first start it downloads the model into `%LOCALAPPDATA%\Pith\data\models`, then shows a tray icon.
+
+| `model` | File | RAM loaded | Notes |
+|---|---|---|---|
+| `standard` (default) | Qwen3-0.6B-Base Q4_K_M, 397 MB | ~600 MB | multilingual, best suggestions |
+| `lite` | SmolLM2-360M Q4_K_M, 271 MB | ~330 MB | English-focused, faster to load |
+
+Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs the tray says so instead of crashing, and `remote_url` lets you use a server instead.
+
+The tray shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model). It pauses Pith for 15 minutes, an hour or until you resume, and turns it off in the app you were just using.
+
+Settings changes apply at once:
+
+- Enabled, and how often suggestions appear (Fewer, Normal, More)
+- Suggestion length (Short, Normal, Long)
+- Ghost text opacity
+- Your stats: suggestions seen and accepted today and in total, and the time they saved you
+- The apps Pith is turned off in
+- Start with Windows (off by default)
+- Open data folder, Delete model and data
+
+Settings also warns when something else suggests in the same fields: Windows text suggestions for hardware keyboards (with a button to turn them off), PhraseExpress or Lightkey.
+
+When an app reports no caret, or a caret Pith cannot trust, the suggestion shows in a small pill just below the field, or inside its bottom edge when there is no room. The pill keeps its own background and contrast, so the opacity setting does not apply to it.
+
+Pith pauses and frees the model while Windows battery saver is on.
+
+## Config
+
+Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is reported in the tray, and the defaults are used until you fix it.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | true | suggest at all |
+| `model` | standard | `standard` or `lite` |
+| `model_path` | none | any GGUF file; overrides `model` |
+| `threads` | 0 | 0 = half the logical cores, at most 4 |
+| `context_tokens` | 1024 | model context; at most 16384 and at least `max_tokens` + 64 |
+| `context_chars` | 1200 | characters before the caret used as the prompt |
+| `min_chars_before` | 3 | characters needed before suggesting automatically |
+| `debounce_ms` | 120 | pause before asking the model |
+| `max_words` | 6 | longest suggestion; set by Suggestion length |
+| `max_tokens` | 16 | token budget for one suggestion; set by Suggestion length |
+| `min_mean_logprob` | -1.6 | confidence gate; raise it for fewer, safer suggestions |
+| `min_token_logprob` | -3.5 | a suggestion stops at the first token below this |
+| `ghost_opacity` | 50 | ghost text strength, 10 to 100 percent; raised automatically to keep 3:1 contrast |
+| `trigger_mode` | auto | `auto` suggests as you pause; `manual` only on the force-trigger key |
+| `accept_keys` | ["Tab"] | keys that accept the whole suggestion, e.g. `["Tab", "Right"]` (Right accepts only at the end of the text) |
+| `accept_word_keys` | ["Shift+Tab", "Ctrl+Right"] | keys that accept one word |
+| `accept_race_ms` | 150 | a key pressed this soon after a suggestion appears goes to the app, so a Tab you were already typing is not swallowed |
+| `force_trigger` | true | register the force-trigger key |
+| `force_trigger_key` | Ctrl+Shift+Space | asks for a suggestion now, even where short or non-prose text is skipped |
+| `idle_unload_secs` | 300 | free the model after this much idle time (0 = never) |
+| `pause_on_battery_saver` | true | pause and free the model while battery saver is on; PCs without a battery are unaffected |
+| `auto_pause_after` | 12 | stop suggesting in an app after this many ignored suggestions in a row (0 = never); the tray offers Resume |
+| `smart_space` | false | add a space after accepting the last word of a suggestion |
+| `blocked_apps` | [] | extra process names to ignore; terminals, code editors, password managers and sign-in screens are always ignored |
+| `typing_wpm` | 40 | your typing speed, used for the time-saved estimate (1 to 500) |
+| `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; `https`, or `http` to this computer |
+| `remote_model` | none | the `model` name sent to that server |
 
 ## How it works
 
 - **Reads text** through Windows UI Automation on a background thread with 250 ms timeouts, so a hung app never freezes Pith.
-- **Notices typing** through WinEvents (focus, value, caret). There is no keyboard hook, so Pith never sees your keystrokes.
-- **Captures the accept keys and Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after. A key pressed within `accept_race_ms` of the suggestion appearing, or Right at a caret that is not at the end of the text, goes through to the app untouched.
+- **Notices typing** through WinEvents (focus, value, caret), not a keyboard hook.
+- **Captures the accept keys and Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after. Right at a caret that is not at the end of the text goes to the app untouched.
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
-- **Inserts** accepted text with a clipboard paste that is hidden from clipboard history and restores your clipboard afterwards.
-- **Predicts** with llama.cpp embedded in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so suggestions finish the word correctly. Low-confidence suggestions are dropped.
-- **Skips** password fields, IME composition, selections, text after the caret, terminals, code editors and password managers. Text in password fields and blocked apps is never read.
-- **Re-reads the field** when you press an accept key or Esc, and only acts if the suggestion still fits what is on screen.
+- **Predicts** with llama.cpp in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so the suggestion finishes the word. Low-confidence suggestions are dropped.
+- **Skips** password fields, IME composition, selections, text after the caret on the same line, terminals, code editors and password managers.
+- **Re-reads the field** when you press an accept key or Esc, and acts only if the suggestion still fits what is on screen.
 
 ```
-crates/core      engine state machine, policy, prompt, text utils (pure, unit-tested)
-crates/infer     llama.cpp session, worker thread, optional OpenAI-compatible remote backend
-crates/windows   UI Automation reader, WinEvents, overlay, hotkeys, clipboard, tray, main loop
-crates/app       pith.exe: config, model download, wiring
+crates/core      engine, config, policy, placement, stats (platform-free, unit-tested)
+crates/infer     llama.cpp session, worker thread, model download, remote backend
+crates/windows   UI Automation, WinEvents, overlay, pill, hotkeys, tray, settings, onboarding
+crates/app       pith.exe
 ```
 
-## Run
+## Build and test
 
-Download `pith.exe` and run it. On first start it downloads the model into `%LOCALAPPDATA%\Pith\data\models` (pinned revision, SHA-256 checked), then shows a tray icon.
-
-| `model` | File | RAM loaded | Median per keystroke | Notes |
-|---|---|---|---|---|
-| `standard` (default) | Qwen3-0.6B-Base Q4_K_M, 397 MB | ~520 MB | ~165 ms | multilingual, best suggestions |
-| `lite` | SmolLM2-360M Q4_K_M, 271 MB | ~330 MB | ~140 ms | English-focused, loads in 0.25 s |
-
-Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs it says so in the tray instead of crashing; point `remote_url` at a server to use it there.
-
-Invalid settings are reported in the tray and the defaults are used until you fix them. The tray menu shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model), pauses it for 15 minutes, an hour or until you resume, and turns it off in the app you were just using. Its Settings window sets Enabled, how often suggestions appear (Fewer, Normal, More), how long they run (Short, Normal, Long), the ghost text opacity, the apps it is off in, Start with Windows (off by default), shows how many suggestions you saw and accepted today and in total with the time they saved you (counts only, kept in `stats.toml` in the data folder and never sent anywhere; Reset stats clears them), and can open or delete the data folder. Changes apply at once and are written to the file below, which holds every other setting: `%APPDATA%\Pith\config\config.toml`.
-
-| Key | Default | Meaning |
-|---|---|---|
-| `model` | standard | `standard` or `lite` |
-| `model_path` | none | any GGUF file; overrides `model` |
-| `threads` | 0 | 0 = half the logical cores, max 4; at most 256 |
-| `debounce_ms` | 120 | pause before asking the model |
-| `max_words` | 6 | longest suggestion |
-| `min_mean_logprob` | -1.6 | confidence gate; raise for fewer, safer suggestions |
-| `ghost_opacity` | 50 | ghost text strength, 10 to 100 percent; raised automatically to keep 3:1 contrast |
-| `trigger_mode` | auto | `auto` suggests as you pause; `manual` only on the force-trigger key |
-| `accept_keys` | ["Tab"] | keys that accept the whole suggestion, e.g. `["Tab", "Right"]` (Right only accepts at the end of the text) |
-| `accept_word_keys` | ["Shift+Tab", "Ctrl+Right"] | keys that accept one word |
-| `accept_race_ms` | 150 | a Tab pressed this soon after the suggestion appears is passed through, so a tab you were typing is not swallowed |
-| `force_trigger` | true | register the force-trigger key |
-| `force_trigger_key` | Ctrl+Shift+Space | asks for a suggestion now, even in fields skipped for short or non-prose text |
-| `idle_unload_secs` | 300 | free the model after this much idle time (0 = never) |
-| `pause_on_battery_saver` | true | pause suggestions and free the model while Windows battery saver is on; PCs without a battery are unaffected |
-| `auto_pause_after` | 12 | stop suggesting in an app after this many shown suggestions in a row were ignored (0 = never); the tray offers "Resume" |
-| `smart_space` | false | add a trailing space when you accept the last word of a suggestion |
-| `blocked_apps` | [] | extra process names to ignore; terminals, editors, password managers and sign-in screens are always ignored |
-| `typing_wpm` | 40 | your typing speed in words per minute, used for the time-saved estimate (1 to 500) |
-| `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; must be `https`, or `http` to this computer |
-
-## Build
-
-Needs Rust (MSVC toolchain), CMake and libclang. Without system installs: `pip install --user cmake libclang`, then put the CMake `bin` on `PATH` and point `LIBCLANG_PATH` at the `clang/native` folder of the libclang package. `.cargo/config.toml` links the C runtime statically, so the exe runs on a clean Windows install.
+Needs Rust (MSVC toolchain), CMake and libclang. Without system installs: `pip install --user cmake libclang`, put the CMake `bin` on `PATH`, and point `LIBCLANG_PATH` at the `clang/native` folder of the libclang package. `.cargo/config.toml` links the C runtime statically, so the exe runs on a clean Windows install.
 
 ```
 cargo build --release
-cargo test -p pith-core -p pith-infer
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p pith-infer --example typing_bench -- path\to\model.gguf 4
 cargo run --release -p pith-windows --example e2e -- path\to\model.gguf .
+cargo run --release -p pith-windows --example ui_shots
 ```
 
-`typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed. `e2e` drives the full app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, rapid accept chains, stale keys, escape, selection, password fields, pause, field switching, overlay geometry and memory. `PITH_E2E_ONLY=<name>` runs matching scenarios, `PITH_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `PITH_E2E_INSERT_LAG_MS=<ms>` delays insertion like the real paste, `PITH_E2E_TRACE=1` prints every action.
+- `typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed next.
+- `e2e` drives the whole app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, accept chains, stale keys, Esc, selections, password fields, pause, field switching, the fallback pill, overlay geometry and memory. `PITH_E2E_ONLY=<name>` runs matching scenarios, `PITH_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `PITH_E2E_INSERT_LAG_MS=<ms>` delays insertion like a real paste and `PITH_E2E_TRACE=1` prints every action.
+- `ui_shots` renders the settings and welcome windows, light and dark, to PNGs in `target/ui-shots`.
 
 ## Roadmap
 
-- Test matrix for Chrome, Edge, Slack, Teams, Outlook, Word and WhatsApp
-- Streaming the first word as soon as it is ready
-- Per-field KV cache slots so switching apps does not re-read context
-- Local session memory and an "ask" hotkey over your recent work, then fact-mismatch hints
-- macOS (Accessibility API) and Linux (AT-SPI / input method)
+- Tested support for Chrome, Edge, Slack, Teams, Outlook, Word and WhatsApp
+- Learns your phrasing from text you accept, kept on this PC
+- Context from the rest of the window, such as the email you are replying to
+- Suggestions in the middle of a line
+- Typo fixes alongside the completion
+- Snippets and per-site rules
+- Several candidates to choose from
+- Published accuracy per language
+- Signed builds, winget and auto-update
+- macOS (Accessibility API) and Linux (AT-SPI)
 
 ## License
 
