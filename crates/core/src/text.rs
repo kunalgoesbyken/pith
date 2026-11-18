@@ -308,10 +308,7 @@ mod tests {
         assert_eq!(sentence_end(" कल आऊँगा।"), Some(SentenceEnd::NeedsSpace));
         assert_eq!(sentence_end(" ..."), None);
         assert_eq!(sentence_end(" costs 3.5."), Some(SentenceEnd::NeedsSpace));
-        assert_eq!(
-            sentence_end(" on www.example.com."),
-            Some(SentenceEnd::NeedsSpace)
-        );
+        assert_eq!(sentence_end(" on www.example.com."), Some(SentenceEnd::NeedsSpace));
         assert_eq!(sentence_end(" at 9:30 a.m."), None);
         assert_eq!(sentence_end(" in the U.S."), None);
         assert_eq!(sentence_end(" (i.e."), None);
