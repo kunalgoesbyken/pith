@@ -1,5 +1,6 @@
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::ignore::IgnoreTracker;
 use crate::{
     Completion, CompletionRequest, Config, FieldSnapshot, Rect, build, check, next_word, suggestion,
 };
@@ -20,6 +21,7 @@ pub enum Event {
     AcceptWord,
     Dismiss,
     SetEnabled(bool),
+    Resume(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +46,7 @@ pub enum Action {
     Insert(String),
     ArmKeys,
     DisarmKeys,
+    AutoPaused(Vec<String>),
 }
 
 pub struct Engine {
@@ -52,7 +55,9 @@ pub struct Engine {
     generation: u64,
     in_flight: bool,
     suggestion: Option<String>,
+    engaged: bool,
     dismissed: Option<(u64, String)>,
+    ignores: IgnoreTracker,
 }
 
 impl Engine {
@@ -63,7 +68,9 @@ impl Engine {
             generation: 0,
             in_flight: false,
             suggestion: None,
+            engaged: false,
             dismissed: None,
+            ignores: IgnoreTracker::default(),
         }
     }
 
@@ -90,7 +97,11 @@ impl Engine {
             Event::AcceptAll => self.on_accept(false, &mut out),
             Event::AcceptWord => self.on_accept(true, &mut out),
             Event::Dismiss => {
+                let ignored = self.unengaged_app();
                 self.reset(&mut out);
+                if let Some(app) = ignored {
+                    self.note_ignored(&app, &mut out);
+                }
                 self.dismissed = self
                     .field
                     .as_ref()
@@ -101,8 +112,25 @@ impl Engine {
                 self.reset(&mut out);
                 self.schedule(&mut out);
             }
+            Event::Resume(app) => {
+                if self.ignores.resume(&app) {
+                    out.push(Action::AutoPaused(self.ignores.paused()));
+                    self.schedule(&mut out);
+                }
+            }
         }
         out
+    }
+
+    fn unengaged_app(&self) -> Option<String> {
+        let field = self.field.as_ref()?;
+        (self.suggestion.is_some() && !self.engaged).then(|| field.app.clone())
+    }
+
+    fn note_ignored(&mut self, app: &str, out: &mut Vec<Action>) {
+        if self.ignores.ignored(app, self.config.auto_pause_after) {
+            out.push(Action::AutoPaused(self.ignores.paused()));
+        }
     }
 
     fn reset(&mut self, out: &mut Vec<Action>) {
@@ -120,6 +148,7 @@ impl Engine {
     fn on_field(&mut self, field: FieldSnapshot, out: &mut Vec<Action>) {
         self.dismissed
             .take_if(|(id, before)| *id == field.field_id && *before != field.before);
+        let mut ignored = None;
         if let Some(previous) = &self.field {
             let same_field = previous.field_id == field.field_id
                 && previous.app == field.app
@@ -137,20 +166,28 @@ impl Engine {
                 return;
             }
             if same_field && let Some(rest) = self.typed_through(previous, &field) {
-                self.field = Some(field);
                 if rest.trim().is_empty() {
+                    self.ignores.accepted(&field.app);
                     self.suggestion = None;
                     out.push(Action::Hide);
                     out.push(Action::DisarmKeys);
+                    self.field = Some(field);
                     self.schedule(out);
                 } else {
+                    self.field = Some(field);
                     self.suggestion = Some(rest);
                     self.show_current(out);
                 }
                 return;
             }
+            if same_field && previous.before != field.before {
+                ignored = self.unengaged_app();
+            }
         }
         self.reset(out);
+        if let Some(app) = ignored {
+            self.note_ignored(&app, out);
+        }
         self.field = Some(field);
         self.schedule(out);
     }
@@ -165,13 +202,17 @@ impl Engine {
         is_grapheme_boundary(suggestion, typed.len()).then(|| rest.to_string())
     }
 
+    fn suppressed(&self, field: &FieldSnapshot) -> bool {
+        check(field, &self.config).is_err() || self.ignores.is_paused(&field.app)
+    }
+
     fn schedule(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
         let dismissed = self
             .dismissed
             .as_ref()
             .is_some_and(|(id, before)| *id == field.field_id && *before == field.before);
-        if dismissed || field.caret.is_none() || check(field, &self.config).is_err() {
+        if dismissed || field.caret.is_none() || self.suppressed(field) {
             return;
         }
         out.push(Action::ScheduleDebounce {
@@ -185,7 +226,7 @@ impl Engine {
             return;
         }
         let Some(field) = &self.field else { return };
-        if field.caret.is_none() || check(field, &self.config).is_err() {
+        if field.caret.is_none() || self.suppressed(field) {
             return;
         }
         self.in_flight = true;
@@ -214,6 +255,7 @@ impl Engine {
             return;
         }
         self.suggestion = Some(text);
+        self.engaged = false;
         self.show_current(out);
         out.push(Action::ArmKeys);
     }
@@ -228,6 +270,10 @@ impl Engine {
             suggestion.clone()
         };
         let rest = suggestion[accepted.len()..].to_string();
+        self.engaged = true;
+        if let Some(field) = &self.field {
+            self.ignores.accepted(&field.app);
+        }
         out.push(Action::Insert(accepted.clone()));
         if let Some(field) = &mut self.field {
             field.before.push_str(&accepted);

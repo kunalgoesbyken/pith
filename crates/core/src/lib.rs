@@ -1,5 +1,6 @@
 mod config;
 mod engine;
+mod ignore;
 mod log;
 mod policy;
 mod prompt;
