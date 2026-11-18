@@ -1,13 +1,49 @@
-use std::path::Path;
-
 use serde::{Deserialize, Serialize};
 
 pub fn app_name(path_or_name: &str) -> String {
-    let leaf = path_or_name.rsplit(['\\', '/']).next().unwrap_or_default();
-    Path::new(leaf)
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().to_string())
+    let leaf = path_or_name
+        .rsplit(['\\', '/'])
+        .next()
         .unwrap_or_default()
+        .trim();
+    let mut stem = leaf;
+    while stem.to_ascii_lowercase().ends_with(".exe") {
+        stem = &stem[..stem.len() - 4];
+    }
+    stem.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_name_is_idempotent() {
+        for raw in [
+            "Foo.Bar.exe",
+            "Foo.Bar",
+            r"C:\Apps\Foo.Bar.EXE",
+            "code.exe",
+            "",
+            ".exe",
+            "a.exe.exe",
+        ] {
+            let once = app_name(raw);
+            assert_eq!(app_name(&once), once, "{raw}");
+        }
+        assert_eq!(app_name(r"C:\Apps\Foo.Bar.EXE"), "Foo.Bar");
+    }
+
+    #[test]
+    fn dotted_names_stay_blocked() {
+        let config = Config {
+            blocked_apps: vec!["Foo.Bar.exe".into()],
+            ..Config::default()
+        };
+        assert!(config.is_blocked("Foo.Bar"));
+        assert!(config.is_blocked(&app_name(r"C:\x\FOO.BAR.exe")));
+        assert!(!config.is_blocked("Foo"));
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
