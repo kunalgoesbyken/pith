@@ -36,11 +36,28 @@ i5-9300H laptop, CPU only, 4 threads, `standard` model. Latency and accuracy com
 | RAM idle | ~30 MB before the first suggestion, ~50 MB after the model unloads |
 | Binary | one 7.3 MB exe, no webview, no installer, no runtime DLLs |
 
-Hindi and long Spanish sentences are the slowest (p90 1.3-1.9 s) because they take more tokens per word.
+Per sample (`standard`, offline replay; "saved" assumes every right suggestion is accepted, "wrong" is the share of shown suggestions that disagree with what was typed next):
+
+| Sample | Saved | Next word right | Wrong | p50 | p90 |
+|---|---|---|---|---|---|
+| English work email | 23% | 16% | 22% | 228 ms | 338 ms |
+| English casual chat | 6% | 0% | 54% | 205 ms | 362 ms |
+| English Slack | 21% | 10% | 34% | 202 ms | 310 ms |
+| English bullet lists | 20% | 13% | 37% | 162 ms | 284 ms |
+| English with numbers and URLs | 23% | 7% | 46% | 323 ms | 640 ms |
+| English with corrections | 56% | 36% | 18% | 183 ms | 283 ms |
+| English long document | 34% | 15% | 28% | 232 ms | 429 ms |
+| German | 44% | 20% | 33% | 373 ms | 688 ms |
+| Spanish | 40% | 18% | 29% | 559 ms | 1317 ms |
+| Hindi | 21% | 5% | 61% | 749 ms | 1927 ms |
+| Japanese | 44% | 0% | 54% | 144 ms | 209 ms |
+| Chinese | 16% | 0% | 50% | 133 ms | 219 ms |
+
+Hindi and Spanish are the slowest because they take more tokens per word. Japanese and Chinese have no spaces, so "next word right" rarely applies; "saved" is the better measure there. Casual chat is the hardest: short, unpredictable replies.
 
 ## Use it
 
-Download `pith.exe` and run it. On first start it downloads the model into `%LOCALAPPDATA%\Pith\data\models`, then shows a tray icon.
+Download `pith.exe` from [Releases](https://github.com/kunalgoesbyken/pith/releases) and run it; `pith.exe.sha256` next to it lets you check the file. The exe is not code-signed yet, so Windows SmartScreen may ask you to confirm the first start. On first start Pith downloads the model into `%LOCALAPPDATA%\Pith\data\models`, then shows a tray icon.
 
 | `model` | File | RAM loaded | Notes |
 |---|---|---|---|
@@ -144,8 +161,7 @@ cargo run --release -p pith-windows --example ui_shots
 - Typo fixes alongside the completion
 - Snippets and per-site rules
 - Several candidates to choose from
-- Published accuracy per language
-- Signed builds, winget and auto-update
+- Code signing, winget and update notices
 - macOS (Accessibility API) and Linux (AT-SPI)
 
 ## License
