@@ -126,6 +126,11 @@ fn run(
             context_tokens,
             idle_unload_secs,
         } => {
+            if let Err(missing) = cpu_supported() {
+                return on_ready(Err(format!(
+                    "this CPU lacks {missing}, which the built-in model runtime needs; set remote_url in settings to use a server instead"
+                )));
+            }
             let name = model_path
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -159,4 +164,28 @@ fn run(
         #[cfg(not(feature = "llama"))]
         Backend::Local { .. } => on_ready(Err("built without local inference".into())),
     }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn cpu_supported() -> Result<(), String> {
+    let missing: Vec<&str> = [
+        ("AVX", std::arch::is_x86_feature_detected!("avx")),
+        ("AVX2", std::arch::is_x86_feature_detected!("avx2")),
+        ("FMA", std::arch::is_x86_feature_detected!("fma")),
+        ("F16C", std::arch::is_x86_feature_detected!("f16c")),
+    ]
+    .into_iter()
+    .filter(|(_, present)| !present)
+    .map(|(name, _)| name)
+    .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing.join("/"))
+    }
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn cpu_supported() -> Result<(), String> {
+    Ok(())
 }

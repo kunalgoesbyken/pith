@@ -8,11 +8,13 @@ use windows::Win32::System::Ole::{
     SafeArrayAccessData, SafeArrayDestroy, SafeArrayGetLBound, SafeArrayGetUBound,
     SafeArrayUnaccessData,
 };
+use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
+use windows::Win32::UI::WindowsAndMessaging::OBJID_CARET;
 use windows::Win32::UI::WindowsAndMessaging::{
     GUITHREADINFO, GetGUIThreadInfo, GetWindowThreadProcessId,
 };
-use windows::core::{BOOL, Result};
+use windows::core::{BOOL, Interface, Result};
 
 pub fn caret_range(element: &IUIAutomationElement) -> Result<IUIAutomationTextRange> {
     unsafe {
@@ -184,13 +186,53 @@ fn system_caret(foreground: HWND) -> Option<Rect> {
     }
 }
 
+fn accessible_caret(foreground: HWND) -> Option<Rect> {
+    unsafe {
+        let thread = GetWindowThreadProcessId(foreground, None);
+        let mut info = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        GetGUIThreadInfo(thread, &mut info).ok()?;
+        let window = if info.hwndFocus.is_invalid() {
+            foreground
+        } else {
+            info.hwndFocus
+        };
+        let mut raw: *mut c_void = std::ptr::null_mut();
+        AccessibleObjectFromWindow(window, OBJID_CARET.0 as u32, &IAccessible::IID, &mut raw)
+            .ok()?;
+        if raw.is_null() {
+            return None;
+        }
+        let accessible = IAccessible::from_raw(raw);
+        let (mut x, mut y, mut width, mut height) = (0, 0, 0, 0);
+        accessible
+            .accLocation(
+                &mut x,
+                &mut y,
+                &mut width,
+                &mut height,
+                &VARIANT::from(0i32),
+            )
+            .ok()?;
+        (height > 0).then_some(Rect {
+            x,
+            y,
+            width: width.max(1),
+            height,
+        })
+    }
+}
+
 pub fn caret_rect(caret: &IUIAutomationTextRange, foreground: Option<HWND>) -> Option<Rect> {
     let uia = uia_caret(caret);
     let system = foreground.and_then(system_caret);
     match (uia, system) {
         (Some(u), Some(s)) if (u.x - s.x).abs() <= 6 && s.height < u.height => Some(s),
         (Some(u), _) => Some(u),
-        (None, s) => s,
+        (None, Some(s)) => Some(s),
+        (None, None) => foreground.and_then(accessible_caret),
     }
 }
 

@@ -9,6 +9,7 @@ pub enum SkipReason {
     Selection,
     TextAfterCaret,
     TooShort,
+    NotProse,
 }
 
 pub fn check(field: &FieldSnapshot, config: &Config) -> Result<(), SkipReason> {
@@ -34,6 +35,11 @@ pub fn check(field: &FieldSnapshot, config: &Config) -> Result<(), SkipReason> {
     let current_line = field.before.rsplit(['\n', '\r']).next().unwrap_or_default();
     if current_line.trim().chars().count() < config.min_chars_before {
         return Err(SkipReason::TooShort);
+    }
+    let visible = current_line.chars().filter(|c| !c.is_whitespace()).count();
+    let letters = current_line.chars().filter(|c| c.is_alphabetic()).count();
+    if letters * 2 < visible {
+        return Err(SkipReason::NotProse);
     }
     Ok(())
 }
@@ -93,6 +99,27 @@ mod tests {
             let mut f = field("Hello the", "");
             f.app = app.into();
             assert_eq!(check(&f, &config), Err(SkipReason::BlockedApp), "{app}");
+        }
+        for line in [
+            "123456",
+            "4242 4242 4242 4242",
+            "+1 (415) 555-0100",
+            "$12,345.67",
+        ] {
+            assert_eq!(
+                check(&field(line, ""), &config),
+                Err(SkipReason::NotProse),
+                "{line}"
+            );
+        }
+        for line in [
+            "Hello the",
+            "你好世界和平",
+            "नमस्ते दोस्त",
+            "Meet at 10:30 tomorrow",
+            "user@example.com",
+        ] {
+            assert_eq!(check(&field(line, ""), &config), Ok(()), "{line}");
         }
         let disabled = Config {
             enabled: false,

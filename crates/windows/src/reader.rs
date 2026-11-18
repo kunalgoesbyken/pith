@@ -15,7 +15,7 @@ use windows::core::{Interface, Result};
 use crate::caret::{
     caret_range, caret_rect, composing, font, has_selection, runtime_id, text_around,
 };
-use crate::util::{process_name, window_title};
+use crate::util::{is_elevated, process_name, window_pid, window_title};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -119,6 +119,10 @@ fn read(
         if source == Source::Focused && pid == own_pid {
             return Ok(None);
         }
+        let owner = window_pid(root).unwrap_or(pid);
+        if is_elevated(pid) || is_elevated(owner) {
+            return Ok(None);
+        }
         let Ok(caret) = caret_range(&element) else {
             return Ok(None);
         };
@@ -127,7 +131,7 @@ fn read(
         let dpi = GetDpiForWindow(root).max(96) as f64;
         Ok(Some(FieldSnapshot {
             field_id: runtime_id(&element),
-            app: process_name(pid),
+            app: process_name(owner),
             window_title: window_title(root),
             before: normalize(before),
             after: normalize(after),
