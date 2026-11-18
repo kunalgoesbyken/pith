@@ -1389,8 +1389,8 @@ fn overlay_at_screen_edge(rig: &mut Rig) {
     rig.check(
         "ghost near the screen edge stays inside the monitor and clear of the caret",
         ghost.is_some_and(|g| {
-            let on_caret = (g.left..g.right).contains(&caret_x)
-                && (g.top..g.bottom).contains(&(caret_y + 4));
+            let on_caret =
+                (g.left..g.right).contains(&caret_x) && (g.top..g.bottom).contains(&(caret_y + 4));
             g.left >= monitor.left && g.right <= monitor.right && !on_caret
         }),
         format!(
