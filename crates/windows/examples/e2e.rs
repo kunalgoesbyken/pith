@@ -496,6 +496,18 @@ impl Rig {
         TARGET.store(field.edit, Ordering::SeqCst);
     }
 
+    fn resume(&self, app: String) {
+        let _ = self.inbound.send(Inbound::Resume(app));
+        self.waker.wake();
+    }
+
+    fn resume_target(&mut self) {
+        if let Some(snapshot) = self.read(self.a) {
+            self.resume(snapshot.app);
+            self.drain();
+        }
+    }
+
     fn drain(&self) {
         while let Ok(action) = self.actions.try_recv() {
             trace(&action);
@@ -746,8 +758,7 @@ fn auto_pause_on_ignore(rig: &mut Rig) {
         return rig.check("auto-pause setup", false, "no snapshot".into());
     };
     let limit = Config::default().auto_pause_after as usize;
-    let _ = rig.inbound.send(Inbound::Resume(app.clone()));
-    rig.waker.wake();
+    rig.resume(app.clone());
     rig.drain();
     let mut ignored = 0;
     let mut accepted_once = false;
@@ -791,16 +802,14 @@ fn auto_pause_on_ignore(rig: &mut Rig) {
         !seen.iter().any(is_request) && !seen.iter().any(is_show),
         format!("{seen:?}"),
     );
-    let _ = rig.inbound.send(Inbound::Resume("not-the-app".into()));
-    rig.waker.wake();
+    rig.resume("not-the-app".into());
     let seen = rig.settle(Duration::from_millis(800));
     rig.check(
         "resuming another app changes nothing",
         !seen.iter().any(is_auto_paused) && !seen.iter().any(is_request),
         format!("{seen:?}"),
     );
-    let _ = rig.inbound.send(Inbound::Resume(app));
-    rig.waker.wake();
+    rig.resume(app);
     let seen = rig.settle(Duration::from_millis(2000));
     rig.check(
         "resume reports an empty pause list and asks the model again",
@@ -1956,10 +1965,12 @@ fn main() {
                 continue;
             }
             println!("--- {name}");
+            rig.resume_target();
             scenario(&mut rig);
         }
         if only.as_deref().is_none_or(|o| "edge".contains(o)) {
             println!("--- edge");
+            rig.resume_target();
             overlay_at_screen_edge(&mut rig);
         }
         print_memory("loaded, after scenarios");

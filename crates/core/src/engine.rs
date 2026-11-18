@@ -268,8 +268,10 @@ impl Engine {
                 self.config.lookback_chars(),
             );
         }
-        self.dismissed
-            .take_if(|(id, before)| *id == field.field_id && *before != field.before);
+        let suggestable = field.caret.is_some() && check(&field, &self.config).is_ok();
+        self.dismissed.take_if(|(id, before)| {
+            suggestable && *id == field.field_id && *before != field.before
+        });
         let mut ignored = None;
         if let Some(previous) = &self.field {
             let same_field = previous.field_id == field.field_id
@@ -794,6 +796,20 @@ mod tests {
             matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
             "{out:?}"
         );
+    }
+
+    #[test]
+    fn dismiss_holds_while_the_caret_visits_other_spots_in_the_text() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        for (before, after) in [("", "Please sign the"), ("Ple", "ase sign the")] {
+            let mut moved = field(before);
+            moved.after = after.into();
+            engine.handle(Event::Field(Some(moved)));
+            let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+            assert!(out.is_empty(), "{before:?}: {out:?}");
+        }
     }
 
     #[test]
