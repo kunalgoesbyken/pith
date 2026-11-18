@@ -457,5 +457,6 @@ pub fn run(
     }
     app.overlay.hide();
     app.keys.disarm(app.control);
+    app.keys.set_trigger(app.control, false);
     Ok(())
 }

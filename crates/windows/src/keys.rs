@@ -172,17 +172,25 @@ pub fn send_chord(modifiers: &[VIRTUAL_KEY], vk: VIRTUAL_KEY) {
     }
 }
 
+fn is_down(vk: VIRTUAL_KEY) -> bool {
+    let state = unsafe { GetAsyncKeyState(i32::from(vk.0)) };
+    state < 0
+}
+
 pub fn replay(chord: &Chord) {
-    send_chord(&held_modifiers(chord), VIRTUAL_KEY(virtual_key(chord.key)));
+    let to_press: Vec<VIRTUAL_KEY> = held_modifiers(chord)
+        .into_iter()
+        .filter(|vk| !is_down(*vk))
+        .collect();
+    send_chord(&to_press, VIRTUAL_KEY(virtual_key(chord.key)));
 }
 
 pub fn wait_for_modifiers_released(limit: Duration) -> bool {
     let started = Instant::now();
-    let held = |vk: VIRTUAL_KEY| unsafe { GetAsyncKeyState(vk.0 as i32) } < 0;
     loop {
         if ![VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]
             .into_iter()
-            .any(held)
+            .any(is_down)
         {
             return true;
         }
