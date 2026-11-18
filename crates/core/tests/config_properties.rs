@@ -1,7 +1,7 @@
 mod common;
 
 use common::{Rng, text};
-use nib_core::{Config, FieldSnapshot, SkipReason, app_name, check};
+use pith_core::{Config, FieldSnapshot, SkipReason, app_name, check};
 
 const CASES: usize = 4000;
 

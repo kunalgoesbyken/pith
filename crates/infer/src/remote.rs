@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use nib_core::{Completer, Completion, CompletionRequest, StopReason};
+use pith_core::{Completer, Completion, CompletionRequest, StopReason};
 use serde::Deserialize;
 
 pub struct RemoteCompleter {

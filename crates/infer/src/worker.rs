@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
-use nib_core::{Completer, Completion, CompletionRequest};
+use pith_core::{Completer, Completion, CompletionRequest};
 
 use crate::RemoteCompleter;
 
@@ -38,7 +38,7 @@ impl Worker {
         let latest = Arc::new(AtomicU64::new(0));
         let shared = latest.clone();
         std::thread::Builder::new()
-            .name("nib-infer".into())
+            .name("pith-infer".into())
             .spawn(move || work(prepare, rx, shared, on_ready, on_done))
             .expect("spawn inference thread");
         Self { jobs, latest }

@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use nib_core::{Config, FieldSnapshot};
+use pith_core::{Config, FieldSnapshot};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -36,7 +36,7 @@ impl Reader {
     pub fn spawn(source: Source, config: Config, on_snapshot: SnapshotCallback) -> Self {
         let (pokes, rx) = channel();
         std::thread::Builder::new()
-            .name("nib-uia".into())
+            .name("pith-uia".into())
             .spawn(move || serve(source, &config, rx, on_snapshot))
             .expect("spawn uia thread");
         Self { pokes }
@@ -71,7 +71,7 @@ fn automation() -> Result<IUIAutomation> {
 fn serve(source: Source, config: &Config, rx: Receiver<u64>, on_snapshot: SnapshotCallback) {
     let automation = match automation() {
         Ok(automation) => automation,
-        Err(error) => return nib_core::log(&format!("uia unavailable: {error}")),
+        Err(error) => return pith_core::log(&format!("uia unavailable: {error}")),
     };
     let own_pid = std::process::id();
     let mut last: Option<FieldSnapshot> = None;

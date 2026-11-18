@@ -8,7 +8,7 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
-use nib_core::{
+use pith_core::{
     Completer, Completion, CompletionRequest, SentenceEnd, StopReason, exceeds_words, sentence_end,
 };
 

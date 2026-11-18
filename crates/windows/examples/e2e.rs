@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use nib_core::{Action, Config};
-use nib_infer::{Backend, Worker};
-use nib_windows::{
+use pith_core::{Action, Config};
+use pith_infer::{Backend, Worker};
+use pith_windows::{
     ACCEPT_ALL, ACCEPT_WORD, DISMISS, Inbound, InsertMode, Options, Source, Waker, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -29,7 +29,7 @@ fn spawn_test_window() -> (isize, isize) {
     std::thread::spawn(move || unsafe {
         let _ = LoadLibraryW(w!("Msftedit.dll"));
         let instance = GetModuleHandleW(None).unwrap();
-        let class = w!("NibE2EHost");
+        let class = w!("PithE2EHost");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(host_procedure),
             hInstance: instance.into(),
@@ -41,7 +41,7 @@ fn spawn_test_window() -> (isize, isize) {
         let host = CreateWindowExW(
             WS_EX_NOACTIVATE | WS_EX_TOPMOST,
             class,
-            w!("Nib e2e target"),
+            w!("Pith e2e target"),
             WS_OVERLAPPEDWINDOW,
             60,
             60,
@@ -419,7 +419,7 @@ fn drive(
     );
 
     report_memory();
-    if std::env::var("NIB_IDLE_UNLOAD").is_ok() {
+    if std::env::var("PITH_IDLE_UNLOAD").is_ok() {
         std::thread::sleep(Duration::from_secs(4));
         print!("[INFO] after idle unload: ");
         report_memory();
@@ -484,7 +484,7 @@ fn main() {
             .unwrap_or(4),
     );
     let context_tokens = config.context_tokens;
-    let idle_unload_secs = std::env::var("NIB_IDLE_UNLOAD")
+    let idle_unload_secs = std::env::var("PITH_IDLE_UNLOAD")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);

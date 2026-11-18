@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use nib_core::Rect;
+use pith_core::Rect;
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::Graphics::Gdi::MapWindowPoints;
 use windows::Win32::System::Com::SAFEARRAY;

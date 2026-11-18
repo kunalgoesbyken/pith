@@ -40,7 +40,7 @@ pub fn process_name(pid: u32) -> String {
             return String::new();
         }
         let path = String::from_utf16_lossy(&buffer[..length as usize]);
-        nib_core::app_name(&path)
+        pith_core::app_name(&path)
     }
 }
 

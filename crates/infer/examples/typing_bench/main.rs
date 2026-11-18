@@ -4,8 +4,8 @@ mod samples;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use nib_core::{Completer, Completion, Config, FieldSnapshot, build};
-use nib_infer::{LlamaModelHandle, LlamaSession};
+use pith_core::{Completer, Completion, Config, FieldSnapshot, build};
+use pith_infer::{LlamaModelHandle, LlamaSession};
 use report::{Record, Shown, Stats, print_header, print_row, print_sweep, show};
 use samples::Sample;
 

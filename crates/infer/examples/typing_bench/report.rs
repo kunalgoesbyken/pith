@@ -1,4 +1,4 @@
-use nib_core::{Completion, Config, next_word, split_partial, suggestion};
+use pith_core::{Completion, Config, next_word, split_partial, suggestion};
 
 pub const MISS_TOKENS: usize = 16;
 

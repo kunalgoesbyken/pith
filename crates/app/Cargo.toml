@@ -1,13 +1,13 @@
 [package]
-name = "nib"
+name = "pith"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-nib-core.workspace = true
-nib-infer.workspace = true
+pith-core.workspace = true
+pith-infer.workspace = true
 directories.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-nib-windows.workspace = true
+pith-windows.workspace = true

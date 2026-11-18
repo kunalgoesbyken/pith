@@ -1,12 +1,12 @@
 [package]
-name = "nib-windows"
+name = "pith-windows"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-nib-core.workspace = true
-nib-infer.workspace = true
+pith-core.workspace = true
+pith-infer.workspace = true
 tray-icon.workspace = true
 
 [dependencies.windows]

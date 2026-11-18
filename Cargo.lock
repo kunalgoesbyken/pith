@@ -1078,47 +1078,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nib"
-version = "0.1.0"
-dependencies = [
- "directories",
- "nib-core",
- "nib-infer",
- "nib-windows",
-]
-
-[[package]]
-name = "nib-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "toml 1.2.1+spec-1.1.0",
- "unicode-segmentation",
-]
-
-[[package]]
-name = "nib-infer"
-version = "0.1.0"
-dependencies = [
- "llama-cpp-2",
- "nib-core",
- "serde",
- "serde_json",
- "sha2",
- "ureq",
-]
-
-[[package]]
-name = "nib-windows"
-version = "0.1.0"
-dependencies = [
- "nib-core",
- "nib-infer",
- "tray-icon",
- "windows",
-]
-
-[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1242,6 +1201,47 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "pith"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "pith-core",
+ "pith-infer",
+ "pith-windows",
+]
+
+[[package]]
+name = "pith-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml 1.2.1+spec-1.1.0",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "pith-infer"
+version = "0.1.0"
+dependencies = [
+ "llama-cpp-2",
+ "pith-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+]
+
+[[package]]
+name = "pith-windows"
+version = "0.1.0"
+dependencies = [
+ "pith-core",
+ "pith-infer",
+ "tray-icon",
+ "windows",
+]
 
 [[package]]
 name = "pkg-config"

@@ -1,7 +1,7 @@
 mod common;
 
 use common::{Rng, is_boundary, text};
-use nib_core::{
+use pith_core::{
     Config, FieldSnapshot, SentenceEnd, build, clean_completion, next_word, sentence_end,
     split_partial, tail_chars,
 };

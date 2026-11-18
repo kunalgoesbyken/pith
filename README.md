@@ -1,6 +1,6 @@
-# Nib
+# Pith
 
-Local autocomplete for every text box. Pause while typing in any app and Nib shows the rest of your sentence in grey at the caret. Tab keeps it, Shift+Tab keeps one word, Esc hides it.
+Local autocomplete for every text box. Pause while typing in any app and Pith shows the rest of your sentence in grey at the caret. Tab keeps it, Shift+Tab keeps one word, Esc hides it.
 
 Everything runs on your machine: a 0.6B model on the CPU, no account, no network after the one-time model download. It is built for ordinary laptops: 8 GB RAM, no GPU.
 
@@ -19,8 +19,8 @@ Status: Windows MVP. macOS and Linux are planned (the engine and inference crate
 
 ## How it works
 
-- **Reads text** through Windows UI Automation on a background thread with 250 ms timeouts, so a hung app never freezes Nib.
-- **Notices typing** through WinEvents (focus, value, caret). There is no keyboard hook, so Nib never sees your keystrokes.
+- **Reads text** through Windows UI Automation on a background thread with 250 ms timeouts, so a hung app never freezes Pith.
+- **Notices typing** through WinEvents (focus, value, caret). There is no keyboard hook, so Pith never sees your keystrokes.
 - **Captures Tab / Shift+Tab / Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after.
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
 - **Inserts** accepted text with a clipboard paste that is hidden from clipboard history and restores your clipboard afterwards.
@@ -32,21 +32,21 @@ Status: Windows MVP. macOS and Linux are planned (the engine and inference crate
 crates/core      engine state machine, policy, prompt, text utils (pure, unit-tested)
 crates/infer     llama.cpp session, worker thread, optional OpenAI-compatible remote backend
 crates/windows   UI Automation reader, WinEvents, overlay, hotkeys, clipboard, tray, main loop
-crates/app       nib.exe: config, model download, wiring
+crates/app       pith.exe: config, model download, wiring
 ```
 
 ## Run
 
-Download `nib.exe` and run it. On first start it downloads the model into `%LOCALAPPDATA%\Nib\data\models` (pinned revision, SHA-256 checked), then shows a tray icon.
+Download `pith.exe` and run it. On first start it downloads the model into `%LOCALAPPDATA%\Pith\data\models` (pinned revision, SHA-256 checked), then shows a tray icon.
 
 | `model` | File | RAM loaded | Median per keystroke | Notes |
 |---|---|---|---|---|
 | `standard` (default) | Qwen3-0.6B-Base Q4_K_M, 397 MB | ~520 MB | ~165 ms | multilingual, best suggestions |
 | `lite` | SmolLM2-360M Q4_K_M, 271 MB | ~330 MB | ~140 ms | English-focused, loads in 0.25 s |
 
-Nib needs a CPU with AVX2 (most PCs since 2015). On older CPUs it says so in the tray instead of crashing; point `remote_url` at a server to use it there.
+Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs it says so in the tray instead of crashing; point `remote_url` at a server to use it there.
 
-Invalid settings are reported in the tray and the defaults are used until you fix them. Settings live in `%APPDATA%\Nib\config\config.toml` (tray menu, "Open settings"):
+Invalid settings are reported in the tray and the defaults are used until you fix them. Settings live in `%APPDATA%\Pith\config\config.toml` (tray menu, "Open settings"):
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -66,9 +66,9 @@ Needs Rust (MSVC toolchain), CMake and libclang. Without system installs: `pip i
 
 ```
 cargo build --release
-cargo test -p nib-core -p nib-infer
-cargo run --release -p nib-infer --example typing_bench -- path\to\model.gguf 4
-cargo run --release -p nib-windows --example e2e -- path\to\model.gguf .
+cargo test -p pith-core -p pith-infer
+cargo run --release -p pith-infer --example typing_bench -- path\to\model.gguf 4
+cargo run --release -p pith-windows --example e2e -- path\to\model.gguf .
 ```
 
 `typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed. `e2e` drives the full app against its own RichEdit window through window messages, so it never sends keystrokes to other apps.
