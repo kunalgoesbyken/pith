@@ -1,17 +1,27 @@
 use windows::Win32::Foundation::RECT;
 
+use pith_core::Counts;
+
 use super::model::Model;
 use super::{
-    ID_DELETE_DATA, ID_ENABLED, ID_OPEN_DATA, ID_REMOVE_FIRST, ID_START, MAX_APP_ROWS, SEGMENTS,
+    FREQUENCY, ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA,
+    ID_REMOVE_FIRST, ID_RESET_STATS, ID_START, LENGTH, MAX_APP_ROWS, Segment,
 };
+use crate::format::{duration, number};
 use crate::ui::{BUTTON_HEIGHT, FOCUS_MARGIN, Role, Scale, expand, height, rect, toggle_width};
 
-pub const CLIENT_WIDTH: i32 = 520;
+const COLUMN_WIDTH: i32 = 472;
+const COLUMN_GAP: i32 = 24;
 const MARGIN: i32 = 24;
+pub const CLIENT_WIDTH: i32 = 2 * MARGIN + 2 * COLUMN_WIDTH + COLUMN_GAP;
 const CARD_PAD: i32 = 16;
 const ROW: i32 = 64;
 const SLIM_ROW: i32 = 52;
 const NOTE_ROW: i32 = 36;
+const STAT_ROW: i32 = 36;
+const HEADING_ROW: i32 = 32;
+pub const FIGURE_COLUMN: i32 = 104;
+const STEP_WIDTH: i32 = 40;
 const SECTION_GAP: i32 = 20;
 const LABEL_GAP: i32 = 8;
 const HEADER_GAP: i32 = 4;
@@ -31,6 +41,12 @@ pub const GENERAL_ROWS: [(&str, &str); 3] = [
         "Open Pith in the tray when you sign in.",
     ),
 ];
+pub const SUGGESTION_LABEL: &str = "Suggestions";
+pub const LENGTH_ROW: (&str, &str) = ("Suggestion length", "Shorter or longer suggestions.");
+pub const OPACITY_TITLE: &str = "Ghost text opacity";
+pub const STATS_LABEL: &str = "Your stats";
+pub const STATS_HEADINGS: (&str, &str) = ("Today", "All time");
+pub const STATS_RESET: (&str, &str) = ("Reset stats", "The counts never leave this PC.");
 pub const APPS_LABEL: &str = "Turned off in these apps";
 pub const APPS_EMPTY: &str =
     "Nothing is turned off. Choose Turn off in this app from the tray menu.";
@@ -50,6 +66,8 @@ pub enum RowText {
     Pair(String, String),
     Title(String),
     Note(String),
+    Heading(String, String),
+    Figures(String, String, String),
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +104,8 @@ pub struct Layout {
 enum Control {
     None,
     Toggle(i32),
-    Segments,
+    Segments(&'static [Segment]),
+    Stepper(i32, i32),
     Button(i32),
 }
 
@@ -132,10 +151,11 @@ impl Builder {
         match control {
             Control::None => 0,
             Control::Toggle(_) => toggle_width(self.scale, self.px(TOGGLE_LABEL)),
-            Control::Segments => {
-                let gaps = SEGMENTS.len() as i32 - 1;
-                SEGMENTS.len() as i32 * self.px(SEGMENT_WIDTH) + gaps * self.segment_gap()
+            Control::Segments(segments) => {
+                let gaps = segments.len() as i32 - 1;
+                segments.len() as i32 * self.px(SEGMENT_WIDTH) + gaps * self.segment_gap()
             }
+            Control::Stepper(..) => 2 * self.px(STEP_WIDTH) + self.segment_gap(),
             Control::Button(_) => self.px(BUTTON_WIDTH),
         }
     }
@@ -149,14 +169,20 @@ impl Builder {
                 let span = self.control_width(control);
                 self.place(*id, rect(right - span, top, span, visual_height));
             }
-            Control::Segments => {
+            Control::Segments(segments) => {
                 let each = self.px(SEGMENT_WIDTH);
                 let stride = each + self.segment_gap();
                 let start = right - self.control_width(control);
-                for (index, (id, ..)) in SEGMENTS.iter().enumerate() {
+                for (index, (id, ..)) in segments.iter().enumerate() {
                     let visual = rect(start + index as i32 * stride, top, each, visual_height);
                     self.place(*id, visual);
                 }
+            }
+            Control::Stepper(down, up) => {
+                let each = self.px(STEP_WIDTH);
+                let start = right - self.control_width(control);
+                self.place(*down, rect(start, top, each, visual_height));
+                self.place(*up, rect(right - each, top, each, visual_height));
             }
             Control::Button(id) => {
                 let span = self.px(BUTTON_WIDTH);
@@ -207,6 +233,34 @@ fn pair(index: usize, rows: &[(&str, &str)]) -> RowText {
     RowText::Pair(title.to_string(), caption.to_string())
 }
 
+fn stat_specs(model: &Model) -> Vec<Spec> {
+    let both = |title: &str, value: &dyn Fn(&Counts) -> String| Spec {
+        text: RowText::Figures(title.to_string(), value(&model.today), value(&model.total)),
+        height: STAT_ROW,
+        control: Control::None,
+    };
+    let saved = |counts: &Counts| duration(counts.seconds_saved(model.typing_wpm), number);
+    vec![
+        Spec {
+            text: RowText::Heading(STATS_HEADINGS.0.to_string(), STATS_HEADINGS.1.to_string()),
+            height: HEADING_ROW,
+            control: Control::None,
+        },
+        both("Suggestions shown", &|counts| number(counts.shown)),
+        both("Accepted in full", &|counts| number(counts.accepted)),
+        both("Accepted word by word", &|counts| {
+            number(counts.accepted_words)
+        }),
+        both("Words added", &|counts| number(counts.words)),
+        both("Time saved", &saved),
+        Spec {
+            text: pair(0, &[STATS_RESET]),
+            height: ROW,
+            control: Control::Button(ID_RESET_STATS),
+        },
+    ]
+}
+
 fn app_specs(model: &Model) -> Vec<Spec> {
     let apps = model.visible_apps();
     if apps.is_empty() {
@@ -247,7 +301,7 @@ pub fn build(model: &Model) -> Layout {
     let mut builder = Builder {
         scale,
         left: margin,
-        inner: scale.px(CLIENT_WIDTH) - 2 * margin,
+        inner: scale.px(COLUMN_WIDTH),
         y: margin,
         controls: Vec::new(),
     };
@@ -255,6 +309,7 @@ pub fn build(model: &Model) -> Layout {
     builder.y += scale.px(HEADER_GAP);
     let status = builder.take(Role::Caption.line());
     builder.y += scale.px(SECTION_GAP);
+    let columns_top = builder.y;
     let general = builder.card(
         None,
         vec![
@@ -266,12 +321,33 @@ pub fn build(model: &Model) -> Layout {
             Spec {
                 text: pair(1, &GENERAL_ROWS),
                 height: ROW,
-                control: Control::Segments,
+                control: Control::Segments(&FREQUENCY),
             },
             Spec {
                 text: pair(2, &GENERAL_ROWS),
                 height: ROW,
                 control: Control::Toggle(ID_START),
+            },
+        ],
+    );
+    let suggestions = builder.card(
+        Some(SUGGESTION_LABEL),
+        vec![
+            Spec {
+                text: pair(0, &[LENGTH_ROW]),
+                height: ROW,
+                control: Control::Segments(&LENGTH),
+            },
+            Spec {
+                text: RowText::Pair(
+                    OPACITY_TITLE.to_string(),
+                    format!(
+                        "{}%. Applies after Pith restarts.",
+                        number(model.opacity.into())
+                    ),
+                ),
+                height: ROW,
+                control: Control::Stepper(ID_OPACITY_DOWN, ID_OPACITY_UP),
             },
         ],
     );
@@ -285,6 +361,10 @@ pub fn build(model: &Model) -> Layout {
             visible: false,
         });
     }
+    let left_end = builder.y;
+    builder.y = columns_top;
+    builder.left += builder.inner + builder.px(COLUMN_GAP);
+    let stats = builder.card(Some(STATS_LABEL), stat_specs(model));
     let data = builder.card(
         Some(DATA_LABEL),
         vec![
@@ -300,12 +380,14 @@ pub fn build(model: &Model) -> Layout {
             },
         ],
     );
+    builder.y = builder.y.max(left_end);
+    builder.left = margin;
     let footer = builder.take(Role::Caption.line());
     Layout {
         client: rect(0, 0, scale.px(CLIENT_WIDTH), builder.y + margin),
         title,
         status,
-        blocks: vec![general, apps, data],
+        blocks: vec![general, suggestions, apps, stats, data],
         footer,
         controls: builder.controls,
     }

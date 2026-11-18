@@ -1,4 +1,4 @@
-use pith_core::{Setting, Suggestions};
+use pith_core::Setting;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, EndPaint, HDC, PAINTSTRUCT, RDW_ALLCHILDREN, RDW_INVALIDATE, RedrawWindow,
@@ -13,8 +13,8 @@ use super::layout::{Layout, build};
 use super::model::{self, Model, current, update};
 use super::view::{draw_item, name, paint_page};
 use super::{
-    ID_DELETE_DATA, ID_ENABLED, ID_OPEN_DATA, ID_REMOVE_FIRST, ID_START, MAX_APP_ROWS, SEGMENTS,
-    UiEvent, emit,
+    ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA, ID_REMOVE_FIRST,
+    ID_RESET_STATS, ID_START, MAX_APP_ROWS, StatsView, UiEvent, emit, segments,
 };
 use crate::ui::{self, BASE_DPI, Parent, Scale, Theme, width};
 use crate::util::wide;
@@ -46,9 +46,17 @@ fn client(window: HWND) -> RECT {
 
 fn sync_names(window: HWND, model: &Model) {
     let slots = (0..MAX_APP_ROWS as i32).map(|slot| ID_REMOVE_FIRST + slot);
-    let others = [ID_ENABLED, ID_START, ID_OPEN_DATA, ID_DELETE_DATA]
-        .into_iter()
-        .chain(SEGMENTS.iter().map(|(id, ..)| *id));
+    let others = [
+        ID_ENABLED,
+        ID_START,
+        ID_OPEN_DATA,
+        ID_DELETE_DATA,
+        ID_RESET_STATS,
+        ID_OPACITY_DOWN,
+        ID_OPACITY_UP,
+    ]
+    .into_iter()
+    .chain(segments().map(|(id, ..)| *id));
     for id in others.chain(slots) {
         set_text(item(window, id), &name(model, id));
     }
@@ -119,8 +127,8 @@ fn paint_client(window: HWND, hdc: HDC) {
     });
 }
 
-fn flip(window: HWND, change: impl FnOnce(&mut Model) -> UiEvent) {
-    if let Some(event) = update(change) {
+fn flip(window: HWND, change: impl FnOnce(&mut Model) -> Option<UiEvent>) {
+    if let Some(event) = update(change).flatten() {
         emit(event);
     }
     if let Some(model) = current() {
@@ -136,24 +144,29 @@ fn command(window: HWND, id: i32, code: u32) {
     match id {
         ID_ENABLED => flip(window, |model| {
             model.enabled = !model.enabled;
-            UiEvent::Apply(Setting::Enabled(model.enabled))
+            Some(UiEvent::Apply(Setting::Enabled(model.enabled)))
         }),
         ID_START => flip(window, |model| {
             model.start_with_windows = !model.start_with_windows;
-            UiEvent::StartWithWindows(model.start_with_windows)
+            Some(UiEvent::StartWithWindows(model.start_with_windows))
         }),
         ID_OPEN_DATA => emit(UiEvent::OpenDataFolder),
         ID_DELETE_DATA => emit(UiEvent::DeleteData),
+        ID_RESET_STATS => emit(UiEvent::ResetStats),
+        ID_OPACITY_DOWN | ID_OPACITY_UP => flip(window, |model| {
+            let percent = model.step_opacity(id == ID_OPACITY_UP)?;
+            Some(UiEvent::Apply(Setting::GhostOpacity(percent)))
+        }),
         _ => segment_or_remove(window, id),
     }
 }
 
 fn segment_or_remove(window: HWND, id: i32) {
-    if let Some((_, level, _)) = SEGMENTS.iter().find(|(segment, ..)| *segment == id) {
-        let level: Suggestions = *level;
+    if let Some((_, choice, _)) = segments().find(|(segment, ..)| *segment == id) {
+        let choice = *choice;
         flip(window, |model| {
-            model.level = Some(level);
-            UiEvent::Apply(Setting::Suggestions(level))
+            model.select(choice);
+            Some(UiEvent::Apply(choice.setting()))
         });
         return;
     }
@@ -271,6 +284,7 @@ pub fn create(
     config: &pith_core::Config,
     start_with_windows: bool,
     status: &str,
+    stats: &StatsView,
 ) -> windows::core::Result<HWND> {
     let instance: HINSTANCE = unsafe { GetModuleHandleW(None)? }.into();
     register(instance);
@@ -293,7 +307,13 @@ pub fn create(
     let theme = Theme::detect();
     let mica = ui::apply_chrome(window, &theme);
     let scale = Scale(unsafe { GetDpiForWindow(window) }.max(BASE_DPI));
-    let model = Model::new(config, start_with_windows, status, (theme, mica, scale));
+    let model = Model::new(
+        config,
+        start_with_windows,
+        status,
+        stats,
+        (theme, mica, scale),
+    );
     model::install(model.clone());
     let layout = build(&model);
     let parent = Parent {

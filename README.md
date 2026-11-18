@@ -46,7 +46,7 @@ Download `pith.exe` and run it. On first start it downloads the model into `%LOC
 
 Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs it says so in the tray instead of crashing; point `remote_url` at a server to use it there.
 
-Invalid settings are reported in the tray and the defaults are used until you fix them. The tray menu shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model), pauses it for 15 minutes, an hour or until you resume, and turns it off in the app you were just using. Its Settings window sets Enabled, how many suggestions you see (Fewer, Normal, More), the apps it is off in, Start with Windows (off by default), and can open or delete the data folder. Changes apply at once and are written to the file below, which holds every other setting: `%APPDATA%\Pith\config\config.toml`.
+Invalid settings are reported in the tray and the defaults are used until you fix them. The tray menu shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model), pauses it for 15 minutes, an hour or until you resume, and turns it off in the app you were just using. Its Settings window sets Enabled, how often suggestions appear (Fewer, Normal, More), how long they run (Short, Normal, Long), the ghost text opacity (applied the next time Pith starts), the apps it is off in, Start with Windows (off by default), shows how many suggestions you saw and accepted today and in total with the time they saved you (counts only, kept in `stats.toml` in the data folder and never sent anywhere; Reset stats clears them), and can open or delete the data folder. Changes apply at once and are written to the file below, which holds every other setting: `%APPDATA%\Pith\config\config.toml`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -67,6 +67,7 @@ Invalid settings are reported in the tray and the defaults are used until you fi
 | `auto_pause_after` | 12 | stop suggesting in an app after this many shown suggestions in a row were ignored (0 = never); the tray offers "Resume" |
 | `smart_space` | false | add a trailing space when you accept the last word of a suggestion |
 | `blocked_apps` | [] | extra process names to ignore; terminals, editors, password managers and sign-in screens are always ignored |
+| `typing_wpm` | 40 | your typing speed in words per minute, used for the time-saved estimate (1 to 500) |
 | `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; must be `https`, or `http` to this computer |
 
 ## Build

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use pith_core::Config;
-use pith_windows::{Onboarding, OnboardingEvent, SettingsWindow, force_dark_theme};
+use pith_core::{Config, Counts};
+use pith_windows::{Onboarding, OnboardingEvent, SettingsWindow, StatsView, force_dark_theme};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
@@ -159,12 +159,33 @@ fn park(hwnd: HWND, dpi: u32) {
     pump();
 }
 
+fn sample_stats() -> StatsView {
+    StatsView {
+        today: Counts {
+            shown: 48,
+            accepted: 17,
+            accepted_words: 9,
+            words: 112,
+            chars: 640,
+        },
+        total: Counts {
+            shown: 12_480,
+            accepted: 3_912,
+            accepted_words: 2_207,
+            words: 41_530,
+            chars: 236_400,
+        },
+    }
+}
+
 fn settings(name: &str, apps: &[&str], dpi: u32, fallback: [u8; 3]) {
     let config = Config {
         blocked_apps: apps.iter().map(|app| app.to_string()).collect(),
+        ghost_opacity: 70,
+        max_words: 10,
         ..Config::default()
     };
-    let window = SettingsWindow::open(&config, true, "Ready").unwrap();
+    let window = SettingsWindow::open(&config, true, "Ready", &sample_stats()).unwrap();
     park(window.hwnd(), dpi);
     capture(window.hwnd(), name, fallback);
 }
@@ -231,14 +252,14 @@ fn draw_state(window: HWND, id: i32, state: u32, dc: HDC, at: (i32, i32)) {
 }
 
 fn states(name: &str, card: [u8; 3]) {
-    const CONTROLS: [i32; 7] = [101, 101, 103, 102, 120, 112, 113];
+    const CONTROLS: [i32; 9] = [101, 101, 103, 102, 120, 112, 113, 105, 109];
     const STATES: [u32; 4] = [0, 0x10, 0x1, 0x4];
     const CELL: (i32, i32) = (150, 52);
     let config = Config {
         blocked_apps: vec!["Slack".into()],
         ..Config::default()
     };
-    let window = SettingsWindow::open(&config, true, "Ready").unwrap();
+    let window = SettingsWindow::open(&config, true, "Ready", &StatsView::default()).unwrap();
     park(window.hwnd(), 96);
     let (width, height) = (CELL.0 * STATES.len() as i32, CELL.1 * CONTROLS.len() as i32);
     let info = bitmap_info(width, height);

@@ -3,8 +3,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime};
 
 use pith_core::{
-    Action, Chord, Completion, Config, Engine, Event, FieldSnapshot, Key, Model, Pause, PauseSpan,
-    Setting, SkipReason, Status, check, clock_after, log,
+    Action, Chord, Completion, Config, Day, Engine, Event, FieldSnapshot, Key, Model, Pause,
+    PauseSpan, Setting, SkipReason, Stats, Status, check, clock_after, log,
 };
 use pith_infer::Worker;
 use windows::Win32::Foundation::HWND;
@@ -25,13 +25,15 @@ use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::overlay::Overlay;
 use crate::reader::{Reader, Source};
 use crate::registry;
-use crate::settings::{SettingsWindow, UiEvent, take_events};
+use crate::settings::{SettingsWindow, StatsView, UiEvent, take_events};
 use crate::tray::{Tray, TrayCommand, TrayView};
 
 const TIMER_POLL: usize = 1;
 const TIMER_DEBOUNCE: usize = 2;
 const TIMER_REARM: usize = 3;
 const REARM_MS: u32 = 60;
+const STATS_FILE: &str = "stats.toml";
+const STATS_FLUSH: Duration = Duration::from_secs(60);
 
 pub enum InsertMode {
     Paste,
@@ -76,6 +78,11 @@ impl Press {
     }
 }
 
+fn today() -> Day {
+    let now = unsafe { GetLocalTime() };
+    Day::from_ymd(now.wYear, now.wMonth as u8, now.wDay as u8)
+}
+
 struct ActivePause {
     shown: Pause,
     ends: Option<SystemTime>,
@@ -91,6 +98,9 @@ struct App {
     foreground: Foreground,
     settings: Option<SettingsWindow>,
     delete_data: bool,
+    stats: Stats,
+    stats_dirty: bool,
+    stats_saved: Instant,
     worker: Worker,
     overlay: Overlay,
     keys: Keys<HWND>,
@@ -290,6 +300,7 @@ impl App {
         match signal {
             Signal::Wake => return self.drain(),
             Signal::Timer(TIMER_POLL) => {
+                self.collect_stats();
                 self.expire_pause();
                 if self.tray.is_some() {
                     self.foreground.poll();
@@ -448,12 +459,57 @@ impl App {
         }
     }
 
+    fn stats_path(&self) -> Option<PathBuf> {
+        self.options
+            .data_dir
+            .as_ref()
+            .map(|dir| dir.join(STATS_FILE))
+    }
+
+    fn stats_view(&self) -> StatsView {
+        StatsView {
+            today: self.stats.today(today()),
+            total: self.stats.total(),
+        }
+    }
+
+    fn collect_stats(&mut self) {
+        let counts = self.engine.take_counts();
+        if !counts.is_empty() {
+            self.stats.record(counts, today());
+            self.stats_dirty = true;
+        }
+        if self.stats_dirty && self.stats_saved.elapsed() >= STATS_FLUSH {
+            self.flush_stats();
+        }
+    }
+
+    fn flush_stats(&mut self) {
+        let Some(path) = self.stats_path() else {
+            return;
+        };
+        match self.stats.save(&path) {
+            Ok(()) => self.stats_dirty = false,
+            Err(error) => log(&format!("stats not saved: {error}")),
+        }
+        self.stats_saved = Instant::now();
+    }
+
+    fn reset_stats(&mut self) {
+        self.engine.take_counts();
+        self.stats = Stats::default();
+        self.stats_dirty = true;
+        self.flush_stats();
+        self.refresh_settings();
+    }
+
     fn refresh_settings(&self) {
         if let Some(window) = self.settings.as_ref().filter(|window| window.is_open()) {
             window.refresh(
                 &self.saved,
                 registry::start_with_windows(),
                 &self.status_line(),
+                &self.stats_view(),
             );
         }
     }
@@ -467,6 +523,7 @@ impl App {
             &self.saved,
             registry::start_with_windows(),
             &self.status_line(),
+            &self.stats_view(),
         ) {
             Ok(window) => {
                 window.show();
@@ -513,6 +570,7 @@ impl App {
                     }
                     self.refresh_settings();
                 }
+                UiEvent::ResetStats => self.reset_stats(),
                 UiEvent::Closed => self.settings = None,
             }
         }
@@ -587,6 +645,13 @@ pub fn run(
         foreground: Foreground::default(),
         settings: None,
         delete_data: false,
+        stats: options
+            .data_dir
+            .as_ref()
+            .map(|dir| Stats::load(&dir.join(STATS_FILE)))
+            .unwrap_or_default(),
+        stats_dirty: false,
+        stats_saved: Instant::now(),
         engine: Engine::new(config),
         worker,
         keys: Keys::new(&keymap, control),
@@ -626,6 +691,10 @@ pub fn run(
         if app.tray_command() {
             break;
         }
+    }
+    app.collect_stats();
+    if app.stats_dirty && !app.delete_data {
+        app.flush_stats();
     }
     app.overlay.hide();
     app.keys.disarm();

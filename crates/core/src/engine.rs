@@ -570,7 +570,10 @@ mod tests {
         assert_eq!(counts.shown, 1);
         assert_eq!((counts.accepted, counts.accepted_words), (1, 1));
         assert_eq!(counts.words, 3);
-        assert_eq!(counts.chars, "tract".len() as u64 + " by Friday.".len() as u64);
+        assert_eq!(
+            counts.chars,
+            "tract".len() as u64 + " by Friday.".len() as u64
+        );
         assert!(engine.take_counts().is_empty());
     }
 
@@ -584,7 +587,10 @@ mod tests {
         engine.handle(Event::Field(Some(field("Please sign the d contract"))));
         let counts = engine.take_counts();
         assert_eq!(counts.shown, 2);
-        assert_eq!((counts.accepted, counts.accepted_words, counts.words), (0, 0, 0));
+        assert_eq!(
+            (counts.accepted, counts.accepted_words, counts.words),
+            (0, 0, 0)
+        );
     }
 
     #[test]

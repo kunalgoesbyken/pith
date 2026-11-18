@@ -6,6 +6,7 @@ mod control;
 mod erase;
 mod events;
 mod foreground;
+mod format;
 mod keys;
 mod onboarding;
 mod overlay;
@@ -27,6 +28,6 @@ pub use onboarding::{
 };
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use run::{Inbound, InsertMode, Options, run};
-pub use settings::SettingsWindow;
+pub use settings::{SettingsWindow, StatsView};
 pub use ui::force_dark_theme;
 pub use util::{open_path, single_instance};
