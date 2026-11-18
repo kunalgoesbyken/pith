@@ -25,7 +25,7 @@ fn glyph(canvas: &Canvas, model: &Model, bounds: RECT) {
         bounds.left as f32 + radius,
         bounds.top as f32 + height(bounds) as f32 / 2.0,
     );
-    match model.view.glyph {
+    match model.step.glyph() {
         Glyph::Busy => {
             let ring = model.scale.px(RING);
             canvas.stroke_round(bounds, width(bounds) / 2, palette.accent.base, ring);
@@ -81,7 +81,7 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
         KEYS_NOTE,
         Text::new(Role::Caption, palette.text_secondary),
     );
-    if model.view.practice_enabled {
+    if model.step.practice_enabled() {
         canvas.card(
             layout.practice_card,
             radius,
@@ -143,7 +143,7 @@ fn paint_progress(canvas: &Canvas, model: &Model, bounds: RECT) {
     let palette = &model.theme.palette;
     let radius = height(bounds) / 2;
     canvas.fill_round(bounds, radius, palette.track);
-    let permille = model.view.permille.unwrap_or(0) as i32;
+    let permille = model.step.permille().unwrap_or(0) as i32;
     let filled = RECT {
         right: bounds.left + width(bounds) * permille / 1000,
         ..bounds
@@ -167,12 +167,12 @@ pub fn draw_item(item: &DRAWITEMSTRUCT, model: &Model) {
         ),
         STATUS_ID => paint_backdrop(item, &card, |canvas, local| {
             let style = Text::new(Role::BodyStrong, palette.text);
-            let style = if model.view.glyph == Glyph::Failed {
+            let style = if model.step.glyph() == Glyph::Failed {
                 style.wrapping()
             } else {
                 style
             };
-            canvas.text(local, &model.view.status, style);
+            canvas.text(local, &model.step.status(), style);
         }),
         PROGRESS_ID => paint_backdrop(item, &card, |canvas, local| {
             paint_progress(canvas, model, local)

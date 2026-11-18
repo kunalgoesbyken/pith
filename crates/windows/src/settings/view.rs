@@ -34,8 +34,8 @@ fn look(model: &Model, id: i32) -> Option<Look<'static>> {
     };
     let button = |tone, label| Look::Button { tone, label };
     match id {
-        ID_ENABLED => Some(toggle(model.enabled)),
-        ID_START => Some(toggle(model.start_with_windows)),
+        ID_ENABLED => Some(toggle(model.snapshot.enabled)),
+        ID_START => Some(toggle(model.snapshot.start_with_windows)),
         ID_OPEN_DATA => Some(button(Tone::Standard, "Open")),
         ID_DELETE_DATA => Some(button(Tone::Danger, "Delete")),
         ID_RESET_STATS => Some(button(Tone::Danger, "Reset")),
@@ -45,7 +45,7 @@ fn look(model: &Model, id: i32) -> Option<Look<'static>> {
         _ => segments()
             .find(|(segment, ..)| *segment == id)
             .map(|(_, choice, label)| {
-                let selected = model.selected(*choice);
+                let selected = model.snapshot.selected(*choice);
                 Look::Segment {
                     selected,
                     label: choice.caption(label, selected),
@@ -58,8 +58,8 @@ fn look(model: &Model, id: i32) -> Option<Look<'static>> {
 pub fn name(model: &Model, id: i32) -> String {
     let state = |title: &str, on| format!("{title}, {}", on_off(on).to_lowercase());
     match id {
-        ID_ENABLED => state(GENERAL_ROWS[0].0, model.enabled),
-        ID_START => state(GENERAL_ROWS[2].0, model.start_with_windows),
+        ID_ENABLED => state(GENERAL_ROWS[0].0, model.snapshot.enabled),
+        ID_START => state(GENERAL_ROWS[2].0, model.snapshot.start_with_windows),
         ID_OPEN_DATA => DATA_ROWS[0].0.to_string(),
         ID_DELETE_DATA => DATA_ROWS[1].0.to_string(),
         ID_RESET_STATS => STATS_RESET.0.to_string(),
@@ -69,7 +69,7 @@ pub fn name(model: &Model, id: i32) -> String {
         _ => segments()
             .find(|(segment, ..)| *segment == id)
             .map(|(_, choice, label)| {
-                if model.selected(*choice) {
+                if model.snapshot.selected(*choice) {
                     format!("{label}, selected")
                 } else {
                     label.to_string()
@@ -196,7 +196,7 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     canvas.text(layout.title, TITLE, Text::new(Role::Subtitle, palette.text));
     canvas.text(
         layout.status,
-        &model.status,
+        &model.snapshot.status,
         Text::new(Role::Caption, palette.text_secondary),
     );
     for block in &layout.blocks {
@@ -204,7 +204,7 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     }
     canvas.text(
         layout.footer,
-        &model.footer,
+        &model.snapshot.footer,
         Text::new(Role::Caption, palette.text_secondary),
     );
     if let Some(thumb) = layout.scroll_thumb {

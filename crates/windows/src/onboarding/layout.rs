@@ -78,14 +78,14 @@ pub fn build(model: &Model) -> Layout {
 
     let text_left = left + px(PAD + GLYPH + GLYPH_GAP);
     let text_width = left + inner - px(PAD) - text_left;
-    let wraps = model.view.glyph == Glyph::Failed;
+    let wraps = model.step.glyph() == Glyph::Failed;
     let style = Text::new(Role::BodyStrong, model.theme.palette.text);
     let text_height = if wraps {
-        measure(scale, &model.view.status, style.wrapping(), text_width).1
+        measure(scale, &model.step.status(), style.wrapping(), text_width).1
     } else {
         px(Role::BodyStrong.line())
     };
-    let bar = model.view.permille.is_some();
+    let bar = model.step.permille().is_some();
     let bar_extra = if bar { px(BAR_GAP + BAR) } else { 0 };
     let card_height = (2 * px(PAD) + text_height + bar_extra).max(px(STATUS_MIN));
     let status_card = rect(left, y, inner, card_height);

@@ -1,4 +1,5 @@
 const MEGABYTE: u64 = 1_000_000;
+const FULL_PERMILLE: u128 = 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
@@ -26,15 +27,6 @@ pub enum Glyph {
     Busy,
     Ready,
     Failed,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct View {
-    pub status: String,
-    pub glyph: Glyph,
-    pub permille: Option<u32>,
-    pub practice_enabled: bool,
-    pub done_enabled: bool,
 }
 
 fn megabytes(bytes: u64) -> u64 {
@@ -65,35 +57,41 @@ impl Step {
         matches!(self, Step::Finished | Step::Closed)
     }
 
-    pub fn view(&self) -> View {
-        let (status, glyph, permille) = match self {
-            Step::Preparing => ("Starting Pith".to_string(), Glyph::Busy, None),
-            Step::Downloading { done, total } => (
-                format!(
-                    "Downloading model \u{b7} {} / {} MB",
-                    megabytes(*done),
-                    megabytes(*total)
-                ),
-                Glyph::Busy,
-                Some(((*done as u128 * 1000) / (*total).max(1) as u128) as u32),
+    pub fn status(&self) -> String {
+        match self {
+            Step::Preparing => "Starting Pith".to_string(),
+            Step::Downloading { done, total } => format!(
+                "Downloading model \u{b7} {} / {} MB",
+                megabytes(*done),
+                megabytes(*total)
             ),
-            Step::Loading => ("Loading the model".to_string(), Glyph::Busy, None),
-            Step::Practice | Step::Finished | Step::Closed => {
-                ("Ready".to_string(), Glyph::Ready, None)
-            }
-            Step::Failed(error) => (
-                format!("Pith could not start: {error}"),
-                Glyph::Failed,
-                None,
-            ),
-        };
-        View {
-            status,
-            glyph,
-            permille,
-            practice_enabled: matches!(self, Step::Practice),
-            done_enabled: matches!(self, Step::Practice | Step::Failed(_)),
+            Step::Loading => "Loading the model".to_string(),
+            Step::Practice | Step::Finished | Step::Closed => "Ready".to_string(),
+            Step::Failed(error) => format!("Pith could not start: {error}"),
         }
+    }
+
+    pub fn glyph(&self) -> Glyph {
+        match self {
+            Step::Preparing | Step::Downloading { .. } | Step::Loading => Glyph::Busy,
+            Step::Practice | Step::Finished | Step::Closed => Glyph::Ready,
+            Step::Failed(_) => Glyph::Failed,
+        }
+    }
+
+    pub fn permille(&self) -> Option<u32> {
+        let Step::Downloading { done, total } = self else {
+            return None;
+        };
+        Some((u128::from(*done) * FULL_PERMILLE / u128::from((*total).max(1))) as u32)
+    }
+
+    pub fn practice_enabled(&self) -> bool {
+        matches!(self, Step::Practice)
+    }
+
+    pub fn done_enabled(&self) -> bool {
+        matches!(self, Step::Practice | Step::Failed(_))
     }
 }
 
@@ -181,28 +179,30 @@ mod tests {
     }
 
     #[test]
-    fn view_reports_size_and_gates_controls() {
-        let view = downloading(396_704_960 / 2, 396_704_960).view();
-        assert_eq!(view.status, "Downloading model \u{b7} 198 / 397 MB");
-        assert_eq!(view.permille, Some(500));
-        assert!(!view.practice_enabled && !view.done_enabled);
-        let practice = Step::Practice.view();
-        assert_eq!(practice.status, "Ready");
-        assert!(practice.practice_enabled && practice.done_enabled);
-        let failed = Step::Failed("offline".into()).view();
-        assert_eq!(failed.status, "Pith could not start: offline");
-        assert!(!failed.practice_enabled && failed.done_enabled);
+    fn status_reports_size_and_gates_controls() {
+        let downloading = downloading(396_704_960 / 2, 396_704_960);
+        assert_eq!(
+            downloading.status(),
+            "Downloading model \u{b7} 198 / 397 MB"
+        );
+        assert_eq!(downloading.permille(), Some(500));
+        assert!(!downloading.practice_enabled() && !downloading.done_enabled());
+        assert_eq!(Step::Practice.status(), "Ready");
+        assert!(Step::Practice.practice_enabled() && Step::Practice.done_enabled());
+        let failed = Step::Failed("offline".into());
+        assert_eq!(failed.status(), "Pith could not start: offline");
+        assert!(!failed.practice_enabled() && failed.done_enabled());
     }
 
     #[test]
-    fn view_never_overflows_and_a_zero_total_reads_as_zero() {
+    fn permille_never_overflows_and_a_zero_total_reads_as_zero() {
         let rows = [
             (downloading(0, 0), Some(0)),
             (downloading(u64::MAX - 1, u64::MAX), Some(999)),
         ];
         for row in rows {
             let (step, permille) = row.clone();
-            assert_eq!(step.view().permille, permille, "{row:?}");
+            assert_eq!(step.permille(), permille, "{row:?}");
         }
     }
 }

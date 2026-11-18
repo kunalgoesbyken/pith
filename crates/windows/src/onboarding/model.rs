@@ -1,12 +1,12 @@
-use super::step::View;
+use super::step::{Event, Step};
 use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Model {
     pub theme: Theme,
     pub mica: bool,
     pub scale: Scale,
-    pub view: View,
+    pub step: Step,
     pub promise: String,
 }
 
@@ -22,8 +22,8 @@ pub fn clear() {
     STATE.with(Slot::clear);
 }
 
-pub fn current() -> Option<Model> {
-    STATE.with(Slot::current)
+pub fn read<R>(view: impl FnOnce(&Model) -> R) -> Option<R> {
+    STATE.with(|slot| slot.read(view))
 }
 
 pub fn update<R>(change: impl FnOnce(&mut Model) -> R) -> Option<R> {
@@ -31,6 +31,12 @@ pub fn update<R>(change: impl FnOnce(&mut Model) -> R) -> Option<R> {
 }
 
 impl Model {
+    pub fn advance(&mut self, event: Event) -> bool {
+        let was_practice = self.step.practice_enabled();
+        self.step = std::mem::replace(&mut self.step, Step::Preparing).next(event);
+        self.step.practice_enabled() && !was_practice
+    }
+
     pub fn page(&self) -> Option<Rgb> {
         (!self.mica).then_some(self.theme.palette.page)
     }

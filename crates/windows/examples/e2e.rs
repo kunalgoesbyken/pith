@@ -1859,7 +1859,7 @@ fn onboarding_flow(marker: PathBuf) -> usize {
         control_text(controls.status),
     );
     window.event(OnboardingEvent::Progress(150, 400));
-    let position = window.step().view().permille;
+    let position = window.step().permille();
     report.check(
         "onboarding shows download progress",
         shown(controls.progress)
@@ -1871,7 +1871,7 @@ fn onboarding_flow(marker: PathBuf) -> usize {
     window.event(OnboardingEvent::Progress(400, 400));
     report.check(
         "onboarding reports loading",
-        *window.step() == OnboardingStep::Loading
+        window.step() == OnboardingStep::Loading
             && control_text(controls.status) == "Loading the model"
             && !shown(controls.progress),
         control_text(controls.status),

@@ -19,7 +19,7 @@ use windows::core::PCWSTR;
 use crate::util::wide;
 use crate::{reach, reader};
 
-pub use step::{Event, Step, View};
+pub use step::{Event, Step};
 
 const PRACTICE_START: &str =
     "Thank you for getting back to me so quickly. I have read the proposal and";
@@ -52,26 +52,24 @@ pub enum Outcome {
 
 pub struct Onboarding {
     controls: Controls,
-    step: Step,
     marker: PathBuf,
     visible: bool,
 }
 
 impl Onboarding {
     pub fn create(marker: PathBuf, visible: bool, reach: &Reach) -> windows::core::Result<Self> {
-        let controls = window::create(&Step::Preparing.view(), reach::promise(reach))?;
+        let controls = window::create(reach::promise(reach))?;
         if visible {
             unsafe {
                 let _ = ShowWindow(controls.window, SW_SHOWNORMAL);
             }
         }
-        let mut onboarding = Self {
+        let onboarding = Self {
             controls,
-            step: Step::Preparing,
             marker,
             visible,
         };
-        onboarding.render(&Step::Preparing);
+        onboarding.render(false);
         Ok(onboarding)
     }
 
@@ -79,21 +77,21 @@ impl Onboarding {
         self.controls
     }
 
-    pub fn step(&self) -> &Step {
-        &self.step
+    pub fn step(&self) -> Step {
+        model::read(|model| model.step.clone()).unwrap_or(Step::Closed)
     }
 
     pub fn event(&mut self, event: Event) {
-        let previous = std::mem::replace(&mut self.step, Step::Preparing);
-        self.step = previous.clone().next(event);
-        self.render(&previous);
+        if let Some(opened_practice) = model::update(|model| model.advance(event)) {
+            self.render(opened_practice);
+        }
     }
 
     pub fn poll(&mut self) -> Outcome {
         if let Some(command) = window::take_command() {
             self.event(command);
         }
-        match self.step {
+        match self.step() {
             Step::Finished => {
                 self.write_marker();
                 Outcome::Finished
@@ -112,21 +110,22 @@ impl Onboarding {
         }
     }
 
-    fn render(&mut self, previous: &Step) {
-        let view = self.step.view();
+    fn render(&self, opened_practice: bool) {
+        let step = self.step();
         let controls = self.controls;
-        let status = wide(&view.status);
-        model::update(|model| model.view = view.clone());
+        let status = wide(&step.status());
         window::relayout(controls.window);
         unsafe {
             let _ = SetWindowTextW(controls.status, PCWSTR(status.as_ptr()));
-            let _ = EnableWindow(controls.practice, view.practice_enabled);
-            let _ = EnableWindow(controls.done, view.done_enabled);
-            if self.step == Step::Practice && *previous != Step::Practice {
-                self.start_practice();
-            }
-            if self.step.is_over() {
-                reader::allow_own_field(None);
+            let _ = EnableWindow(controls.practice, step.practice_enabled());
+            let _ = EnableWindow(controls.done, step.done_enabled());
+        }
+        if opened_practice {
+            self.start_practice();
+        }
+        if step.is_over() {
+            reader::allow_own_field(None);
+            unsafe {
                 let _ = ShowWindow(controls.window, SW_HIDE);
             }
         }
@@ -212,7 +211,7 @@ mod tests {
                 Some(LPARAM(w!("ImmersiveColorSet").as_ptr() as isize)),
             );
         }
-        assert_eq!(model::current().unwrap().theme, Theme::detect());
+        assert_eq!(model::read(|model| model.theme), Some(Theme::detect()));
         force_dark_theme(None);
     }
 
@@ -223,7 +222,7 @@ mod tests {
                 theme: Theme::detect(),
                 mica: false,
                 scale: Scale(dpi),
-                view: Step::Failed("a long failure message ".repeat(8)).view(),
+                step: Step::Failed("a long failure message ".repeat(8)),
                 promise: reach::promise(&Reach::ThisPc),
             };
             let layout = build(&model);
