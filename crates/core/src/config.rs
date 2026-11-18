@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::chord::{Chord, Key};
+use crate::chord::Chord;
 
 pub fn app_name(path_or_name: &str) -> String {
     let leaf = path_or_name
@@ -143,13 +143,6 @@ const MIN_CONTEXT_HEADROOM: u32 = 64;
 const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
 const MAX_ACCEPT_RACE_MS: u64 = 1_000;
-const DISMISS_CHORD: Chord = Chord {
-    ctrl: false,
-    shift: false,
-    alt: false,
-    win: false,
-    key: Key::Escape,
-};
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -270,7 +263,7 @@ impl Config {
                 .then(|| Chord::parse(&self.force_trigger_key))
                 .transpose()?,
         };
-        let mut taken = vec![DISMISS_CHORD];
+        let mut taken = vec![Chord::ESCAPE];
         for chord in keymap
             .accept_all
             .iter()

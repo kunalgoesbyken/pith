@@ -18,6 +18,14 @@ pub struct Chord {
 }
 
 impl Chord {
+    pub const ESCAPE: Self = Self {
+        ctrl: false,
+        shift: false,
+        alt: false,
+        win: false,
+        key: Key::Escape,
+    };
+
     pub fn parse(source: &str) -> Result<Self, String> {
         let mut parts: Vec<&str> = source.split('+').map(str::trim).collect();
         let name = parts.pop().unwrap_or_default();
