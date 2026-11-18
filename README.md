@@ -36,13 +36,21 @@ crates/app       nib.exe: config, model download, wiring
 
 ## Run
 
-Download `nib.exe` and run it. On first start it downloads Qwen3-0.6B-Base (Q4_K_M, 397 MB) into `%LOCALAPPDATA%\Nib\data\models`, then shows a tray icon. Any `.gguf` file you put in that folder is used instead.
+Download `nib.exe` and run it. On first start it downloads the model into `%LOCALAPPDATA%\Nib\data\models` (pinned revision, SHA-256 checked), then shows a tray icon.
+
+| `model` | File | RAM loaded | Median per keystroke | Notes |
+|---|---|---|---|---|
+| `standard` (default) | Qwen3-0.6B-Base Q4_K_M, 397 MB | ~520 MB | ~165 ms | multilingual, best suggestions |
+| `lite` | SmolLM2-360M Q4_K_M, 271 MB | ~330 MB | ~140 ms | English-focused, loads in 0.25 s |
+
+Nib needs a CPU with AVX2 (most PCs since 2015). On older CPUs it says so in the tray instead of crashing; point `remote_url` at a server to use it there.
 
 Settings live in `%APPDATA%\Nib\config\config.toml` (tray menu, "Open settings"):
 
 | Key | Default | Meaning |
 |---|---|---|
-| `model_path` | "" | explicit GGUF path |
+| `model` | standard | `standard` or `lite` |
+| `model_path` | "" | any GGUF file; overrides `model` |
 | `threads` | 0 | 0 = half the logical cores, max 4 |
 | `debounce_ms` | 120 | pause before asking the model |
 | `max_words` | 6 | longest suggestion |

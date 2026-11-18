@@ -7,6 +7,6 @@ mod worker;
 
 #[cfg(feature = "llama")]
 pub use llama::{LlamaModelHandle, LlamaSession};
-pub use models::{DEFAULT_MODEL, ModelSpec, download, find_local};
+pub use models::{LITE_MODEL, ModelSpec, STANDARD_MODEL, download, find_local, preset};
 pub use remote::RemoteCompleter;
 pub use worker::{Backend, DoneCallback, Prepare, ReadyCallback, Worker};

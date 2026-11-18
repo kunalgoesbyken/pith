@@ -50,6 +50,7 @@ mod tests {
 #[serde(default)]
 pub struct Config {
     pub enabled: bool,
+    pub model: String,
     pub model_path: String,
     pub threads: usize,
     pub context_tokens: u32,
@@ -70,6 +71,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: true,
+            model: "standard".into(),
             model_path: String::new(),
             threads: 0,
             context_tokens: 1024,

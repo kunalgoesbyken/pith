@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use nib_core::{Config, init_log, log};
-use nib_infer::{Backend, DEFAULT_MODEL, download, find_local};
+use nib_infer::{Backend, download, find_local, preset};
 
 struct Paths {
     config: PathBuf,
@@ -59,12 +59,13 @@ fn resolve_backend(
         .unwrap_or(4);
     let threads = config.resolved_threads(available);
     let explicit = (!config.model_path.is_empty()).then(|| PathBuf::from(&config.model_path));
-    let model_path = match explicit.or_else(|| find_local(models)) {
+    let spec = preset(&config.model);
+    let model_path = match explicit.or_else(|| find_local(models, spec)) {
         Some(path) => path,
         None => {
-            status(format!("downloading {}", DEFAULT_MODEL.file));
+            status(format!("downloading {}", spec.file));
             let last = std::cell::Cell::new(0);
-            download(&DEFAULT_MODEL, models, &|done, total| {
+            download(spec, models, &|done, total| {
                 let percent = done * 100 / total.max(1);
                 if percent >= last.get() + 10 {
                     last.set(percent);

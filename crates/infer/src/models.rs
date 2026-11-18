@@ -11,28 +11,31 @@ pub struct ModelSpec {
     pub sha256: &'static str,
 }
 
-pub const DEFAULT_MODEL: ModelSpec = ModelSpec {
+pub const STANDARD_MODEL: ModelSpec = ModelSpec {
     file: "Qwen3-0.6B-Base.Q4_K_M.gguf",
     url: "https://huggingface.co/mradermacher/Qwen3-0.6B-Base-GGUF/resolve/b8b11a6dbbb14c739e25018f3f77abac860c28f4/Qwen3-0.6B-Base.Q4_K_M.gguf",
     bytes: 396_704_960,
     sha256: "1c728e4fe4abb28cde33b59cd66396e62b2ef755f53db44cdb54e9655b863782",
 };
 
-pub fn find_local(dir: &Path) -> Option<PathBuf> {
-    let preferred = dir.join(DEFAULT_MODEL.file);
-    if preferred.is_file() {
-        return Some(preferred);
+pub const LITE_MODEL: ModelSpec = ModelSpec {
+    file: "SmolLM2-360M.Q4_K_M.gguf",
+    url: "https://huggingface.co/QuantFactory/SmolLM2-360M-GGUF/resolve/38cd16bc62ab1b1f0d320be8b518ac2fd80faa88/SmolLM2-360M.Q4_K_M.gguf",
+    bytes: 270_589_952,
+    sha256: "be3035f2b21abe1038dbb1b9212791353715020bbc71265bde00da129ec320e6",
+};
+
+pub fn preset(name: &str) -> &'static ModelSpec {
+    if name.eq_ignore_ascii_case("lite") {
+        &LITE_MODEL
+    } else {
+        &STANDARD_MODEL
     }
-    let mut candidates: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("gguf"))
-        })
-        .collect();
-    candidates.sort();
-    candidates.into_iter().next()
+}
+
+pub fn find_local(dir: &Path, spec: &ModelSpec) -> Option<PathBuf> {
+    let path = dir.join(spec.file);
+    path.is_file().then_some(path)
 }
 
 pub fn download(
