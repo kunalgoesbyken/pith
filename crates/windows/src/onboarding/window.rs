@@ -72,20 +72,20 @@ fn place(window: HWND, id: usize, bounds: RECT, visible: bool) {
     }
 }
 
-fn arrange(window: HWND, model: &Model, layout: &Layout) {
-    let practice = model.step.practice_enabled();
+fn arrange(window: HWND, layout: &Layout, step: &Step, scale: Scale) {
+    let practice = step.practice_enabled();
     place(window, STATUS_ID, layout.status, true);
     place(
         window,
         PROGRESS_ID,
         layout.progress,
-        model.step.permille().is_some(),
+        step.permille().is_some(),
     );
     place(window, HINT_ID, layout.hint, practice);
     place(window, PRACTICE_ID, layout.practice, practice);
     place(window, KEYS_ID, layout.keys, true);
     place(window, DONE_ID, layout.done, true);
-    let (frame_width, frame_height) = ui::frame_size(layout.client, WINDOW, model.scale.0);
+    let (frame_width, frame_height) = ui::frame_size(layout.client, WINDOW, scale.0);
     unsafe {
         let _ = SetWindowPos(
             window,
@@ -101,7 +101,11 @@ fn arrange(window: HWND, model: &Model, layout: &Layout) {
 }
 
 pub fn relayout(window: HWND) {
-    read(|model| arrange(window, model, &build(model)));
+    let Some((layout, step, scale)) = read(|model| (build(model), model.step.clone(), model.scale))
+    else {
+        return;
+    };
+    arrange(window, &layout, &step, scale);
 }
 
 fn style_practice(window: HWND, model: &Model) {
@@ -315,10 +319,8 @@ pub fn create(promise: String) -> windows::core::Result<Controls> {
         ui::make_opaque(practice);
         let keys = parent.label(KEYS_ID as i32, KEYS_NAME, layout.keys)?;
         let done = parent.button(DONE_ID as i32, DONE_LABEL, layout.done)?;
-        read(|model| {
-            style_practice(window, model);
-            arrange(window, model, &layout);
-        });
+        read(|model| style_practice(window, model));
+        relayout(window);
         center(window, &layout, scale);
         Ok(Controls {
             window,
