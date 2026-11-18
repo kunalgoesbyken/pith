@@ -53,14 +53,17 @@ fn save() -> Option<Vec<(u32, Vec<u8>)>> {
             if let Ok(handle) = GetClipboardData(format) {
                 let global = HGLOBAL(handle.0);
                 let pointer = GlobalLock(global);
-                if !pointer.is_null() && GlobalSize(global) > 0 {
+                if pointer.is_null() {
+                    continue;
+                }
+                let size = GlobalSize(global);
+                if size > 0 {
                     saved.push((
                         format,
-                        std::slice::from_raw_parts(pointer as *const u8, GlobalSize(global))
-                            .to_vec(),
+                        std::slice::from_raw_parts(pointer as *const u8, size).to_vec(),
                     ));
-                    let _ = GlobalUnlock(global);
                 }
+                let _ = GlobalUnlock(global);
             }
         }
         let _ = CloseClipboard();

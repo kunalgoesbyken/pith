@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
@@ -17,7 +17,6 @@ use windows::core::{Interface, Result};
 use crate::caret::{
     caret_range, caret_rect, composing, font, has_selection, runtime_id, text_around,
 };
-use crate::onboarding::is_practice;
 use crate::util::{is_elevated, process_name, rect_of, window_pid, window_title, work_areas};
 
 #[derive(Clone, Copy, Debug)]
@@ -28,41 +27,40 @@ pub enum Source {
 
 const MAX_READ_ERRORS: u32 = 3;
 
+static READABLE_OWN_FIELD: AtomicIsize = AtomicIsize::new(0);
+
+pub fn allow_own_field(field: Option<HWND>) {
+    let handle = field.map_or(0, |field| field.0 as isize);
+    READABLE_OWN_FIELD.store(handle, Ordering::SeqCst);
+}
+
+fn is_readable_own_field(hwnd: HWND) -> bool {
+    !hwnd.0.is_null() && hwnd.0 as isize == READABLE_OWN_FIELD.load(Ordering::SeqCst)
+}
+
 pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, u64) + Send>;
 
 pub struct Reader {
     pokes: Sender<u64>,
-    enabled: Arc<AtomicBool>,
     config: Arc<Mutex<Config>>,
 }
 
 impl Reader {
     pub fn spawn(source: Source, config: Config, on_snapshot: SnapshotCallback) -> Self {
         let (pokes, rx) = channel();
-        let enabled = Arc::new(AtomicBool::new(config.enabled));
-        let gate = enabled.clone();
         let config = Arc::new(Mutex::new(config));
         let shared = config.clone();
         std::thread::Builder::new()
             .name("pith-uia".into())
-            .spawn(move || serve(source, &shared, rx, &gate, on_snapshot))
+            .spawn(move || serve(source, &shared, rx, on_snapshot))
             .expect("spawn uia thread");
-        Self {
-            pokes,
-            enabled,
-            config,
-        }
+        Self { pokes, config }
     }
 
     pub fn set_config(&self, config: &Config) {
         if let Ok(mut shared) = self.config.lock() {
             *shared = config.clone();
         }
-        self.set_enabled(config.enabled);
-    }
-
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::SeqCst);
         self.poke();
     }
 
@@ -92,13 +90,7 @@ fn automation() -> Result<IUIAutomation> {
     }
 }
 
-fn serve(
-    source: Source,
-    config: &Mutex<Config>,
-    rx: Receiver<u64>,
-    enabled: &AtomicBool,
-    on_snapshot: SnapshotCallback,
-) {
+fn serve(source: Source, config: &Mutex<Config>, rx: Receiver<u64>, on_snapshot: SnapshotCallback) {
     let automation = match automation() {
         Ok(automation) => automation,
         Err(error) => return pith_core::log(&format!("uia unavailable: {error}")),
@@ -109,11 +101,11 @@ fn serve(
     let mut errors = 0;
     while let Ok(request) = rx.recv() {
         let served = rx.try_iter().fold(request, u64::max);
-        let outcome = if enabled.load(Ordering::SeqCst) {
-            let current = config
-                .lock()
-                .map(|shared| shared.clone())
-                .unwrap_or_default();
+        let current = config
+            .lock()
+            .map(|shared| shared.clone())
+            .unwrap_or_default();
+        let outcome = if current.enabled {
             read(&automation, source, &current, own_pid)
         } else {
             Ok(None)
@@ -173,7 +165,9 @@ fn read(
         let pid = element.CurrentProcessId()? as u32;
         if matches!(source, Source::Focused)
             && pid == own_pid
-            && !element.CurrentNativeWindowHandle().is_ok_and(is_practice)
+            && !element
+                .CurrentNativeWindowHandle()
+                .is_ok_and(is_readable_own_field)
         {
             return Ok(None);
         }

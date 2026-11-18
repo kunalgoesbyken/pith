@@ -17,6 +17,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, Interface, Result};
 
 const POINTS_PER_INCH: f64 = 72.0;
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x100_0000_01b3;
 
 pub fn caret_range(element: &IUIAutomationElement) -> Result<IUIAutomationTextRange> {
     unsafe {
@@ -85,21 +87,7 @@ fn rects(range: &IUIAutomationTextRange) -> Vec<Rect> {
         let Ok(array) = range.GetBoundingRectangles() else {
             return Vec::new();
         };
-        let array: *mut SAFEARRAY = array;
-        if array.is_null() {
-            return Vec::new();
-        }
-        let lower = SafeArrayGetLBound(array, 1).unwrap_or(0);
-        let upper = SafeArrayGetUBound(array, 1).unwrap_or(-1);
-        let count = (upper - lower + 1).max(0) as usize;
-        let mut data: *mut c_void = std::ptr::null_mut();
-        let mut values = Vec::new();
-        if SafeArrayAccessData(array, &mut data).is_ok() {
-            values = std::slice::from_raw_parts(data as *const f64, count).to_vec();
-            let _ = SafeArrayUnaccessData(array);
-        }
-        let _ = SafeArrayDestroy(array);
-        values
+        take_safe_array::<f64>(array)
             .as_chunks::<4>()
             .0
             .iter()
@@ -157,14 +145,40 @@ fn uia_caret(caret: &IUIAutomationTextRange) -> Option<Rect> {
     None
 }
 
-fn system_caret(foreground: HWND) -> Option<Rect> {
+unsafe fn take_safe_array<T: Copy>(array: *mut SAFEARRAY) -> Vec<T> {
+    if array.is_null() {
+        return Vec::new();
+    }
     unsafe {
-        let thread = GetWindowThreadProcessId(foreground, None);
-        let mut info = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
-        GetGUIThreadInfo(thread, &mut info).ok()?;
+        let lower = SafeArrayGetLBound(array, 1).unwrap_or(0);
+        let upper = SafeArrayGetUBound(array, 1).unwrap_or(-1);
+        let count = (upper - lower + 1).max(0) as usize;
+        let mut data: *mut c_void = std::ptr::null_mut();
+        let mut values = Vec::new();
+        if SafeArrayAccessData(array, &mut data).is_ok() {
+            values = std::slice::from_raw_parts(data as *const T, count).to_vec();
+            let _ = SafeArrayUnaccessData(array);
+        }
+        let _ = SafeArrayDestroy(array);
+        values
+    }
+}
+
+pub fn gui_thread_info(window: Option<HWND>) -> Option<GUITHREADINFO> {
+    let thread = window.map_or(0, |window| unsafe {
+        GetWindowThreadProcessId(window, None)
+    });
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe { GetGUIThreadInfo(thread, &mut info) }.ok()?;
+    Some(info)
+}
+
+fn system_caret(foreground: HWND) -> Option<Rect> {
+    let info = gui_thread_info(Some(foreground))?;
+    unsafe {
         if info.hwndCaret.is_invalid() {
             return None;
         }
@@ -191,13 +205,8 @@ fn system_caret(foreground: HWND) -> Option<Rect> {
 }
 
 fn accessible_caret(foreground: HWND) -> Option<Rect> {
+    let info = gui_thread_info(Some(foreground))?;
     unsafe {
-        let thread = GetWindowThreadProcessId(foreground, None);
-        let mut info = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
-        GetGUIThreadInfo(thread, &mut info).ok()?;
         let window = if info.hwndFocus.is_invalid() {
             foreground
         } else {
@@ -291,24 +300,11 @@ pub fn runtime_id(element: &IUIAutomationElement) -> u64 {
         let Ok(array) = element.GetRuntimeId() else {
             return 0;
         };
-        let array: *mut SAFEARRAY = array;
-        if array.is_null() {
-            return 0;
-        }
-        let lower = SafeArrayGetLBound(array, 1).unwrap_or(0);
-        let upper = SafeArrayGetUBound(array, 1).unwrap_or(-1);
-        let count = (upper - lower + 1).max(0) as usize;
-        let mut data: *mut c_void = std::ptr::null_mut();
-        let mut hash = 0xcbf2_9ce4_8422_2325u64;
-        if SafeArrayAccessData(array, &mut data).is_ok() {
-            for value in std::slice::from_raw_parts(data as *const i32, count) {
-                for byte in value.to_le_bytes() {
-                    hash = (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3);
-                }
-            }
-            let _ = SafeArrayUnaccessData(array);
-        }
-        let _ = SafeArrayDestroy(array);
-        hash
+        take_safe_array::<i32>(array)
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .fold(FNV_OFFSET, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
+            })
     }
 }

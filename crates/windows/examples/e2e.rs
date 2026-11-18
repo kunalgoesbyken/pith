@@ -1588,9 +1588,15 @@ fn pause_and_resume(rig: &mut Rig) {
             last_show(&seen)
         ),
     );
-    rig.probe.set_enabled(false);
+    rig.probe.set_config(&Config {
+        enabled: false,
+        ..Config::default()
+    });
     let paused = rig.read(field);
-    rig.probe.set_enabled(true);
+    rig.probe.set_config(&Config {
+        enabled: true,
+        ..Config::default()
+    });
     let resumed = rig.read(field);
     rig.check(
         "a paused reader reads nothing and a resumed one reads again",

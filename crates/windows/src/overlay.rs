@@ -12,6 +12,7 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
+use crate::caret::gui_thread_info;
 use crate::pill::{Pill, Style};
 use crate::ui::{Role, STROKE, Scale, Theme};
 use crate::util::{rect_of, wide};
@@ -124,16 +125,10 @@ fn monitor_of(caret: Rect) -> (Rect, u32) {
 }
 
 fn focused_field() -> Option<Rect> {
-    unsafe {
-        let mut info = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
-        GetGUIThreadInfo(0, &mut info).ok()?;
-        let mut raw = RECT::default();
-        GetWindowRect(info.hwndFocus, &mut raw).ok()?;
-        Some(rect_of(raw))
-    }
+    let info = gui_thread_info(None)?;
+    let mut raw = RECT::default();
+    unsafe { GetWindowRect(info.hwndFocus, &mut raw) }.ok()?;
+    Some(rect_of(raw))
 }
 
 fn sample_background(caret: Rect, anchor: i32, rtl: bool) -> u32 {

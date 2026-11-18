@@ -6,7 +6,6 @@ mod window;
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicIsize, Ordering};
 
 use pith_core::{Reach, log};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -17,8 +16,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-use crate::reach;
 use crate::util::wide;
+use crate::{reach, reader};
 
 pub use step::{Event, Step, View};
 
@@ -32,12 +31,6 @@ const PROGRESS_ID: usize = 1003;
 const HINT_ID: usize = 1004;
 const PRACTICE_ID: usize = 1005;
 const KEYS_ID: usize = 1006;
-
-static PRACTICE: AtomicIsize = AtomicIsize::new(0);
-
-pub fn is_practice(hwnd: HWND) -> bool {
-    hwnd.0 as isize == PRACTICE.load(Ordering::SeqCst) && !hwnd.0.is_null()
-}
 
 #[derive(Clone, Copy)]
 pub struct Controls {
@@ -133,7 +126,7 @@ impl Onboarding {
                 self.start_practice();
             }
             if self.step.is_over() {
-                PRACTICE.store(0, Ordering::SeqCst);
+                reader::allow_own_field(None);
                 let _ = ShowWindow(controls.window, SW_HIDE);
             }
         }
@@ -155,7 +148,7 @@ impl Onboarding {
                 Some(WPARAM(end)),
                 Some(LPARAM(end as isize)),
             );
-            PRACTICE.store(self.controls.practice.0 as isize, Ordering::SeqCst);
+            reader::allow_own_field(Some(self.controls.practice));
             if self.visible {
                 let _ = SetFocus(Some(self.controls.practice));
             }
@@ -165,7 +158,7 @@ impl Onboarding {
 
 impl Drop for Onboarding {
     fn drop(&mut self) {
-        PRACTICE.store(0, Ordering::SeqCst);
+        reader::allow_own_field(None);
         unsafe {
             let _ = DestroyWindow(self.controls.window);
         }
