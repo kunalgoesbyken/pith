@@ -4,12 +4,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
-use pith_core::{Action, Completion, Config, Engine, Event, FieldSnapshot, log};
+use pith_core::{
+    Action, Completion, Config, Engine, Event, FieldSnapshot, Model, Pause, PauseSpan, Setting,
+    SkipReason, Status, check, clock_after, log,
+};
 use pith_infer::Worker;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -18,14 +22,20 @@ use windows::core::w;
 
 use crate::clipboard::{paste, replace_selection, replace_selection_after};
 use crate::events::Hooks;
+use crate::foreground::Foreground;
 use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, replay};
 use crate::overlay::Overlay;
 use crate::reader::{Reader, Source};
-use crate::tray::{Tray, TrayCommand};
+use crate::registry;
+use crate::settings::{SettingsWindow, UiEvent, take_events};
+use crate::tray::{Tray, TrayCommand, TrayView};
+use crate::util::remove_contents;
 
 const WM_WAKE: u32 = WM_APP + 1;
 const TIMER_POLL: usize = 1;
 const TIMER_DEBOUNCE: usize = 2;
+const DELETE_ATTEMPTS: u32 = 8;
+const DELETE_RETRY: Duration = Duration::from_millis(250);
 
 pub enum InsertMode {
     Paste,
@@ -41,6 +51,7 @@ pub struct Options {
     pub config_path: Option<PathBuf>,
     pub observer: Option<Sender<Action>>,
     pub global_keys: bool,
+    pub data_dir: Option<PathBuf>,
 }
 
 pub enum Inbound {
@@ -124,9 +135,21 @@ fn control_window() -> windows::core::Result<HWND> {
     }
 }
 
+struct ActivePause {
+    shown: Pause,
+    ends: Option<SystemTime>,
+}
+
 struct App {
     control: HWND,
     engine: Engine,
+    saved: Config,
+    pause: Option<ActivePause>,
+    model: Model,
+    skip: Option<SkipReason>,
+    foreground: Foreground,
+    settings: Option<SettingsWindow>,
+    delete_data: bool,
     worker: Worker,
     overlay: Overlay,
     keys: Keys,
@@ -195,6 +218,10 @@ impl App {
         while let Ok(message) = self.inbound.try_recv() {
             match message {
                 Inbound::Snapshot(snapshot, served) => {
+                    self.skip = snapshot
+                        .as_ref()
+                        .and_then(|field| check(field, self.engine.config()).err());
+                    self.refresh_tray();
                     let actions = self.engine.handle(Event::Field(snapshot));
                     self.apply(actions);
                     if served >= self.key_read {
@@ -219,20 +246,20 @@ impl App {
                     self.apply(actions);
                 }
                 Inbound::Ready(status) => {
-                    let text = match &status {
-                        Ok(name) => format!("ready ({name})"),
-                        Err(error) => format!("error: {error}"),
-                    };
-                    log(&text);
-                    if let Some(tray) = &self.tray {
-                        tray.set_status(&text);
+                    match &status {
+                        Ok(name) => log(&format!("ready ({name})")),
+                        Err(error) => log(&format!("error: {error}")),
                     }
+                    self.model = match status {
+                        Ok(_) => Model::Ready,
+                        Err(error) => Model::Failed(error),
+                    };
+                    self.refresh_tray();
                 }
                 Inbound::Status(text) => {
                     log(&text);
-                    if let Some(tray) = &self.tray {
-                        tray.set_status(&text);
-                    }
+                    self.model = Model::Loading(text);
+                    self.refresh_tray();
                 }
                 Inbound::Key(id) => self.hotkey(id),
                 Inbound::SetEnabled(enabled) => self.set_enabled(enabled),
@@ -273,6 +300,11 @@ impl App {
         match signal {
             Signal::Wake => return self.drain(),
             Signal::Timer(TIMER_POLL) => {
+                self.expire_pause();
+                if self.tray.is_some() {
+                    self.foreground.poll();
+                    self.refresh_tray();
+                }
                 if self.engine.config().enabled {
                     self.reader.poke();
                 }
@@ -304,27 +336,181 @@ impl App {
         self.apply(actions);
     }
 
-    fn set_enabled(&mut self, enabled: bool) {
-        self.reader.set_enabled(enabled);
-        let actions = self.engine.handle(Event::SetEnabled(enabled));
-        self.apply(actions);
-        if let Some(tray) = &self.tray {
-            tray.set_enabled(enabled);
+    fn effective(&self) -> Config {
+        Config {
+            enabled: self.saved.enabled && self.pause.is_none(),
+            ..self.saved.clone()
         }
     }
 
-    fn tray_command(&mut self) -> bool {
-        let Some(command) = self.tray.as_ref().and_then(Tray::poll) else {
-            return false;
+    fn sync(&mut self) {
+        let config = self.effective();
+        self.reader.set_config(&config);
+        let actions = self.engine.handle(Event::SetConfig(config));
+        self.apply(actions);
+        self.refresh_tray();
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.saved.enabled = enabled;
+        self.sync();
+    }
+
+    fn refresh_tray(&self) {
+        let Some(tray) = &self.tray else { return };
+        let app = self.foreground.app();
+        let status = Status {
+            model: self.model.clone(),
+            pause: self.pause.as_ref().map(|pause| pause.shown.clone()),
+            enabled: self.saved.enabled,
+            skip: self.skip,
         };
-        match command {
-            TrayCommand::Toggle => self.set_enabled(!self.engine.config().enabled),
-            TrayCommand::OpenConfig => {
-                if let Some(path) = &self.options.config_path {
-                    crate::util::open_path(path);
+        tray.show(TrayView {
+            status: status.line(),
+            active: self.engine.config().enabled,
+            paused: self.pause.is_some(),
+            foreground: app.map(str::to_string),
+            foreground_blocked: app.is_some_and(|name| self.saved.is_blocked(name)),
+        });
+    }
+
+    fn pause(&mut self, span: PauseSpan) {
+        self.pause = Some(match span {
+            PauseSpan::UntilResumed => ActivePause {
+                shown: Pause::UntilResumed,
+                ends: None,
+            },
+            PauseSpan::Minutes(minutes) => {
+                let now = unsafe { GetLocalTime() };
+                ActivePause {
+                    shown: Pause::Until(clock_after(
+                        u32::from(now.wHour),
+                        u32::from(now.wMinute),
+                        minutes,
+                    )),
+                    ends: SystemTime::now()
+                        .checked_add(Duration::from_secs(u64::from(minutes) * 60)),
                 }
             }
-            TrayCommand::Quit => return true,
+        });
+        self.sync();
+    }
+
+    fn resume(&mut self) {
+        if self.pause.take().is_some() {
+            self.sync();
+        }
+    }
+
+    fn expire_pause(&mut self) {
+        let due = self
+            .pause
+            .as_ref()
+            .and_then(|pause| pause.ends)
+            .is_some_and(|ends| SystemTime::now() >= ends);
+        if due {
+            self.resume();
+        }
+    }
+
+    fn change(&mut self, setting: Setting) {
+        setting.apply(&mut self.saved);
+        self.persist(&setting);
+        self.sync();
+        self.refresh_settings();
+    }
+
+    fn persist(&self, setting: &Setting) {
+        let Some(path) = &self.options.config_path else {
+            return;
+        };
+        let mut on_disk = match std::fs::read_to_string(path) {
+            Ok(source) => match Config::from_toml(&source) {
+                Ok(config) => config,
+                Err(error) => return log(&format!("settings not saved, file is invalid: {error}")),
+            },
+            Err(_) => Config::default(),
+        };
+        setting.apply(&mut on_disk);
+        if let Err(error) = on_disk.save(path) {
+            log(&format!("settings not saved: {error}"));
+        }
+    }
+
+    fn refresh_settings(&self) {
+        if let Some(window) = self.settings.as_ref().filter(|window| window.is_open()) {
+            window.refresh(&self.saved, registry::start_with_windows());
+        }
+    }
+
+    fn open_settings(&mut self) {
+        if let Some(window) = self.settings.as_ref().filter(|window| window.is_open()) {
+            window.show();
+            return;
+        }
+        match SettingsWindow::open(&self.saved, registry::start_with_windows()) {
+            Ok(window) => {
+                window.show();
+                self.settings = Some(window);
+            }
+            Err(error) => log(&format!("settings window failed: {error}")),
+        }
+    }
+
+    fn confirm_delete(&self) -> bool {
+        let owner = self.settings.as_ref().map(SettingsWindow::hwnd);
+        let answer = unsafe {
+            MessageBoxW(
+                owner,
+                w!("Delete the downloaded model and the local data of Pith from this PC, then close Pith? Your settings are kept. The model downloads again the next time Pith starts."),
+                w!("Delete model and data"),
+                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+            )
+        };
+        answer == IDYES
+    }
+
+    fn ui_events(&mut self) -> bool {
+        for event in take_events() {
+            match event {
+                UiEvent::Apply(setting) => self.change(setting),
+                UiEvent::OpenDataFolder => {
+                    if let Some(dir) = &self.options.data_dir {
+                        let _ = std::fs::create_dir_all(dir);
+                        crate::util::open_path(dir);
+                    }
+                }
+                UiEvent::DeleteData => {
+                    if self.options.data_dir.is_some() && self.confirm_delete() {
+                        self.delete_data = true;
+                        return true;
+                    }
+                }
+                UiEvent::StartWithWindows(enabled) => {
+                    if let Err(error) = registry::set_start_with_windows(enabled) {
+                        log(&format!("start with Windows not changed: {error}"));
+                    }
+                    self.refresh_settings();
+                }
+                UiEvent::Closed => self.settings = None,
+            }
+        }
+        false
+    }
+
+    fn tray_command(&mut self) -> bool {
+        while let Some(command) = self.tray.as_ref().and_then(Tray::poll) {
+            match command {
+                TrayCommand::Pause(span) => self.pause(span),
+                TrayCommand::Resume => self.resume(),
+                TrayCommand::BlockForeground => {
+                    if let Some(app) = self.foreground.app().map(str::to_string) {
+                        self.change(Setting::Block(app));
+                    }
+                }
+                TrayCommand::Settings => self.open_settings(),
+                TrayCommand::Quit => return true,
+            }
         }
         false
     }
@@ -364,6 +550,13 @@ pub fn run(
     };
     let mut app = App {
         control,
+        saved: config.clone(),
+        pause: None,
+        model: Model::Loading(String::new()),
+        skip: None,
+        foreground: Foreground::default(),
+        settings: None,
+        delete_data: false,
         engine: Engine::new(config),
         worker,
         overlay: Overlay::create()?,
@@ -380,9 +573,18 @@ pub fn run(
     app.reader.poke();
     let mut message = MSG::default();
     'outer: while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {
-        unsafe {
-            let _ = TranslateMessage(&message);
-            DispatchMessageW(&message);
+        let handled = app
+            .settings
+            .as_ref()
+            .is_some_and(|window| unsafe { IsDialogMessageW(window.hwnd(), &message) }.as_bool());
+        if !handled {
+            unsafe {
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        if app.ui_events() {
+            break;
         }
         while let Some(signal) = SIGNALS.with(|queue| queue.borrow_mut().pop_front()) {
             if app.signal(signal) {
@@ -395,5 +597,14 @@ pub fn run(
     }
     app.overlay.hide();
     app.keys.disarm(app.control);
+    let wipe = app
+        .delete_data
+        .then(|| app.options.data_dir.clone())
+        .flatten();
+    drop(app);
+    if let Some(dir) = wipe {
+        let left = remove_contents(&dir, DELETE_ATTEMPTS, DELETE_RETRY);
+        log(&format!("data removed, {} item(s) left", left.len()));
+    }
     Ok(())
 }

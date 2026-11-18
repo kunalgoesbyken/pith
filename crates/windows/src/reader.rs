@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
@@ -32,6 +32,7 @@ pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, u64) + Send>;
 pub struct Reader {
     pokes: Sender<u64>,
     enabled: Arc<AtomicBool>,
+    config: Arc<Mutex<Config>>,
 }
 
 impl Reader {
@@ -39,11 +40,24 @@ impl Reader {
         let (pokes, rx) = channel();
         let enabled = Arc::new(AtomicBool::new(config.enabled));
         let gate = enabled.clone();
+        let config = Arc::new(Mutex::new(config));
+        let shared = config.clone();
         std::thread::Builder::new()
             .name("pith-uia".into())
-            .spawn(move || serve(source, &config, rx, &gate, on_snapshot))
+            .spawn(move || serve(source, &shared, rx, &gate, on_snapshot))
             .expect("spawn uia thread");
-        Self { pokes, enabled }
+        Self {
+            pokes,
+            enabled,
+            config,
+        }
+    }
+
+    pub fn set_config(&self, config: &Config) {
+        if let Ok(mut shared) = self.config.lock() {
+            *shared = config.clone();
+        }
+        self.set_enabled(config.enabled);
     }
 
     pub fn set_enabled(&self, enabled: bool) {
@@ -79,7 +93,7 @@ fn automation() -> Result<IUIAutomation> {
 
 fn serve(
     source: Source,
-    config: &Config,
+    config: &Mutex<Config>,
     rx: Receiver<u64>,
     enabled: &AtomicBool,
     on_snapshot: SnapshotCallback,
@@ -95,7 +109,8 @@ fn serve(
     while let Ok(request) = rx.recv() {
         let served = rx.try_iter().fold(request, u64::max);
         let outcome = if enabled.load(Ordering::SeqCst) {
-            read(&automation, source, config, own_pid)
+            let current = config.lock().map(|shared| shared.clone()).unwrap_or_default();
+            read(&automation, source, &current, own_pid)
         } else {
             Ok(None)
         };

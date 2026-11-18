@@ -3,10 +3,13 @@
 mod caret;
 mod clipboard;
 mod events;
+mod foreground;
 mod keys;
 mod overlay;
 mod reader;
+mod registry;
 mod run;
+mod settings;
 mod tray;
 mod util;
 

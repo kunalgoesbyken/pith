@@ -7,6 +7,7 @@ use pith_infer::{Backend, cpu_supported, download, find_local, preset};
 
 struct Paths {
     config: PathBuf,
+    data: PathBuf,
     models: PathBuf,
     log: PathBuf,
 }
@@ -15,6 +16,7 @@ fn paths() -> Paths {
     let dirs = directories::ProjectDirs::from("", "", "Pith").expect("home directory");
     Paths {
         config: dirs.config_dir().join("config.toml"),
+        data: dirs.data_local_dir().to_path_buf(),
         models: dirs.data_local_dir().join("models"),
         log: dirs.data_local_dir().join("pith.log"),
     }
@@ -151,6 +153,7 @@ fn main() {
         config_path: Some(paths.config.clone()),
         observer: None,
         global_keys: true,
+        data_dir: Some(paths.data.clone()),
     };
     log("pith starting");
     if let Err(error) = run(config, worker, (sender, receiver), waker, options) {
