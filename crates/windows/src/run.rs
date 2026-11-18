@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime};
@@ -14,10 +14,11 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{PCWSTR, w};
+use windows::core::w;
 
 use crate::clipboard::{Trigger, paste, replace_selection, replace_selection_after};
 use crate::control::{Signal, Waker, control_window, next_signal};
+use crate::erase::erase;
 use crate::events::Hooks;
 use crate::foreground::Foreground;
 use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, TRIGGER, replay};
@@ -27,15 +28,11 @@ use crate::reader::{Reader, Source};
 use crate::registry;
 use crate::settings::{SettingsWindow, UiEvent, take_events};
 use crate::tray::{Tray, TrayCommand, TrayView};
-use crate::util::{leftover_notice, remove_contents, wide};
 
 const TIMER_POLL: usize = 1;
 const TIMER_DEBOUNCE: usize = 2;
 const TIMER_REARM: usize = 3;
 const REARM_MS: u32 = 60;
-const DELETE_ATTEMPTS: u32 = 8;
-const DELETE_RETRY: Duration = Duration::from_millis(250);
-const RELEASE_WAIT: Duration = Duration::from_secs(5);
 
 pub enum InsertMode {
     Paste,
@@ -554,26 +551,6 @@ impl App {
             }
         }
         false
-    }
-}
-
-fn erase(dir: &Path, worker: Worker) {
-    let released = worker.shutdown(RELEASE_WAIT);
-    let left = remove_contents(dir, DELETE_ATTEMPTS, DELETE_RETRY);
-    log(&format!(
-        "data removed, model released {released}, {} item(s) left",
-        left.len()
-    ));
-    if let Some(notice) = leftover_notice(dir, &left) {
-        let text = wide(&notice);
-        unsafe {
-            MessageBoxW(
-                None,
-                PCWSTR(text.as_ptr()),
-                w!("Pith"),
-                MB_OK | MB_ICONWARNING,
-            );
-        }
     }
 }
 

@@ -3,6 +3,7 @@
 mod caret;
 mod clipboard;
 mod control;
+mod erase;
 mod events;
 mod foreground;
 mod keys;
