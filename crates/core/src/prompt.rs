@@ -1,10 +1,13 @@
-use crate::{Config, FieldSnapshot, split_partial, tail_chars};
+use crate::{
+    Completion, Config, FieldSnapshot, StopReason, clean_completion, split_partial, tail_chars,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompletionRequest {
     pub prompt: String,
     pub forced_prefix: String,
     pub max_tokens: usize,
+    pub max_words: usize,
     pub min_token_logprob: f32,
 }
 
@@ -21,8 +24,28 @@ pub fn build(field: &FieldSnapshot, config: &Config) -> CompletionRequest {
         prompt,
         forced_prefix: partial.to_string(),
         max_tokens: config.max_tokens,
+        max_words: config.max_words,
         min_token_logprob: config.min_token_logprob,
     }
+}
+
+pub fn suggestion(completion: &Completion, before: &str, config: &Config) -> Option<String> {
+    if completion.stop == StopReason::Cancelled
+        || completion.mean_logprob < config.min_mean_logprob
+    {
+        return None;
+    }
+    let truncated = matches!(
+        completion.stop,
+        StopReason::MaxTokens | StopReason::LowConfidence
+    );
+    let text = clean_completion(&completion.text, config.max_words, truncated)?;
+    let text = if before.ends_with(char::is_whitespace) {
+        text.trim_start().to_string()
+    } else {
+        text
+    };
+    (!text.is_empty()).then_some(text)
 }
 
 #[cfg(test)]

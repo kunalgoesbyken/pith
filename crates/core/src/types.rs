@@ -26,6 +26,7 @@ pub struct FieldSnapshot {
 pub enum StopReason {
     Newline,
     Sentence,
+    WordLimit,
     MaxTokens,
     EndOfText,
     LowConfidence,

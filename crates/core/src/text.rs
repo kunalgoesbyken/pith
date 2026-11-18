@@ -78,6 +78,13 @@ pub fn next_word(suggestion: &str) -> &str {
     &suggestion[..end]
 }
 
+pub fn exceeds_words(text: &str, max_words: usize) -> bool {
+    text.split_word_bounds()
+        .filter(|segment| is_word_like(segment))
+        .nth(max_words)
+        .is_some()
+}
+
 pub fn clean_completion(raw: &str, max_words: usize, truncated: bool) -> Option<String> {
     let line = raw.split(['\n', '\r']).next().unwrap_or_default();
     let mut words = 0;
@@ -176,6 +183,48 @@ mod tests {
                 expected,
                 "{raw:?}"
             );
+        }
+    }
+
+    #[test]
+    fn exceeds_words_cases() {
+        let cases = [
+            ("one two three", 3, false),
+            ("one two three four", 3, true),
+            (" one, two. three", 3, false),
+            ("3.5 e.g. www.example.com", 3, false),
+            ("你好世界", 3, true),
+            ("你好世", 3, false),
+            ("", 1, false),
+        ];
+        for (text, max, expected) in cases {
+            assert_eq!(exceeds_words(text, max), expected, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn stopping_at_the_word_limit_never_changes_the_cleaned_text() {
+        let raws = [
+            " the contract by Friday and then we can sign it together",
+            " costs 3.5 dollars, e.g. for www.example.com/docs and more",
+            " 你好世界和平与爱，我们都在这里",
+            " नमस्ते दोस्त, मैं कल सुबह दस बजे आऊँगा",
+            " don't stop believing, it's 12/05/2026 at 9:30 a.m. sharp",
+            " und dann können wir den Vertrag unterschreiben, bitte",
+        ];
+        for raw in raws {
+            for max in 1..=6 {
+                let boundaries = raw.char_indices().map(|(i, c)| i + c.len_utf8());
+                let stop = boundaries
+                    .into_iter()
+                    .find(|end| exceeds_words(&raw[..*end], max))
+                    .unwrap_or(raw.len());
+                assert_eq!(
+                    clean_completion(&raw[..stop], max, false),
+                    clean_completion(raw, max, false),
+                    "{raw:?} max {max}"
+                );
+            }
         }
     }
 
