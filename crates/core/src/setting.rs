@@ -57,6 +57,16 @@ impl Setting {
             }
         }
     }
+
+    pub fn persist(&self, path: &Path) -> Result<(), String> {
+        let mut stored = match std::fs::read_to_string(path) {
+            Ok(source) => Config::from_toml(&source)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Config::default(),
+            Err(error) => return Err(error.to_string()),
+        };
+        self.apply(&mut stored);
+        stored.save(path).map_err(|error| error.to_string())
+    }
 }
 
 impl Config {
@@ -109,7 +119,10 @@ mod tests {
             let reloaded = Config::from_toml(&config.to_toml()).unwrap();
             assert_eq!(Suggestions::of(&reloaded), Some(level), "{level:?}");
         }
-        assert_eq!(Suggestions::of(&Config::default()), Some(Suggestions::Normal));
+        assert_eq!(
+            Suggestions::of(&Config::default()),
+            Some(Suggestions::Normal)
+        );
     }
 
     #[test]
@@ -210,6 +223,49 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .collect();
         assert_eq!(names, ["config.toml"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persisting_changes_only_its_own_field_in_the_stored_file() {
+        let dir = scratch("persist");
+        let path = dir.join("config.toml");
+        Setting::Block("Zoom".into()).persist(&path).unwrap();
+        assert_eq!(
+            Config::from_toml(&std::fs::read_to_string(&path).unwrap())
+                .unwrap()
+                .blocked_apps,
+            ["Zoom"]
+        );
+        std::fs::write(
+            &path,
+            "max_words = 9
+blocked_apps = [\"Zoom\"]
+",
+        )
+        .unwrap();
+        Setting::Suggestions(Suggestions::More)
+            .persist(&path)
+            .unwrap();
+        Setting::Enabled(false).persist(&path).unwrap();
+        let stored = Config::from_toml(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(stored.max_words, 9);
+        assert_eq!(stored.blocked_apps, ["Zoom"]);
+        assert!(!stored.enabled);
+        assert_eq!(Suggestions::of(&stored), Some(Suggestions::More));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persisting_never_overwrites_a_file_it_cannot_read() {
+        let dir = scratch("persist-invalid");
+        let path = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        for broken in ["max_words = 0", "this is = not toml ["] {
+            std::fs::write(&path, broken).unwrap();
+            assert!(Setting::Enabled(false).persist(&path).is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

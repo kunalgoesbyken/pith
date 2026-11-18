@@ -1607,6 +1607,7 @@ fn main() {
         observer: Some(observer),
         global_keys: false,
         data_dir: None,
+        notice: None,
     };
     run(config, worker, (sender, receiver), waker, options).expect("run");
     let failed = driver.join().unwrap_or(1);

@@ -133,10 +133,6 @@ fn main() {
             })
         }),
         Box::new(move |status: Result<String, String>| {
-            let status = match &config_error {
-                Some(error) => status.map(|name| format!("{name}; settings ignored: {error}")),
-                None => status,
-            };
             let _ = ready_sender.send(Inbound::Ready(status));
             ready_waker.wake();
         }),
@@ -154,6 +150,7 @@ fn main() {
         observer: None,
         global_keys: true,
         data_dir: Some(paths.data.clone()),
+        notice: config_error,
     };
     log("pith starting");
     if let Err(error) = run(config, worker, (sender, receiver), waker, options) {

@@ -52,6 +52,7 @@ pub struct Options {
     pub observer: Option<Sender<Action>>,
     pub global_keys: bool,
     pub data_dir: Option<PathBuf>,
+    pub notice: Option<String>,
 }
 
 pub enum Inbound {
@@ -364,6 +365,7 @@ impl App {
             pause: self.pause.as_ref().map(|pause| pause.shown.clone()),
             enabled: self.saved.enabled,
             skip: self.skip,
+            notice: self.options.notice.clone(),
         };
         tray.show(TrayView {
             status: status.line(),
@@ -424,15 +426,7 @@ impl App {
         let Some(path) = &self.options.config_path else {
             return;
         };
-        let mut on_disk = match std::fs::read_to_string(path) {
-            Ok(source) => match Config::from_toml(&source) {
-                Ok(config) => config,
-                Err(error) => return log(&format!("settings not saved, file is invalid: {error}")),
-            },
-            Err(_) => Config::default(),
-        };
-        setting.apply(&mut on_disk);
-        if let Err(error) = on_disk.save(path) {
+        if let Err(error) = setting.persist(path) {
             log(&format!("settings not saved: {error}"));
         }
     }
@@ -462,7 +456,9 @@ impl App {
         let answer = unsafe {
             MessageBoxW(
                 owner,
-                w!("Delete the downloaded model and the local data of Pith from this PC, then close Pith? Your settings are kept. The model downloads again the next time Pith starts."),
+                w!(
+                    "Delete the downloaded model and the local data of Pith from this PC, then close Pith? Your settings are kept. The model downloads again the next time Pith starts."
+                ),
                 w!("Delete model and data"),
                 MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
             )

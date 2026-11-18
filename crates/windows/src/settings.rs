@@ -9,10 +9,10 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, SetWindowTheme};
-use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, IsWindowEnabled};
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
@@ -37,9 +37,8 @@ const LEVELS: [(i32, Suggestions, &str); 3] = [
 const CLIENT_WIDTH: i32 = 360;
 const CLIENT_HEIGHT: i32 = 326;
 const MARGIN: i32 = 16;
-const WINDOW: WINDOW_STYLE = WINDOW_STYLE(
-    WS_CAPTION.0 | WS_SYSMENU.0 | WS_MINIMIZEBOX.0 | WS_CLIPCHILDREN.0,
-);
+const WINDOW: WINDOW_STYLE =
+    WINDOW_STYLE(WS_CAPTION.0 | WS_SYSMENU.0 | WS_MINIMIZEBOX.0 | WS_CLIPCHILDREN.0);
 const DARK_BACKGROUND: u32 = 0x0020_2020;
 const DARK_TEXT: u32 = 0x00F0_F0F0;
 
@@ -441,6 +440,7 @@ impl Drop for SettingsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 
     fn click(window: &SettingsWindow, id: i32) {
         send(item(window.hwnd, id), BM_CLICK, 0, 0);

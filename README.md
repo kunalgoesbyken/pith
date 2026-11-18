@@ -46,7 +46,7 @@ Download `pith.exe` and run it. On first start it downloads the model into `%LOC
 
 Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs it says so in the tray instead of crashing; point `remote_url` at a server to use it there.
 
-Invalid settings are reported in the tray and the defaults are used until you fix them. Settings live in `%APPDATA%\Pith\config\config.toml` (tray menu, "Open settings"):
+Invalid settings are reported in the tray and the defaults are used until you fix them. The tray menu shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model), pauses it for 15 minutes, an hour or until you resume, and turns it off in the app you were just using. Its Settings window sets Enabled, how many suggestions you see (Fewer, Normal, More), the apps it is off in, Start with Windows (off by default), and can open or delete the data folder. Changes apply at once and are written to the file below, which holds every other setting: `%APPDATA%\Pith\config\config.toml`.
 
 | Key | Default | Meaning |
 |---|---|---|

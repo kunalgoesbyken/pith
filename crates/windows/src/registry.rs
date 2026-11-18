@@ -2,9 +2,9 @@ use std::path::Path;
 
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_DWORD,
-    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegOpenKeyExW, RegQueryValueExW,
-    RegSetValueExW,
+    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    RRF_RT_REG_DWORD, RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegOpenKeyExW,
+    RegQueryValueExW, RegSetValueExW,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -88,7 +88,10 @@ pub fn read_string(subkey: &str, name: &str) -> Option<String> {
         }
         let length = (size as usize / 2).min(buffer.len());
         let text = &buffer[..length];
-        let end = text.iter().position(|unit| *unit == 0).unwrap_or(text.len());
+        let end = text
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(text.len());
         Some(String::from_utf16_lossy(&text[..end]))
     }
 }

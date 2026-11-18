@@ -48,6 +48,7 @@ pub struct Status {
     pub pause: Option<Pause>,
     pub enabled: bool,
     pub skip: Option<SkipReason>,
+    pub notice: Option<String>,
 }
 
 pub fn skip_label(reason: SkipReason) -> &'static str {
@@ -80,9 +81,10 @@ impl Status {
             (None, Model::Failed(error)) => format!("Error: {error}"),
             (None, Model::Loading(text)) if text.starts_with("downloading") => capitalised(text),
             (None, Model::Loading(_)) => "Loading model".to_string(),
-            (None, Model::Ready) => match self.skip {
-                Some(reason) => format!("Skipped: {}", skip_label(reason)),
-                None => "Ready".to_string(),
+            (None, Model::Ready) => match (&self.notice, self.skip) {
+                (Some(notice), _) => format!("Settings ignored: {notice}"),
+                (None, Some(reason)) => format!("Skipped: {}", skip_label(reason)),
+                (None, None) => "Ready".to_string(),
             },
         }
     }
@@ -92,12 +94,18 @@ impl Status {
 mod tests {
     use super::*;
 
-    fn status(model: Model, pause: Option<Pause>, enabled: bool, skip: Option<SkipReason>) -> Status {
+    fn status(
+        model: Model,
+        pause: Option<Pause>,
+        enabled: bool,
+        skip: Option<SkipReason>,
+    ) -> Status {
         Status {
             model,
             pause,
             enabled,
             skip,
+            notice: None,
         }
     }
 
@@ -113,10 +121,17 @@ mod tests {
 
     #[test]
     fn pause_choices_have_distinct_labels() {
-        let labels: Vec<String> = PauseSpan::CHOICES.into_iter().map(PauseSpan::label).collect();
+        let labels: Vec<String> = PauseSpan::CHOICES
+            .into_iter()
+            .map(PauseSpan::label)
+            .collect();
         assert_eq!(
             labels,
-            ["Pause for 15 min", "Pause for 1 hour", "Pause until I resume"]
+            [
+                "Pause for 15 min",
+                "Pause for 1 hour",
+                "Pause until I resume"
+            ]
         );
         assert_eq!(PauseSpan::Minutes(120).label(), "Pause for 2 hours");
     }
@@ -146,13 +161,31 @@ mod tests {
         let loading = Model::Loading("loading model.gguf".into());
         let rows = [
             (status(Model::Ready, None, true, None), "Ready"),
-            (status(Model::Ready, None, true, skip), "Skipped: password field"),
+            (
+                Status {
+                    notice: Some("max_words must be at least 1".into()),
+                    ..status(Model::Ready, None, true, skip)
+                },
+                "Settings ignored: max_words must be at least 1",
+            ),
+            (
+                status(Model::Ready, None, true, skip),
+                "Skipped: password field",
+            ),
             (status(loading.clone(), None, true, skip), "Loading model"),
             (
-                status(Model::Loading("downloading model 40%".into()), None, true, None),
+                status(
+                    Model::Loading("downloading model 40%".into()),
+                    None,
+                    true,
+                    None,
+                ),
                 "Downloading model 40%",
             ),
-            (status(Model::Failed("no CPU".into()), None, true, skip), "Error: no CPU"),
+            (
+                status(Model::Failed("no CPU".into()), None, true, skip),
+                "Error: no CPU",
+            ),
             (status(Model::Ready, None, false, skip), "Turned off"),
             (
                 status(loading, Some(Pause::Until("14:35".into())), true, skip),

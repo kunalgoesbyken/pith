@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 
 use pith_core::{Config, FieldSnapshot};
 use windows::Win32::Foundation::HWND;
@@ -109,7 +109,10 @@ fn serve(
     while let Ok(request) = rx.recv() {
         let served = rx.try_iter().fold(request, u64::max);
         let outcome = if enabled.load(Ordering::SeqCst) {
-            let current = config.lock().map(|shared| shared.clone()).unwrap_or_default();
+            let current = config
+                .lock()
+                .map(|shared| shared.clone())
+                .unwrap_or_default();
             read(&automation, source, &current, own_pid)
         } else {
             Ok(None)
