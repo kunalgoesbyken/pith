@@ -1,15 +1,16 @@
 use std::cell::RefCell;
 
-use pith_core::PauseSpan;
+use pith_core::{PauseSpan, Reach};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::HWND;
+
+use crate::reach::tooltip;
 use windows::Win32::UI::Shell::{
     NIF_INFO, NIIF_INFO, NIM_MODIFY, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
     Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 
-pub const TOOLTIP: &str = "Pith \u{b7} local only, nothing leaves this PC";
 const MENU_TEXT_CHARS: usize = 100;
 
 fn menu_text(text: &str) -> String {
@@ -111,7 +112,7 @@ fn glyph(active: bool) -> Icon {
 }
 
 impl Tray {
-    pub fn create(active: bool) -> Option<Self> {
+    pub fn create(active: bool, reach: &Reach) -> Option<Self> {
         let menu = Menu::new();
         let status = MenuItem::new("Starting", false, None);
         let pauses: Vec<(MenuItem, PauseSpan)> = PauseSpan::CHOICES
@@ -135,7 +136,7 @@ impl Tray {
         menu.append(&quit).ok()?;
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
-            .with_tooltip(TOOLTIP)
+            .with_tooltip(tooltip(reach))
             .with_icon(glyph(active))
             .build()
             .ok()?;
@@ -259,10 +260,5 @@ mod tests {
         let long = "x".repeat(300);
         assert_eq!(menu_text(&long).chars().count(), MENU_TEXT_CHARS + 1);
         assert!(menu_text(&long).ends_with('\u{2026}'));
-    }
-
-    #[test]
-    fn tooltip_states_the_privacy_promise() {
-        assert_eq!(TOOLTIP, "Pith \u{b7} local only, nothing leaves this PC");
     }
 }

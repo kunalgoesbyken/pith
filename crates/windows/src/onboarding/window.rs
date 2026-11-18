@@ -272,7 +272,7 @@ fn center(window: HWND, layout: &Layout, scale: Scale) {
     }
 }
 
-pub fn create(initial: &View) -> windows::core::Result<Controls> {
+pub fn create(initial: &View, promise: String) -> windows::core::Result<Controls> {
     unsafe {
         let _ = LoadLibraryW(w!("Msftedit.dll"));
         let instance: HINSTANCE = GetModuleHandleW(None)?.into();
@@ -299,6 +299,7 @@ pub fn create(initial: &View) -> windows::core::Result<Controls> {
             mica,
             scale,
             view: initial.clone(),
+            promise,
         };
         model::install(model.clone());
         let layout = build(&model);

@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use pith_core::log;
+use pith_core::{Reach, log};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::Controls::EM_SETSEL;
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
@@ -17,6 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
+use crate::reach;
 use crate::util::wide;
 
 pub use step::{Event, Step, View};
@@ -64,8 +65,8 @@ pub struct Onboarding {
 }
 
 impl Onboarding {
-    pub fn create(marker: PathBuf, visible: bool) -> windows::core::Result<Self> {
-        let controls = window::create(&Step::Preparing.view())?;
+    pub fn create(marker: PathBuf, visible: bool, reach: &Reach) -> windows::core::Result<Self> {
+        let controls = window::create(&Step::Preparing.view(), reach::promise(reach))?;
         if visible {
             unsafe {
                 let _ = ShowWindow(controls.window, SW_SHOWNORMAL);
@@ -212,7 +213,7 @@ mod tests {
     fn the_window_follows_the_steps_from_download_to_done() {
         let marker = marker("flow");
         let _ = fs::remove_file(&marker);
-        let mut window = Onboarding::create(marker.clone(), false).unwrap();
+        let mut window = Onboarding::create(marker.clone(), false, &Reach::ThisPc).unwrap();
         let controls = window.controls();
         assert_eq!(text(controls.status), "Starting Pith");
         assert!(!shown(controls.progress) && !shown(controls.practice));
@@ -235,7 +236,7 @@ mod tests {
 
     #[test]
     fn a_failure_shows_the_message_and_keeps_the_practice_box_hidden() {
-        let mut window = Onboarding::create(marker("failed"), false).unwrap();
+        let mut window = Onboarding::create(marker("failed"), false, &Reach::ThisPc).unwrap();
         let controls = window.controls();
         window.event(Event::Failed("offline & retry".into()));
         assert!(text(controls.status).contains("offline & retry"));
@@ -245,7 +246,7 @@ mod tests {
 
     #[test]
     fn dpi_and_theme_changes_are_applied_live() {
-        let window = Onboarding::create(marker("live"), false).unwrap();
+        let window = Onboarding::create(marker("live"), false, &Reach::ThisPc).unwrap();
         let hwnd = window.controls().window;
         let before = frame_width(hwnd);
         let suggested = RECT::default();
@@ -279,6 +280,7 @@ mod tests {
                 mica: false,
                 scale: Scale(dpi),
                 view: Step::Failed("a long failure message ".repeat(8)).view(),
+                promise: reach::promise(&Reach::ThisPc),
             };
             let layout = build(&model);
             let stack = [

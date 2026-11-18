@@ -5,7 +5,6 @@ use super::step::Glyph;
 use crate::ui::{BUTTON_HEIGHT, Role, Text, expand, inset, measure, rect};
 
 pub const TITLE: &str = "Welcome to Pith";
-pub const PROMISE: &str = "Finishes your sentences as you type, on this PC. Nothing leaves it.";
 pub const HINT: &str = "Try it. Click at the end of the sentence below and pause for a second. The rest of the sentence appears in grey.";
 pub const KEYS_NOTE: &str = "With no suggestion showing, Tab is a normal Tab.";
 pub const KEYS_NAME: &str = "Tab keeps the suggestion. Shift+Tab or Ctrl+Right keeps one word. Esc hides it. With no suggestion showing, Tab is a normal Tab.";
@@ -64,7 +63,7 @@ pub fn build(model: &Model) -> Layout {
     y = title.bottom;
     let (_, promise_height) = measure(
         scale,
-        PROMISE,
+        &model.promise,
         Text::new(Role::Body, model.theme.palette.text_secondary).wrapping(),
         inner,
     );

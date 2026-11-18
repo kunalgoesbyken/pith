@@ -11,6 +11,7 @@ mod keys;
 mod onboarding;
 mod overlay;
 mod pill;
+mod reach;
 mod reader;
 mod registry;
 mod run;

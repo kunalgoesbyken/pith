@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use pith_core::{Config, Counts};
+use pith_core::{Config, Counts, Reach};
 use pith_windows::{Onboarding, OnboardingEvent, SettingsWindow, StatsView, force_dark_theme};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -192,7 +192,7 @@ fn settings(name: &str, apps: &[&str], dpi: u32, fallback: [u8; 3]) {
 
 fn onboarding(name: &str, events: &[OnboardingEvent], dpi: u32, fallback: [u8; 3]) {
     let marker = std::env::temp_dir().join("pith-ui-shots-marker");
-    let mut window = Onboarding::create(marker, false).unwrap();
+    let mut window = Onboarding::create(marker, false, &Reach::ThisPc).unwrap();
     let hwnd = window.controls().window;
     park(hwnd, dpi);
     for event in events {

@@ -3,6 +3,7 @@ use pith_core::{
 };
 
 use super::{Choice, MAX_APP_ROWS, OPACITY_STEP, StatsView};
+use crate::reach;
 use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,6 +22,7 @@ pub struct Model {
     pub blocked: Vec<String>,
     pub first_app: usize,
     pub status: String,
+    pub footer: String,
 }
 
 thread_local! {
@@ -74,6 +76,7 @@ impl Model {
             blocked: Vec::new(),
             first_app: 0,
             status: String::new(),
+            footer: String::new(),
         };
         model.refresh(config, start_with_windows, status, stats);
         model
@@ -96,6 +99,7 @@ impl Model {
         self.start_with_windows = start_with_windows;
         self.blocked = config.blocked_apps.clone();
         self.status = format!("{status} \u{b7} {}", model_label(config));
+        self.footer = reach::footer(&config.reach());
         self.first_app = self.first_app.min(self.last_first_app());
     }
 

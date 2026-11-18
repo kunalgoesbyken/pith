@@ -2,7 +2,7 @@ use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 
 use super::layout::{
-    Block, DATA_ROWS, FIGURE_COLUMN, FOOTER, GENERAL_ROWS, Layout, OPACITY_TITLE, Row, RowText,
+    Block, DATA_ROWS, FIGURE_COLUMN, GENERAL_ROWS, Layout, OPACITY_TITLE, Row, RowText,
     STATS_RESET, TITLE,
 };
 use super::model::Model;
@@ -191,7 +191,7 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     }
     canvas.text(
         layout.footer,
-        FOOTER,
+        &model.footer,
         Text::new(Role::Caption, palette.text_secondary),
     );
 }

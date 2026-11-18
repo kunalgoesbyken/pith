@@ -7,6 +7,7 @@ pub struct Model {
     pub mica: bool,
     pub scale: Scale,
     pub view: View,
+    pub promise: String,
 }
 
 thread_local! {

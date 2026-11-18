@@ -1,7 +1,7 @@
 use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 
-use super::layout::{DONE_LABEL, HINT, KEY_HINTS, KEYS_NOTE, Layout, PROMISE, TITLE};
+use super::layout::{DONE_LABEL, HINT, KEY_HINTS, KEYS_NOTE, Layout, TITLE};
 use super::model::Model;
 use super::step::Glyph;
 use super::{DONE_ID, HINT_ID, KEYS_ID, PROGRESS_ID, STATUS_ID};
@@ -58,7 +58,7 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     canvas.text(layout.title, TITLE, Text::new(Role::Title, palette.text));
     canvas.text(
         layout.promise,
-        PROMISE,
+        &model.promise,
         Text::new(Role::Body, palette.text_secondary).wrapping(),
     );
     canvas.card(

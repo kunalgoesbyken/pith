@@ -625,12 +625,12 @@ pub fn run(
         SetTimer(Some(control), TIMER_POLL, options.poll_ms.max(16), None);
     }
     let tray = if options.tray {
-        Tray::create(config.enabled)
+        Tray::create(config.enabled, &config.reach())
     } else {
         None
     };
     let onboarding = options.onboarding.clone().and_then(|marker| {
-        Onboarding::create(marker, true)
+        Onboarding::create(marker, true, &config.reach())
             .map_err(|error| log(&format!("welcome window failed: {error}")))
             .ok()
     });

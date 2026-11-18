@@ -16,7 +16,7 @@ mod types;
 
 pub use chord::{Chord, Key};
 pub use config::{
-    Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, ModelPreset, TriggerMode, app_name,
+    Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, ModelPreset, Reach, TriggerMode, app_name,
 };
 pub use engine::{Action, Engine, Event};
 pub use ghost::{

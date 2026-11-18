@@ -58,7 +58,6 @@ pub const DATA_ROWS: [(&str, &str); 2] = [
         "Settings are kept. The model downloads again.",
     ),
 ];
-pub const FOOTER: &str = "Runs on this PC. Nothing leaves it.";
 pub const TITLE: &str = "Pith";
 
 #[derive(Clone, Debug)]

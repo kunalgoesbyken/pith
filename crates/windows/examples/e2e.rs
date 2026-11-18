@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot};
+use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot, Reach};
 use pith_infer::{Backend, Worker};
 use pith_windows::{
     Inbound, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options, Outcome,
@@ -1825,7 +1825,8 @@ fn onboarding_flow(marker: PathBuf) -> usize {
         passed: 0,
         failed: 0,
     };
-    let mut window = Onboarding::create(marker.clone(), false).expect("onboarding window");
+    let mut window =
+        Onboarding::create(marker.clone(), false, &Reach::ThisPc).expect("onboarding window");
     let controls = window.controls();
     report.check(
         "onboarding starts quiet",
@@ -1902,7 +1903,8 @@ fn onboarding_failure() -> usize {
         failed: 0,
     };
     let marker = std::env::temp_dir().join("pith-e2e-onboarding-failed");
-    let mut window = Onboarding::create(marker.clone(), false).expect("onboarding window");
+    let mut window =
+        Onboarding::create(marker.clone(), false, &Reach::ThisPc).expect("onboarding window");
     let controls = window.controls();
     window.event(OnboardingEvent::Failed("offline & retry".into()));
     report.check(
