@@ -59,10 +59,15 @@ Hindi and Spanish are the slowest because they take more tokens per word. Japane
 
 Download `pith.exe` from [Releases](https://github.com/kunalgoesbyken/pith/releases) and run it; `pith.exe.sha256` next to it lets you check the file. The exe is not code-signed yet, so Windows SmartScreen may ask you to confirm the first start. On first start Pith downloads the model into `%LOCALAPPDATA%\Pith\data\models`, then shows a tray icon.
 
-| `model` | File | RAM loaded | Notes |
-|---|---|---|---|
-| `standard` (default) | Qwen3-0.6B-Base Q4_K_M, 397 MB | ~600 MB | multilingual, best suggestions |
-| `lite` | SmolLM2-360M Q4_K_M, 271 MB | ~330 MB | English-focused, faster to load |
+| `model` | File | Download | RAM loaded | Median / p90 per keystroke | Keystrokes saved | Exact next word | Notes |
+|---|---|---|---|---|---|---|---|
+| `small` | SmolLM2-360M Q4_K_M | 271 MB | ~370 MB | 148 / 306 ms | 26% | 11% | English-focused, loads in 0.65 s |
+| `standard` | Qwen3-0.6B-Base Q4_K_M | 397 MB | ~590 MB | 206 / 420 ms | 29% | 12% | multilingual, the common choice |
+| `large` | Qwen3-1.7B-Base Q4_K_M | 1107 MB | ~1270 MB | 520 / 1316 ms | 37% | 14% | multilingual, best suggestions, about 2.5 times slower than standard |
+
+Measured with `typing_bench` on one PC (4 threads, 8 logical cores, 16 GB; 1,200 to 1,400 keystrokes over 12 samples). RAM is the peak private memory of the process while loaded. Latency depends on your CPU, so read the milliseconds as relative. The Numbers section above is from a slower laptop.
+
+Pith recommends a model from the memory and logical cores it finds: `large` with at least 13.2 GB of RAM and 12 cores, `standard` with at least 5.6 GB and 4 cores, `small` otherwise. Until you choose one in Settings, Pith uses the recommendation.
 
 Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs the tray says so instead of crashing, and `remote_url` lets you use a server instead.
 
@@ -72,6 +77,7 @@ Settings changes apply at once:
 
 - Enabled, and how often suggestions appear (Fewer, Normal, More)
 - Suggestion length (Short, Normal, Long)
+- The model (Small, Standard or Large, with the recommended one marked). Choosing one downloads it if needed and switches without a restart; downloaded models are kept
 - Ghost text opacity
 - Your stats: suggestions seen and accepted today and in total, and the time they saved you
 - The apps Pith is turned off in
@@ -91,7 +97,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | true | suggest at all |
-| `model` | standard | `standard` or `lite` |
+| `model` | recommended for your PC | `small`, `standard` or `large`; absent until you choose one in Settings |
 | `model_path` | none | any GGUF file; overrides `model` |
 | `threads` | 0 | 0 = half the logical cores, at most 4 |
 | `context_tokens` | 1024 | model context; at most 16384 and at least `max_tokens` + 64 |

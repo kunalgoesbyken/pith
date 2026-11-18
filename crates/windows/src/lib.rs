@@ -35,4 +35,4 @@ pub use rival::Rival;
 pub use run::{Inbound, InsertMode, Options, run};
 pub use settings::{SettingsWindow, StatsView};
 pub use ui::force_dark_theme;
-pub use util::{open_path, single_instance};
+pub use util::{hardware, open_path, single_instance};

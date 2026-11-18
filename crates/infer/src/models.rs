@@ -24,17 +24,25 @@ pub const STANDARD_MODEL: ModelSpec = ModelSpec {
     sha256: "1c728e4fe4abb28cde33b59cd66396e62b2ef755f53db44cdb54e9655b863782",
 };
 
-pub const LITE_MODEL: ModelSpec = ModelSpec {
+pub const SMALL_MODEL: ModelSpec = ModelSpec {
     file: "SmolLM2-360M.Q4_K_M.gguf",
     url: "https://huggingface.co/QuantFactory/SmolLM2-360M-GGUF/resolve/38cd16bc62ab1b1f0d320be8b518ac2fd80faa88/SmolLM2-360M.Q4_K_M.gguf",
     bytes: 270_589_952,
     sha256: "be3035f2b21abe1038dbb1b9212791353715020bbc71265bde00da129ec320e6",
 };
 
+pub const LARGE_MODEL: ModelSpec = ModelSpec {
+    file: "Qwen3-1.7B-Base.Q4_K_M.gguf",
+    url: "https://huggingface.co/mradermacher/Qwen3-1.7B-Base-GGUF/resolve/7b0494b4ddf6e7aa1ca2da0b2f398be382dd0ea8/Qwen3-1.7B-Base.Q4_K_M.gguf",
+    bytes: 1_107_409_024,
+    sha256: "8b5d946a169e62dd49444be8858c8a7f06067573de990b2bc19380d3a260b5fa",
+};
+
 pub fn preset(model: ModelPreset) -> &'static ModelSpec {
     match model {
+        ModelPreset::Small => &SMALL_MODEL,
         ModelPreset::Standard => &STANDARD_MODEL,
-        ModelPreset::Lite => &LITE_MODEL,
+        ModelPreset::Large => &LARGE_MODEL,
     }
 }
 
@@ -48,12 +56,13 @@ pub fn find_local(dir: &Path, spec: &ModelSpec) -> Option<PathBuf> {
 pub fn download(
     spec: &ModelSpec,
     dir: &Path,
+    cancelled: &dyn Fn() -> bool,
     progress: &dyn Fn(u64, u64),
 ) -> Result<PathBuf, String> {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let target = dir.join(spec.file);
     let partial = dir.join(format!("{}.part", spec.file));
-    let result = fetch(spec, &partial, progress)
+    let result = fetch(spec, &partial, cancelled, progress)
         .and_then(|()| fs::rename(&partial, &target).map_err(|e| e.to_string()));
     if result.is_err() {
         let _ = fs::remove_file(&partial);
@@ -61,7 +70,12 @@ pub fn download(
     result.map(|()| target)
 }
 
-fn fetch(spec: &ModelSpec, partial: &Path, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
+fn fetch(
+    spec: &ModelSpec,
+    partial: &Path,
+    cancelled: &dyn Fn() -> bool,
+    progress: &dyn Fn(u64, u64),
+) -> Result<(), String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(CONNECT_TIMEOUT))
         .timeout_recv_response(Some(RESPONSE_TIMEOUT))
@@ -79,6 +93,9 @@ fn fetch(spec: &ModelSpec, partial: &Path, progress: &dyn Fn(u64, u64)) -> Resul
     let mut written = 0u64;
     let mut hasher = Sha256::new();
     loop {
+        if cancelled() {
+            return Err("download cancelled".to_string());
+        }
         let read = reader.read(&mut buffer).map_err(|e| e.to_string())?;
         if read == 0 {
             break;

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use pith_core::Rect;
+use pith_core::{Hardware, Rect};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, RECT,
 };
@@ -9,6 +9,7 @@ use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
 };
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows::Win32::System::Threading::{
     CreateMutexW, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
@@ -94,6 +95,19 @@ pub fn single_instance(name: &str) -> bool {
     unsafe {
         let handle = CreateMutexW(None, true, PCWSTR(name.as_ptr()));
         handle.is_ok() && GetLastError() != ERROR_ALREADY_EXISTS
+    }
+}
+
+pub fn hardware() -> Hardware {
+    let mut memory = MEMORYSTATUSEX {
+        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    let ram_mib =
+        unsafe { GlobalMemoryStatusEx(&mut memory) }.map_or(0, |()| memory.ullTotalPhys >> 20);
+    Hardware {
+        ram_mib,
+        cores: std::thread::available_parallelism().map_or(1, |cores| cores.get()),
     }
 }
 

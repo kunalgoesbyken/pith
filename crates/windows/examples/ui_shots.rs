@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use pith_core::{Config, Counts, Reach};
+use pith_core::{Config, Counts, ModelPreset, Reach};
 use pith_windows::{
     Onboarding, OnboardingEvent, Rival, SettingsWindow, StatsView, force_dark_theme,
 };
@@ -187,7 +187,14 @@ fn settings(name: &str, apps: &[&str], rival: Option<Rival>, dpi: u32, fallback:
         max_words: 10,
         ..Config::default()
     };
-    let window = SettingsWindow::open(&config, true, "Ready", &sample_stats()).unwrap();
+    let window = SettingsWindow::open(
+        &config,
+        ModelPreset::Standard,
+        true,
+        "Ready",
+        &sample_stats(),
+    )
+    .unwrap();
     window.set_rival(rival);
     park(window.hwnd(), dpi);
     capture(window.hwnd(), name, fallback);
@@ -262,7 +269,14 @@ fn states(name: &str, card: [u8; 3]) {
         blocked_apps: vec!["Slack".into()],
         ..Config::default()
     };
-    let window = SettingsWindow::open(&config, true, "Ready", &StatsView::default()).unwrap();
+    let window = SettingsWindow::open(
+        &config,
+        ModelPreset::Standard,
+        true,
+        "Ready",
+        &StatsView::default(),
+    )
+    .unwrap();
     park(window.hwnd(), 96);
     let (width, height) = (CELL.0 * STATES.len() as i32, CELL.1 * CONTROLS.len() as i32);
     let info = bitmap_info(width, height);

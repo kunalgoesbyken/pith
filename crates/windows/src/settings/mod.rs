@@ -5,7 +5,7 @@ mod window;
 
 use std::cell::RefCell;
 
-use pith_core::{Config, Counts, Length, Setting, Suggestions};
+use pith_core::{Config, Counts, Length, ModelPreset, Setting, Suggestions};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, IsWindow, SW_SHOWNORMAL, SetForegroundWindow, ShowWindow,
@@ -29,6 +29,9 @@ const ID_START: i32 = 114;
 const ID_RESET_STATS: i32 = 115;
 const ID_RIVAL_OPEN: i32 = 116;
 const ID_REMOVE_FIRST: i32 = 120;
+const ID_SMALL: i32 = 130;
+const ID_STANDARD: i32 = 131;
+const ID_LARGE: i32 = 132;
 const MAX_APP_ROWS: usize = 3;
 const OPACITY_STEP: u8 = 10;
 
@@ -36,6 +39,7 @@ const OPACITY_STEP: u8 = 10;
 enum Choice {
     Frequency(Suggestions),
     Length(Length),
+    Model(ModelPreset),
 }
 
 impl Choice {
@@ -43,6 +47,15 @@ impl Choice {
         match self {
             Self::Frequency(level) => Setting::Suggestions(level),
             Self::Length(length) => Setting::Length(length),
+            Self::Model(preset) => Setting::Model(preset),
+        }
+    }
+
+    fn caption(self, label: &'static str, selected: bool) -> &'static str {
+        match (self, selected) {
+            (Self::Model(_), true) => "In use",
+            (Self::Model(_), false) => "Use",
+            _ => label,
         }
     }
 }
@@ -60,8 +73,18 @@ const LENGTH: [Segment; 3] = [
     (ID_LONG, Choice::Length(Length::Long), "Long"),
 ];
 
+const MODELS: [Segment; 3] = [
+    (ID_SMALL, Choice::Model(ModelPreset::Small), "Small model"),
+    (
+        ID_STANDARD,
+        Choice::Model(ModelPreset::Standard),
+        "Standard model",
+    ),
+    (ID_LARGE, Choice::Model(ModelPreset::Large), "Large model"),
+];
+
 fn segments() -> impl Iterator<Item = &'static Segment> {
-    FREQUENCY.iter().chain(&LENGTH)
+    FREQUENCY.iter().chain(&LENGTH).chain(&MODELS)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -100,11 +123,12 @@ pub struct SettingsWindow {
 impl SettingsWindow {
     pub fn open(
         config: &Config,
+        recommended: ModelPreset,
         start_with_windows: bool,
         status: &str,
         stats: &StatsView,
     ) -> windows::core::Result<Self> {
-        let hwnd = window::create(config, start_with_windows, status, stats)?;
+        let hwnd = window::create(config, recommended, start_with_windows, status, stats)?;
         Ok(Self { hwnd })
     }
 
@@ -209,8 +233,14 @@ mod tests {
     fn controls_reflect_the_config_and_emit_matching_settings() {
         {
             let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
-            let window =
-                SettingsWindow::open(&config, true, "Ready", &StatsView::default()).unwrap();
+            let window = SettingsWindow::open(
+                &config,
+                ModelPreset::Standard,
+                true,
+                "Ready",
+                &StatsView::default(),
+            )
+            .unwrap();
             assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, on");
             assert_eq!(name(&window, ID_START), "Start with Windows, on");
             assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
@@ -247,8 +277,14 @@ mod tests {
                 ghost_opacity: 90,
                 ..Config::default()
             };
-            let window =
-                SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
+            let window = SettingsWindow::open(
+                &config,
+                ModelPreset::Standard,
+                false,
+                "Ready",
+                &StatsView::default(),
+            )
+            .unwrap();
             assert_eq!(name(&window, ID_NORMAL_LENGTH), "Normal, selected");
             assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
             take_events();
@@ -276,9 +312,14 @@ mod tests {
     #[test]
     fn reset_stats_asks_the_host_and_refresh_follows_the_config_and_stats() {
         {
-            let window =
-                SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
-                    .unwrap();
+            let window = SettingsWindow::open(
+                &Config::default(),
+                ModelPreset::Standard,
+                false,
+                "Ready",
+                &StatsView::default(),
+            )
+            .unwrap();
             assert_eq!(name(&window, ID_RESET_STATS), "Reset stats");
             take_events();
             click(&window, ID_RESET_STATS);
@@ -299,8 +340,14 @@ mod tests {
         }
         {
             let mut config = with_apps(&["Slack"]);
-            let window =
-                SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
+            let window = SettingsWindow::open(
+                &config,
+                ModelPreset::Standard,
+                false,
+                "Ready",
+                &StatsView::default(),
+            )
+            .unwrap();
             assert!(shown(&window, ID_REMOVE_FIRST));
             config.blocked_apps.clear();
             config.enabled = false;
@@ -310,7 +357,10 @@ mod tests {
             assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
             assert_eq!(name(&window, ID_START), "Start with Windows, on");
             for (id, choice, label) in segments() {
-                let selected = matches!(choice, Choice::Length(Length::Normal));
+                let selected = matches!(
+                    choice,
+                    Choice::Length(Length::Normal) | Choice::Model(ModelPreset::Standard)
+                );
                 let expected = if selected {
                     format!("{label}, selected")
                 } else {
@@ -324,7 +374,14 @@ mod tests {
     #[test]
     fn remove_unblocks_that_exact_name_and_unused_slots_do_nothing() {
         let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
-        let window = SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
+        let window = SettingsWindow::open(
+            &config,
+            ModelPreset::Standard,
+            false,
+            "Ready",
+            &StatsView::default(),
+        )
+        .unwrap();
         take_events();
         click(&window, ID_REMOVE_FIRST + 2);
         assert_eq!(take_events(), []);
@@ -338,7 +395,14 @@ mod tests {
     #[test]
     fn a_long_list_scrolls_in_whole_rows() {
         let config = with_apps(&["a", "b", "c", "d", "e"]);
-        let window = SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
+        let window = SettingsWindow::open(
+            &config,
+            ModelPreset::Standard,
+            false,
+            "Ready",
+            &StatsView::default(),
+        )
+        .unwrap();
         let wheel = |delta: i16| (delta as u16 as usize) << 16;
         send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), 0);
         assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove b");
@@ -351,9 +415,14 @@ mod tests {
     #[test]
     fn closing_reports_once_and_drop_is_safe_after_close() {
         for (message, wparam) in [(WM_CLOSE, 0), (WM_COMMAND, IDCANCEL.0 as usize)] {
-            let window =
-                SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
-                    .unwrap();
+            let window = SettingsWindow::open(
+                &Config::default(),
+                ModelPreset::Standard,
+                false,
+                "Ready",
+                &StatsView::default(),
+            )
+            .unwrap();
             take_events();
             send(window.hwnd, message, wparam, 0);
             assert!(!window.is_open(), "{message}");
@@ -367,6 +436,7 @@ mod tests {
     fn a_dpi_change_rescales_the_window() {
         let window = SettingsWindow::open(
             &with_apps(&["Slack"]),
+            ModelPreset::Standard,
             false,
             "Ready",
             &StatsView::default(),
@@ -386,9 +456,14 @@ mod tests {
 
     #[test]
     fn an_immersive_color_change_retheme_the_window() {
-        let window =
-            SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
-                .unwrap();
+        let window = SettingsWindow::open(
+            &Config::default(),
+            ModelPreset::Standard,
+            false,
+            "Ready",
+            &StatsView::default(),
+        )
+        .unwrap();
         for dark in [true, false] {
             force_dark_theme(Some(dark));
             send(
@@ -405,9 +480,14 @@ mod tests {
 
     #[test]
     fn a_rival_line_appears_only_when_set_and_only_the_system_feature_has_an_action() {
-        let window =
-            SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
-                .unwrap();
+        let window = SettingsWindow::open(
+            &Config::default(),
+            ModelPreset::Standard,
+            false,
+            "Ready",
+            &StatsView::default(),
+        )
+        .unwrap();
         assert!(!shown(&window, ID_RIVAL_OPEN));
         let plain_height = current().map(|model| build(&model).client.bottom).unwrap();
         take_events();
@@ -439,6 +519,7 @@ mod tests {
         for dpi in [96, 120, 144, 192] {
             let model = model::Model::new(
                 &config,
+                ModelPreset::Standard,
                 false,
                 "Ready",
                 &StatsView::default(),
@@ -452,7 +533,7 @@ mod tests {
                 .collect();
             assert_eq!(
                 visible.len(),
-                2 + FREQUENCY.len() + LENGTH.len() + 2 + MAX_APP_ROWS + 2 + 1
+                2 + FREQUENCY.len() + LENGTH.len() + 2 + MODELS.len() + MAX_APP_ROWS + 2 + 1
             );
             for (index, placed) in visible.iter().enumerate() {
                 let bounds = placed.bounds;
