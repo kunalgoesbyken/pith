@@ -66,6 +66,10 @@ fn percentile(values: &[f64], p: f64) -> f64 {
     sorted[((sorted.len() - 1) as f64 * p).round() as usize]
 }
 
+fn mean(values: &[f64]) -> f64 {
+    values.iter().sum::<f64>() / values.len().max(1) as f64
+}
+
 fn ratio(part: usize, total: usize) -> f64 {
     100.0 * part as f64 / total.max(1) as f64
 }
@@ -170,7 +174,7 @@ pub fn print_header() {
 
 pub fn print_row(name: &str, stats: &Stats) {
     println!(
-        "{:<14} {:>4} {:>4}/{:<4}{:>2.0}% {:>6.1} {:>6} {:>6} {:>7} {:>6} {:>6.1} {:>5.0} {:>5.0} {:>5.0} {:>5.0} {:>5.0} {:>5.0} {:>5} {:>5.0}",
+        "{:<14} {:>4} {:>4}/{:<4}{:>2.0}% {:>6.1} {:>6} {:>6} {:>7} {:>6} {:>6.1} {:>5.0} {:>5.0} {:>5.1} {:>5.0} {:>5.0} {:>5.0} {:>5} {:>5.0}",
         name,
         stats.requests,
         stats.word_hits,
@@ -184,7 +188,7 @@ pub fn print_row(name: &str, stats: &Stats) {
         ratio(stats.wrong, stats.shown),
         percentile(&stats.ms, 0.5),
         percentile(&stats.ms, 0.9),
-        percentile(&stats.tokens, 0.5),
+        mean(&stats.tokens),
         percentile(&stats.evaluated, 0.5),
         percentile(&stats.evaluated, 0.9),
         percentile(&stats.evaluated, 1.0),

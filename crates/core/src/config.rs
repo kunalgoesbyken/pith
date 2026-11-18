@@ -75,7 +75,10 @@ mod tests {
         ] {
             assert_eq!(Config::from_toml(toml).is_ok(), ok, "{toml}");
         }
-        assert_eq!(Config::from_toml("model_path = \"\"").unwrap().model_path, None);
+        assert_eq!(
+            Config::from_toml("model_path = \"\"").unwrap().model_path,
+            None
+        );
     }
 
     #[test]
@@ -117,6 +120,7 @@ const ALWAYS_BLOCKED: [&str; 23] = [
 ];
 
 const MIN_CONTEXT_HEADROOM: u32 = 64;
+const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -221,7 +225,10 @@ impl Config {
                 !self.min_token_logprob.is_nan() && !self.min_mean_logprob.is_nan(),
                 "logprob thresholds must be numbers",
             ),
-            (self.debounce_ms <= MAX_DEBOUNCE_MS, "debounce_ms must be at most 5000"),
+            (
+                self.debounce_ms <= MAX_DEBOUNCE_MS,
+                "debounce_ms must be at most 5000",
+            ),
             (
                 self.remote_url.as_deref().is_none_or(is_private_remote),
                 "remote_url must use https, or http to this computer",
@@ -243,6 +250,10 @@ impl Config {
         } else {
             (available / 2).clamp(1, 4)
         }
+    }
+
+    pub fn lookback_chars(&self) -> usize {
+        self.context_chars.saturating_mul(LOOKBACK_WINDOWS)
     }
 
     pub fn is_blocked(&self, app: &str) -> bool {

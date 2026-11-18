@@ -88,7 +88,7 @@ mod tests {
         assert!(!tracker.is_paused("notepad"));
         tracker.accepted("notepad");
         assert!(!ignore_times(&mut tracker, "notepad", 5, 6));
-        assert_eq!(tracker.paused(), vec!["Slack".to_string()]);
+        assert_eq!(tracker.paused(), vec!["SLACK".to_string()]);
     }
 
     #[test]

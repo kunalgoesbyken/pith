@@ -53,9 +53,8 @@ pub fn download(
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let target = dir.join(spec.file);
     let partial = dir.join(format!("{}.part", spec.file));
-    let result = fetch(spec, &partial, progress).and_then(|()| {
-        fs::rename(&partial, &target).map_err(|e| e.to_string())
-    });
+    let result = fetch(spec, &partial, progress)
+        .and_then(|()| fs::rename(&partial, &target).map_err(|e| e.to_string()));
     if result.is_err() {
         let _ = fs::remove_file(&partial);
     }
@@ -70,7 +69,11 @@ fn fetch(spec: &ModelSpec, partial: &Path, progress: &dyn Fn(u64, u64)) -> Resul
         .build()
         .into();
     let mut response = agent.get(spec.url).call().map_err(|e| e.to_string())?;
-    let mut reader = response.body_mut().with_config().limit(spec.bytes + 1).reader();
+    let mut reader = response
+        .body_mut()
+        .with_config()
+        .limit(spec.bytes + 1)
+        .reader();
     let mut file = fs::File::create(partial).map_err(|e| e.to_string())?;
     let mut buffer = vec![0u8; 1 << 16];
     let mut written = 0u64;

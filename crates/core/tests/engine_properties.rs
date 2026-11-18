@@ -1,7 +1,9 @@
 mod common;
 
 use common::{Rng, fragment, is_boundary, text};
-use pith_core::{Action, Completion, Config, Engine, Event, FieldSnapshot, Rect, StopReason, check};
+use pith_core::{
+    Action, Completion, Config, Engine, Event, FieldSnapshot, Rect, StopReason, check,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 const SEEDS: u64 = 300;
@@ -270,6 +272,7 @@ impl Harness {
                     self.expect(self.shown.is_none(), "disarmed before hide");
                     self.armed = false;
                 }
+                Action::AutoPaused(_) => {}
                 Action::Insert(inserted_text) => {
                     self.expect(
                         self.shown.is_some() && self.armed,
@@ -336,7 +339,7 @@ impl Harness {
                     self.sched = None;
                 }
             }
-            Event::DebounceElapsed(_) => {}
+            Event::DebounceElapsed(_) | Event::Resume(_) => {}
         }
         self.check_dismissal(&event, scheduled_now);
         if matches!(event, Event::Field(None)) {

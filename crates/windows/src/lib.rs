@@ -11,6 +11,6 @@ mod tray;
 mod util;
 
 pub use keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS};
-pub use reader::Source;
+pub use reader::{Reader, SnapshotCallback, Source};
 pub use run::{Inbound, InsertMode, Options, Waker, run};
 pub use util::{open_path, single_instance};
