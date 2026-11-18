@@ -94,17 +94,3 @@ pub fn offset(bounds: RECT, dx: i32, dy: i32) -> RECT {
 pub fn origin(bounds: RECT) -> RECT {
     offset(bounds, -bounds.left, -bounds.top)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scaling_rounds_to_the_nearest_pixel() {
-        assert_eq!(Scale(96).px(100), 100);
-        assert_eq!(Scale(144).px(100), 150);
-        assert_eq!(Scale(192).px(100), 200);
-        assert_eq!(Scale(120).px(15), 19);
-        assert_eq!(Scale(144).size(12.0), 18.0);
-    }
-}

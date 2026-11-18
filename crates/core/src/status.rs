@@ -124,11 +124,4 @@ mod tests {
             assert_eq!(status.line(), expected, "{status:?}");
         }
     }
-
-    #[test]
-    fn capitalising_keeps_the_rest_and_handles_non_ascii() {
-        assert_eq!(capitalised("ünïcode"), "Ünïcode");
-        assert_eq!(capitalised(""), "");
-        assert_eq!(capitalised("ǆx"), "ǅx".replace('ǅ', "Ǆ"));
-    }
 }

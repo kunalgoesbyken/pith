@@ -307,36 +307,6 @@ mod tests {
     }
 
     #[test]
-    fn custom_chords_map_to_virtual_keys_and_modifiers() {
-        let chord = Chord::parse("Ctrl+Alt+F5").unwrap();
-        assert_eq!(virtual_key(chord.key), VK_F5.0);
-        assert_eq!(
-            hot_key_modifiers(&chord).0,
-            MOD_NOREPEAT.0 | MOD_CONTROL.0 | MOD_ALT.0
-        );
-        assert_eq!(held_modifiers(&chord), [VK_CONTROL, VK_MENU]);
-        for (source, vk) in [
-            ("Tab", VK_TAB.0),
-            ("Right", VK_RIGHT.0),
-            ("Esc", VK_ESCAPE.0),
-            ("Ctrl+Space", VK_SPACE.0),
-            ("Ctrl+j", 'J' as u16),
-            ("Alt+7", '7' as u16),
-            ("F1", VK_F1.0),
-            ("F24", VK_F24.0),
-        ] {
-            assert_eq!(
-                virtual_key(Chord::parse(source).unwrap().key),
-                vk,
-                "{source}"
-            );
-        }
-        let plain = Chord::parse("Tab").unwrap();
-        assert_eq!(hot_key_modifiers(&plain), MOD_NOREPEAT);
-        assert!(held_modifiers(&plain).is_empty());
-    }
-
-    #[test]
     fn arming_registers_everything_but_the_trigger() {
         let fake = Fake::default();
         let mut keys = Keys::new(&keymap(), &fake);

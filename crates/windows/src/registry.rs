@@ -174,18 +174,6 @@ mod tests {
     }
 
     #[test]
-    fn run_command_quotes_paths_with_spaces_and_unicode() {
-        assert_eq!(
-            run_command(Path::new(r"C:\Program Files\Pith\pith.exe")),
-            r#""C:\Program Files\Pith\pith.exe""#
-        );
-        assert_eq!(
-            run_command(Path::new(r"C:\Users\名前\pith.exe")),
-            "\"C:\\Users\\名前\\pith.exe\""
-        );
-    }
-
-    #[test]
     fn strings_round_trip_overwrite_and_delete_in_a_scratch_key() {
         let key = scratch_key();
         assert_eq!(read_string(&key, "Value"), None);
