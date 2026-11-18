@@ -1,9 +1,9 @@
 use std::ffi::c_void;
 
 use pith_core::{
-    FADE_ALPHAS, FADE_FRAME_MS, Flow, Line, Placement, Rect, TextStyle, anchor_pill, flow_bounds,
-    ink, is_rtl, layout, lines_that_fit, median_by_luminance, next_word, next_word_alpha,
-    strong_span,
+    FADE_ALPHAS, FADE_FRAME_MS, Flow, Line, Placement, Rect, Rgb, TextStyle, anchor_pill,
+    flow_bounds, ink, is_rtl, layout, lines_that_fit, median_by_luminance, next_word,
+    next_word_alpha, strong_span,
 };
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -21,7 +21,6 @@ const PILL_PADDING_X: i32 = 10;
 const PILL_PADDING_Y: i32 = 5;
 const PILL_GAP: i32 = 4;
 const PILL_MIN_WIDTH: i32 = 240;
-const WHITE: u32 = 0x00FF_FFFF;
 const CLR_INVALID: u32 = 0xFFFF_FFFF;
 const FALLBACK_FONT: &str = "Segoe UI";
 const FADE_TIMER: usize = 1;
@@ -131,7 +130,7 @@ fn focused_field() -> Option<Rect> {
     Some(rect_of(raw))
 }
 
-fn sample_background(caret: Rect, anchor: i32, rtl: bool) -> u32 {
+fn sample_background(caret: Rect, anchor: i32, rtl: bool) -> Rgb {
     let direction = if rtl { -1 } else { 1 };
     let screen = ScreenDc::get();
     let mut pixels = Vec::new();
@@ -141,11 +140,11 @@ fn sample_background(caret: Rect, anchor: i32, rtl: bool) -> u32 {
             let y = caret.y + caret.height * row / (SAMPLE_ROWS + 1);
             let pixel = unsafe { GetPixel(screen.0, x, y) }.0;
             if pixel != CLR_INVALID {
-                pixels.push(pixel);
+                pixels.push(Rgb::from_bgr(pixel));
             }
         }
     }
-    median_by_luminance(pixels).unwrap_or(WHITE)
+    median_by_luminance(pixels).unwrap_or(Rgb::WHITE)
 }
 
 struct Face {
@@ -221,7 +220,7 @@ struct Picture<'a> {
 pub struct Overlay {
     hwnd: HWND,
     visible: bool,
-    background: u32,
+    background: Rgb,
     style: Style,
     opacity: u8,
 }
@@ -259,7 +258,7 @@ impl Overlay {
             Ok(Self {
                 hwnd,
                 visible: false,
-                background: WHITE,
+                background: Rgb::WHITE,
                 style: Style::of(&Theme::detect()),
                 opacity,
             })
@@ -335,15 +334,13 @@ impl Overlay {
             .map(|line| strong_span(text, line, strong_end, rtl, &measure))
             .collect();
         let rows = row_spans(&lines, &spans, origin, face.line_height, height);
-        let [red, green, blue] = [0, 8, 16].map(|shift| (paint.color >> shift) & 0xFF);
         let shade = |column: i32, row: i32, coverage: u32| {
-            let emphasised = rows.covers(column, row);
-            let ceiling = u32::from(if emphasised { strong } else { paint.alpha });
-            let alpha = coverage * ceiling / 255;
-            (alpha << 24)
-                | ((red * alpha / 255) << 16)
-                | ((green * alpha / 255) << 8)
-                | (blue * alpha / 255)
+            let ceiling = u32::from(if rows.covers(column, row) {
+                strong
+            } else {
+                paint.alpha
+            });
+            paint.color.premultiplied(coverage * ceiling / 255)
         };
         let picture = Picture {
             text,
@@ -470,7 +467,7 @@ impl Overlay {
             };
             let previous_bitmap = SelectObject(face.memory, bitmap.into());
             SetBkMode(face.memory, TRANSPARENT);
-            SetTextColor(face.memory, COLORREF(WHITE));
+            SetTextColor(face.memory, COLORREF(Rgb::WHITE.bgr()));
             for line in picture.lines {
                 let units: Vec<u16> = picture.text[line.start..line.end].encode_utf16().collect();
                 let options = if picture.rtl {

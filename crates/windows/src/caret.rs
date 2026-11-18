@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use pith_core::{Rect, TextStyle};
+use pith_core::{Rect, Rgb, TextStyle};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::Graphics::Gdi::MapWindowPoints;
 use windows::Win32::System::Com::SAFEARRAY;
@@ -276,7 +276,7 @@ pub fn font(caret: &IUIAutomationTextRange, dpi: u32) -> TextStyle {
             .GetAttributeValue(UIA_ForegroundColorAttributeId)
             .ok()
             .and_then(|v| i32::try_from(&v).ok())
-            .map(|c| c as u32 & 0x00FF_FFFF);
+            .map(|color| Rgb::from_bgr(color as u32));
         TextStyle { family, px, color }
     }
 }

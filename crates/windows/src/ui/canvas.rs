@@ -170,12 +170,12 @@ fn point(x: f32, y: f32) -> Vector2 {
 
 impl Canvas {
     pub fn clear(&self, color: Option<Rgb>) {
-        let color = color.map_or(TRANSPARENT, Rgb::d2d);
+        let color = color.map_or(TRANSPARENT, super::theme::d2d);
         unsafe { self.resources.target.Clear(Some(&color)) };
     }
 
     fn paint_with(&self, color: Rgb) -> &ID2D1SolidColorBrush {
-        unsafe { self.brush.SetColor(&color.d2d()) };
+        unsafe { self.brush.SetColor(&super::theme::d2d(color)) };
         &self.brush
     }
 

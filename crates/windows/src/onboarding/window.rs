@@ -112,7 +112,7 @@ fn style_practice(window: HWND, model: &Model) {
         Base: CHARFORMATW {
             cbSize: size_of::<CHARFORMAT2W>() as u32,
             dwMask: CFM_COLOR,
-            crTextColor: palette.text.colorref(),
+            crTextColor: ui::colorref(palette.text),
             ..Default::default()
         },
         ..Default::default()
@@ -131,7 +131,7 @@ fn style_practice(window: HWND, model: &Model) {
             edit,
             EM_SETBKGNDCOLOR,
             Some(WPARAM(0)),
-            Some(LPARAM(palette.card.colorref().0 as isize)),
+            Some(LPARAM(ui::colorref(palette.card).0 as isize)),
         );
         for scope in [SCF_DEFAULT, SCF_ALL] {
             SendMessageW(

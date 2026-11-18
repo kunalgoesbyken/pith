@@ -1,4 +1,5 @@
 mod chord;
+mod color;
 mod config;
 mod engine;
 mod ghost;
@@ -16,6 +17,7 @@ mod text;
 mod types;
 
 pub use chord::{Chord, Key};
+pub use color::{Rgb, argb};
 pub use config::{
     Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, ModelPreset, Reach, TriggerMode, app_name,
 };

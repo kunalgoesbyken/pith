@@ -11,44 +11,26 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SPI_GETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
 };
 
+pub use pith_core::Rgb;
+
 use crate::registry::apps_use_dark_theme;
 
-const WHITE: Rgb = Rgb(0xFFFFFF);
+const WHITE: Rgb = Rgb::WHITE;
 pub const INK: Rgb = Rgb(0x1C1814);
 pub const CITRUS: Rgb = Rgb(0xE0600A);
 pub const AMBER: Rgb = Rgb(0xF5A04A);
 pub const CREAM: Rgb = Rgb(0xFBF3E6);
-const CHANNEL_SHIFTS: [u32; 3] = [16, 8, 0];
+pub fn d2d(color: Rgb) -> D2D1_COLOR_F {
+    let [r, g, b] = color.unit_channels();
+    D2D1_COLOR_F { r, g, b, a: 1.0 }
+}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rgb(pub u32);
+pub fn colorref(color: Rgb) -> COLORREF {
+    COLORREF(color.bgr())
+}
 
-impl Rgb {
-    fn channel(self, shift: u32) -> u32 {
-        (self.0 >> shift) & 0xFF
-    }
-
-    pub fn d2d(self) -> D2D1_COLOR_F {
-        let [r, g, b] = self.unit_channels();
-        D2D1_COLOR_F { r, g, b, a: 1.0 }
-    }
-
-    pub fn colorref(self) -> COLORREF {
-        let [r, g, b] = CHANNEL_SHIFTS.map(|shift| self.channel(shift));
-        COLORREF(r | (g << 8) | (b << 16))
-    }
-
-    pub fn unit_channels(self) -> [f32; 3] {
-        CHANNEL_SHIFTS.map(|shift| self.channel(shift) as f32 / 255.0)
-    }
-
-    fn from_colorref(color: u32) -> Rgb {
-        Rgb(((color & 0xFF) << 16) | (color & 0xFF00) | ((color >> 16) & 0xFF))
-    }
-
-    fn system(index: SYS_COLOR_INDEX) -> Rgb {
-        Rgb::from_colorref(unsafe { GetSysColor(index) })
-    }
+fn system_color(index: SYS_COLOR_INDEX) -> Rgb {
+    Rgb::from_bgr(unsafe { GetSysColor(index) })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,12 +56,12 @@ impl Accent {
     };
 
     fn highlight() -> Self {
-        let base = Rgb::system(COLOR_HIGHLIGHT);
+        let base = system_color(COLOR_HIGHLIGHT);
         Self {
             base,
             hover: base,
             pressed: base,
-            on: Rgb::system(COLOR_HIGHLIGHTTEXT),
+            on: system_color(COLOR_HIGHLIGHTTEXT),
         }
     }
 }
@@ -145,24 +127,24 @@ impl Palette {
     }
 
     fn contrast() -> Self {
-        let window = Rgb::system(COLOR_WINDOW);
-        let text = Rgb::system(COLOR_WINDOWTEXT);
-        let face = Rgb::system(COLOR_BTNFACE);
+        let window = system_color(COLOR_WINDOW);
+        let text = system_color(COLOR_WINDOWTEXT);
+        let face = system_color(COLOR_BTNFACE);
         let accent = Accent::highlight();
         Self {
             page: window,
             card: window,
             card_stroke: text,
             text,
-            text_secondary: Rgb::system(COLOR_GRAYTEXT),
+            text_secondary: system_color(COLOR_GRAYTEXT),
             control: face,
             control_hover: accent.base,
             control_pressed: accent.base,
-            control_stroke: Rgb::system(COLOR_BTNTEXT),
+            control_stroke: system_color(COLOR_BTNTEXT),
             strong_stroke: text,
             track: face,
             accent,
-            mark_ghost: Rgb::system(COLOR_GRAYTEXT),
+            mark_ghost: system_color(COLOR_GRAYTEXT),
             danger: text,
             success: text,
         }
@@ -217,16 +199,5 @@ impl Theme {
             dark,
             contrast,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn colors_convert_to_colorrefs_with_swapped_channels() {
-        assert_eq!(Rgb(0x1A2B3C).colorref().0, 0x003C_2B1A);
-        assert_eq!(Rgb::from_colorref(0x003C_2B1A), Rgb(0x1A2B3C));
     }
 }

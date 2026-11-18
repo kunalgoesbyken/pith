@@ -1,6 +1,7 @@
+use pith_core::argb;
+
 use crate::ui::{Rgb, Theme};
 
-const CHANNEL_SHIFTS: [u32; 3] = [16, 8, 0];
 const FULL: f32 = 255.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,13 +40,14 @@ impl Style {
         let inner = (0.5 - distance - pill.edge as f32).clamp(0.0, 1.0);
         let ink = if strong { self.strong } else { self.text };
         let ink_weight = coverage.min(255) as f32 / FULL;
-        let [red, green, blue] = CHANNEL_SHIFTS.map(|shift| {
-            let channel = |color: Rgb| ((color.0 >> shift) & 0xFF) as f32;
-            let body = channel(self.stroke) + (channel(self.fill) - channel(self.stroke)) * inner;
+        let [stroke, fill, ink] = [self.stroke, self.fill, ink].map(Rgb::channels);
+        let shown = std::array::from_fn(|index| {
+            let channel = |values: [u32; 3]| values[index] as f32;
+            let body = channel(stroke) + (channel(fill) - channel(stroke)) * inner;
             let shown = body + (channel(ink) - body) * ink_weight;
             (shown * shape).round() as u32
         });
-        (((shape * FULL).round() as u32) << 24) | (red << 16) | (green << 8) | blue
+        argb((shape * FULL).round() as u32, shown)
     }
 }
 

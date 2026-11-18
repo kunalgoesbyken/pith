@@ -1,3 +1,4 @@
+use crate::Rgb;
 use crate::placement::Placement;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -12,7 +13,7 @@ pub struct Rect {
 pub struct TextStyle {
     pub family: Option<String>,
     pub px: Option<f32>,
-    pub color: Option<u32>,
+    pub color: Option<Rgb>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
