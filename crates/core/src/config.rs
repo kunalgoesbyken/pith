@@ -77,8 +77,7 @@ mod tests {
             ("accept_race_ms = 0", true),
             ("accept_race_ms = 1001", false),
             ("trigger_mode = \"manual\"", true),
-            ("trigger_mode = \"manual\"
-force_trigger = false", false),
+            ("trigger_mode = \"manual\"\nforce_trigger = false", false),
             ("trigger_mode = \"sometimes\"", false),
             ("accept_keys = [\"Right\", \"Tab\"]", true),
             ("accept_keys = []", true),
@@ -88,12 +87,10 @@ force_trigger = false", false),
             ("accept_keys = [\"a\"]", false),
             ("accept_keys = [\"Hyper+Tab\"]", false),
             ("accept_word_keys = [\"Tab\"]", false),
-            ("accept_keys = [\"Right\"]
-accept_word_keys = [\"Tab\"]", true),
+            ("accept_keys = [\"Right\"]\naccept_word_keys = [\"Tab\"]", true),
             ("force_trigger_key = \"Tab\"", false),
             ("force_trigger_key = \"Ctrl+Right\"", false),
-            ("force_trigger = false
-force_trigger_key = \"Tab\"", true),
+            ("force_trigger = false\nforce_trigger_key = \"Tab\"", true),
             ("force_trigger_key = \"Ctrl+Alt+Space\"", false),
         ] {
             assert_eq!(Config::from_toml(toml).is_ok(), ok, "{toml}");
@@ -264,7 +261,7 @@ impl Config {
     }
 
     pub fn keymap(&self) -> Result<Keymap, String> {
-        let parse_all = |keys: &[String]| keys.iter().map(|k| Chord::parse(k)).collect();
+        let parse_all = |keys: &[String]| keys.iter().map(|k| Chord::parse(k)).collect::<Result<Vec<_>, _>>();
         let keymap = Keymap {
             accept_all: parse_all(&self.accept_keys)?,
             accept_word: parse_all(&self.accept_word_keys)?,

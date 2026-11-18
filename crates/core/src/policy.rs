@@ -137,13 +137,10 @@ mod tests {
             ("Hi", true),
             ("x", true),
             ("4242 4242", true),
-            ("long first line
-hi", true),
-            ("long first line
-", true),
+            ("long first line\nhi", true),
+            ("long first line\n", true),
             ("", false),
-            (" 
-	", false),
+            (" \n\t", false),
         ] {
             let verdict = check_forced(&field(before, ""), &config);
             assert_eq!(verdict.is_ok(), ok, "{before:?}");

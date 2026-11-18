@@ -916,4 +916,329 @@ mod tests {
         assert!(again.is_empty(), "{again:?}");
         assert_eq!(engine.suggestion(), Some(" contract"));
     }
+
+
+    fn no_model_work(out: &[Action]) -> bool {
+        !out.iter().any(|a| {
+            matches!(
+                a,
+                Action::StartCompletion { .. }
+                    | Action::ScheduleDebounce { .. }
+                    | Action::CancelCompletion
+            )
+        })
+    }
+
+    #[test]
+    fn word_accepts_keep_the_rest_without_any_model_work() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract by Friday afternoon.");
+        let mut typed = String::from("Please sign the");
+        for (word, rest) in [
+            (" contract", " by Friday afternoon."),
+            (" by", " Friday afternoon."),
+            (" Friday", " afternoon."),
+        ] {
+            let out = engine.handle(Event::AcceptWord);
+            assert_eq!(out[0], Action::Insert(word.into()));
+            assert!(
+                matches!(&out[1], Action::Show { text, .. } if text == rest),
+                "{out:?}"
+            );
+            assert_eq!(out.len(), 2, "{out:?}");
+            assert!(no_model_work(&out), "{out:?}");
+            typed.push_str(word);
+            let out = engine.handle(Event::Field(Some(field(&typed))));
+            assert!(out.is_empty(), "{out:?}");
+            assert_eq!(engine.suggestion(), Some(rest));
+        }
+        let out = engine.handle(Event::DebounceElapsed(0));
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn word_accept_works_on_right_to_left_text() {
+        let mut engine = Engine::new(Config::default());
+        let first = " \u{627}\u{644}\u{644}\u{647}";
+        let rest = " \u{627}\u{644}\u{631}\u{62d}\u{645}\u{646}";
+        suggest(&mut engine, "\u{628}\u{633}\u{645}", &format!("{first}{rest}"));
+        let out = engine.handle(Event::AcceptWord);
+        assert_eq!(out[0], Action::Insert(first.into()));
+        assert!(no_model_work(&out), "{out:?}");
+        assert_eq!(engine.suggestion(), Some(rest));
+    }
+
+    fn racing_engine() -> Engine {
+        Engine::new(Config {
+            accept_race_ms: 1_000,
+            ..Config::default()
+        })
+    }
+
+    #[test]
+    fn accept_right_after_the_suggestion_appears_is_refused() {
+        let mut engine = racing_engine();
+        suggest(&mut engine, "Please sign the", " contract by Friday.");
+        assert!(!engine.can_accept(Instant::now(), false));
+        assert!(!engine.can_accept(Instant::now(), true));
+        let later = Instant::now() + Duration::from_secs(5);
+        assert!(engine.can_accept(later, false));
+    }
+
+    #[test]
+    fn race_window_is_configurable_and_can_be_off() {
+        let mut engine = Engine::new(Config {
+            accept_race_ms: 0,
+            ..Config::default()
+        });
+        suggest(&mut engine, "Please sign the", " contract by Friday.");
+        assert!(engine.can_accept(Instant::now(), false));
+    }
+
+    #[test]
+    fn nothing_to_accept_without_a_suggestion() {
+        let engine = Engine::new(Config::default());
+        assert!(!engine.can_accept(Instant::now() + Duration::from_secs(5), false));
+    }
+
+    #[test]
+    fn a_word_accept_ends_the_race_for_the_remainder() {
+        let mut engine = racing_engine();
+        suggest(&mut engine, "Please sign the", " contract by Friday.");
+        engine.handle(Event::AcceptWord);
+        assert!(engine.can_accept(Instant::now(), false));
+    }
+
+    #[test]
+    fn typing_through_does_not_restart_the_race() {
+        let mut engine = racing_engine();
+        suggest(&mut engine, "Please sign the", " contract by Friday.");
+        engine.handle(Event::Field(Some(field("Please sign the con"))));
+        assert!(!engine.can_accept(Instant::now(), false));
+        assert!(engine.can_accept(Instant::now() + Duration::from_secs(5), false));
+    }
+
+    #[test]
+    fn caret_keys_only_accept_at_the_end_of_the_text() {
+        for (after, at_end) in [
+            ("", true),
+            ("\r\n  ", true),
+            ("\nSecond line", false),
+            ("\n\n  x", false),
+        ] {
+            let mut engine = Engine::new(Config {
+                accept_race_ms: 0,
+                ..Config::default()
+            });
+            let mut inner = field("Please sign the");
+            inner.after = after.into();
+            let out = engine.handle(Event::Field(Some(inner)));
+            let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+                panic!("{out:?}")
+            };
+            engine.handle(Event::DebounceElapsed(generation));
+            engine.handle(Event::Completed {
+                generation,
+                result: Ok(completion(" contract")),
+            });
+            assert_eq!(engine.suggestion(), Some(" contract"), "{after:?}");
+            assert!(engine.can_accept(Instant::now(), false), "{after:?}");
+            assert_eq!(engine.can_accept(Instant::now(), true), at_end, "{after:?}");
+        }
+    }
+
+    fn trigger_now(engine: &mut Engine) -> u64 {
+        let out = engine.handle(Event::Trigger);
+        match out.as_slice() {
+            [Action::StartCompletion { generation, .. }] => *generation,
+            _ => panic!("{out:?}"),
+        }
+    }
+
+    #[test]
+    fn trigger_suggests_in_a_field_that_is_too_short_and_keeps_it() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(field("Hi"))));
+        assert!(out.is_empty(), "{out:?}");
+        let generation = trigger_now(&mut engine);
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" there, how are you?")),
+        });
+        assert!(matches!(&out[0], Action::Show { .. }), "{out:?}");
+        assert_eq!(out[1], Action::ArmKeys);
+        for _ in 0..3 {
+            let out = engine.handle(Event::Field(Some(field("Hi"))));
+            assert!(out.is_empty(), "{out:?}");
+        }
+        assert_eq!(engine.suggestion(), Some(" there, how are you?"));
+        let out = engine.handle(Event::Field(Some(field("Hi t"))));
+        assert!(
+            matches!(out.as_slice(), [Action::Show { text, .. }] if text == "here, how are you?"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn trigger_suggests_in_non_prose_lines() {
+        let mut engine = Engine::new(Config::default());
+        engine.handle(Event::Field(Some(field("4242 4242 4242"))));
+        trigger_now(&mut engine);
+    }
+
+    #[test]
+    fn trigger_starts_immediately_and_supersedes_a_pending_debounce() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        let Some(Action::ScheduleDebounce { generation: old, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        let generation = trigger_now(&mut engine);
+        assert_ne!(generation, old);
+        assert!(engine.handle(Event::DebounceElapsed(old)).is_empty());
+    }
+
+    #[test]
+    fn trigger_is_ignored_when_it_cannot_help() {
+        let mut engine = Engine::new(Config::default());
+        assert!(engine.handle(Event::Trigger).is_empty());
+        assert!(engine.handle(Event::Field(Some(blind("Please sign the")))).is_empty());
+        assert!(engine.handle(Event::Trigger).is_empty());
+        for change in [
+            (|f: &mut FieldSnapshot| f.is_password = true) as fn(&mut FieldSnapshot),
+            |f| f.composing = true,
+            |f| f.has_selection = true,
+            |f| f.app = "WindowsTerminal".into(),
+            |f| f.after = " tail".into(),
+            |f| f.before = "  ".into(),
+        ] {
+            let mut blocked = field("Hi");
+            change(&mut blocked);
+            engine.handle(Event::Field(Some(blocked)));
+            assert!(engine.handle(Event::Trigger).is_empty());
+        }
+        let mut engine = Engine::new(Config {
+            enabled: false,
+            ..Config::default()
+        });
+        engine.handle(Event::Field(Some(field("Please sign the"))));
+        assert!(engine.handle(Event::Trigger).is_empty());
+    }
+
+    #[test]
+    fn trigger_does_nothing_while_a_suggestion_is_visible_or_in_flight() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        assert!(engine.handle(Event::Trigger).is_empty());
+        engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        assert!(engine.handle(Event::Trigger).is_empty());
+        assert_eq!(engine.suggestion(), Some(" contract"));
+    }
+
+    #[test]
+    fn trigger_overrides_a_dismiss() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        let generation = trigger_now(&mut engine);
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        assert!(matches!(&out[0], Action::Show { .. }), "{out:?}");
+    }
+
+    fn strict() -> Engine {
+        Engine::new(Config {
+            min_chars_before: 20,
+            ..Config::default()
+        })
+    }
+
+    #[test]
+    fn forcing_ends_when_the_suggestion_is_used_up() {
+        let mut engine = strict();
+        engine.handle(Event::Field(Some(field("Hi"))));
+        let generation = trigger_now(&mut engine);
+        engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" there")),
+        });
+        engine.handle(Event::AcceptAll);
+        let out = engine.handle(Event::Field(Some(field("Hi there"))));
+        assert!(out.is_empty(), "{out:?}");
+        let out = engine.handle(Event::Field(Some(field("Hi there!"))));
+        assert!(no_model_work(&out), "{out:?}");
+    }
+
+    #[test]
+    fn forcing_ends_when_the_text_diverges_or_the_field_changes() {
+        let mut engine = strict();
+        engine.handle(Event::Field(Some(field("Hi"))));
+        let generation = trigger_now(&mut engine);
+        engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" there")),
+        });
+        let out = engine.handle(Event::Field(Some(field("Hi x"))));
+        assert!(no_model_work(&out), "{out:?}");
+        assert!(engine.suggestion().is_none());
+        trigger_now(&mut engine);
+        let mut other = field("Hi");
+        other.field_id = 2;
+        engine.handle(Event::Field(Some(other)));
+        assert!(engine.suggestion().is_none());
+    }
+
+    fn manual() -> Engine {
+        Engine::new(Config {
+            trigger_mode: TriggerMode::Manual,
+            ..Config::default()
+        })
+    }
+
+    #[test]
+    fn manual_mode_never_asks_on_its_own() {
+        let mut engine = manual();
+        for text in ["Please sign the", "Please sign the c", "Please sign the co"] {
+            let out = engine.handle(Event::Field(Some(field(text))));
+            assert!(out.is_empty(), "{out:?}");
+        }
+        assert!(engine.handle(Event::DebounceElapsed(0)).is_empty());
+        let out = engine.handle(Event::SetEnabled(true));
+        assert!(no_model_work(&out), "{out:?}");
+        let out = engine.handle(Event::Field(None));
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn manual_mode_suggests_on_the_trigger_and_stays_manual_afterwards() {
+        let mut engine = manual();
+        engine.handle(Event::Field(Some(field("Please sign the"))));
+        let generation = trigger_now(&mut engine);
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract by Friday.")),
+        });
+        assert!(matches!(&out[0], Action::Show { .. }), "{out:?}");
+        let out = engine.handle(Event::AcceptAll);
+        assert_eq!(out[0], Action::Insert(" contract by Friday.".into()));
+        assert!(no_model_work(&out), "{out:?}");
+        for text in [
+            "Please sign the contract by Friday.",
+            "Please sign the contract by Friday. T",
+        ] {
+            let out = engine.handle(Event::Field(Some(field(text))));
+            assert!(no_model_work(&out), "{out:?}");
+        }
+        engine.handle(Event::Dismiss);
+        trigger_now(&mut engine);
+    }
 }
