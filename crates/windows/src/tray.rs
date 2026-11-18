@@ -5,6 +5,16 @@ use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 pub const TOOLTIP: &str = "Pith \u{b7} local only, nothing leaves this PC";
+const MENU_TEXT_CHARS: usize = 100;
+
+fn menu_text(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut shown: String = flat.chars().take(MENU_TEXT_CHARS).collect();
+    if flat.chars().count() > MENU_TEXT_CHARS {
+        shown.push('\u{2026}');
+    }
+    shown.replace('&', "&&")
+}
 
 pub enum TrayCommand {
     Pause(PauseSpan),
@@ -121,7 +131,7 @@ impl Tray {
             return;
         }
         if before.is_none_or(|old| old.status != view.status) {
-            self.status.set_text(&view.status);
+            self.status.set_text(menu_text(&view.status));
         }
         if before.is_none_or(|old| old.active != view.active) {
             let _ = self.icon.set_icon(Some(glyph(view.active)));
@@ -132,7 +142,7 @@ impl Tray {
         if before.is_none_or(|old| {
             old.foreground != view.foreground || old.foreground_blocked != view.foreground_blocked
         }) {
-            self.block.set_text(view.block_label());
+            self.block.set_text(menu_text(&view.block_label()));
             self.block.set_enabled(view.can_block());
         }
         *shown = Some(view);
@@ -171,6 +181,15 @@ mod tests {
         view.foreground_blocked = true;
         assert_eq!(view.block_label(), "Turned off in Slack");
         assert!(!view.can_block());
+    }
+
+    #[test]
+    fn menu_text_escapes_ampersands_and_flattens_long_multiline_text() {
+        assert_eq!(menu_text("Turn off in R&D"), "Turn off in R&&D");
+        assert_eq!(menu_text("a\n  |\n1 | b\tc"), "a | 1 | b c");
+        let long = "x".repeat(300);
+        assert_eq!(menu_text(&long).chars().count(), MENU_TEXT_CHARS + 1);
+        assert!(menu_text(&long).ends_with('\u{2026}'));
     }
 
     #[test]

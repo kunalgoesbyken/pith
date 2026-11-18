@@ -12,6 +12,7 @@ use windows::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, SetWindowTheme};
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
 };
+use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
@@ -170,6 +171,22 @@ unsafe extern "system" fn procedure(
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }
 
+fn high_contrast() -> bool {
+    let mut contrast = HIGHCONTRASTW {
+        cbSize: size_of::<HIGHCONTRASTW>() as u32,
+        ..Default::default()
+    };
+    let read = unsafe {
+        SystemParametersInfoW(
+            SPI_GETHIGHCONTRAST,
+            contrast.cbSize,
+            Some((&mut contrast as *mut HIGHCONTRASTW).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    read.is_ok() && contrast.dwFlags.0 & HCF_HIGHCONTRASTON.0 != 0
+}
+
 fn scaled(logical: i32, dpi: u32) -> i32 {
     (logical * dpi as i32 + 48) / 96
 }
@@ -306,7 +323,7 @@ pub struct SettingsWindow {
 
 impl SettingsWindow {
     pub fn open(config: &Config, start_with_windows: bool) -> windows::core::Result<Self> {
-        let dark = apps_use_dark_theme();
+        let dark = apps_use_dark_theme() && !high_contrast();
         install_dark_brush(dark);
         let instance: HINSTANCE = unsafe { GetModuleHandleW(None)? }.into();
         register(instance);
