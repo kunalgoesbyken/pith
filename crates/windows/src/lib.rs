@@ -17,6 +17,7 @@ mod tray;
 mod ui;
 mod util;
 
+pub use clipboard::{Trigger, paste};
 pub use control::Waker;
 pub use keys::KeyAction;
 pub use onboarding::{

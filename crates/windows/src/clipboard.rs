@@ -1,14 +1,13 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::{
     GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
 };
 use windows::Win32::System::Ole::CF_UNICODETEXT;
-use windows::Win32::UI::Controls::EM_REPLACESEL;
 use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_V};
 use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_PASTE};
 use windows::core::PCWSTR;
@@ -184,34 +183,5 @@ pub fn paste(text: String, trigger: Trigger) {
     });
     if let Ok(sender) = queue.lock() {
         let _ = sender.send((trigger, text));
-    }
-}
-
-pub fn replace_selection(hwnd: isize, text: &str) {
-    let text = wide(text);
-    unsafe {
-        SendMessageW(
-            HWND(hwnd as _),
-            EM_REPLACESEL,
-            Some(WPARAM(1)),
-            Some(LPARAM(text.as_ptr() as isize)),
-        );
-    }
-}
-
-pub fn replace_selection_after(hwnd: isize, text: String, lag: Duration) {
-    static QUEUE: OnceLock<Mutex<Sender<(isize, String, Instant)>>> = OnceLock::new();
-    let queue = QUEUE.get_or_init(|| {
-        let (sender, receiver) = channel::<(isize, String, Instant)>();
-        std::thread::spawn(move || {
-            while let Ok((hwnd, text, due)) = receiver.recv() {
-                std::thread::sleep(due.saturating_duration_since(Instant::now()));
-                replace_selection(hwnd, &text);
-            }
-        });
-        Mutex::new(sender)
-    });
-    if let Ok(sender) = queue.lock() {
-        let _ = sender.send((hwnd, text, Instant::now() + lag));
     }
 }

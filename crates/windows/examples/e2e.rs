@@ -2,14 +2,14 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot};
 use pith_infer::{Backend, Worker};
 use pith_windows::{
     Inbound, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options, Outcome,
-    Reader, Source, Waker, run,
+    Reader, Source, Trigger, Waker, paste, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -154,6 +154,37 @@ fn scroll_to_caret(edit: isize) {
     let line = send(edit, EM_LINEFROMCHAR, usize::MAX, 0);
     let first = send(edit, EM_GETFIRSTVISIBLELINE, 0, 0);
     send(edit, EM_LINESCROLL, 0, line - first);
+}
+
+fn insert_now(text: String) {
+    let hwnd = TARGET.load(Ordering::SeqCst);
+    if THROUGH_CLIPBOARD.load(Ordering::SeqCst) {
+        paste(text, Trigger::Message(hwnd));
+    } else {
+        replace_selection(hwnd, &text);
+    }
+}
+
+fn replace_selection(edit: isize, text: &str) {
+    let text = wide(text);
+    send(edit, EM_REPLACESEL, 1, text.as_ptr() as isize);
+}
+
+fn insert_after(text: String, lag: Duration) {
+    static QUEUE: OnceLock<Mutex<Sender<(isize, String, Instant)>>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = channel::<(isize, String, Instant)>();
+        std::thread::spawn(move || {
+            while let Ok((hwnd, text, due)) = receiver.recv() {
+                std::thread::sleep(due.saturating_duration_since(Instant::now()));
+                replace_selection(hwnd, &text);
+            }
+        });
+        Mutex::new(sender)
+    });
+    if let Ok(sender) = queue.lock() {
+        let _ = sender.send((TARGET.load(Ordering::SeqCst), text, Instant::now() + lag));
+    }
 }
 
 fn send_text(edit: isize, text: &str) {
@@ -2012,10 +2043,10 @@ fn main() {
     let options = Options {
         onboarding: None,
         source: Source::Window(&TARGET),
-        insert: match insert_lag_ms {
-            0 => InsertMode::Switch(&TARGET, &THROUGH_CLIPBOARD),
-            lag => InsertMode::Lagging(&TARGET, Duration::from_millis(lag)),
-        },
+        insert: InsertMode::Custom(match insert_lag_ms {
+            0 => Box::new(insert_now),
+            lag => Box::new(move |text| insert_after(text, Duration::from_millis(lag))),
+        }),
         tray: false,
         poll_ms: 50,
         config_path: None,

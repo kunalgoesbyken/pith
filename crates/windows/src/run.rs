@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -16,7 +15,7 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
-use crate::clipboard::{Trigger, paste, replace_selection, replace_selection_after};
+use crate::clipboard::{Trigger, paste};
 use crate::control::{Signal, Waker, control_window, next_signal};
 use crate::erase::erase;
 use crate::events::Hooks;
@@ -36,9 +35,7 @@ const REARM_MS: u32 = 60;
 
 pub enum InsertMode {
     Paste,
-    Window(&'static AtomicIsize),
-    Switch(&'static AtomicIsize, &'static AtomicBool),
-    Lagging(&'static AtomicIsize, Duration),
+    Custom(Box<dyn Fn(String)>),
 }
 
 pub struct Options {
@@ -142,22 +139,9 @@ impl App {
                     .overlay
                     .show(&text, caret, font_family.as_deref(), font_px, color),
                 Action::Hide => self.overlay.hide(),
-                Action::Insert(text) => match self.options.insert {
+                Action::Insert(text) => match &self.options.insert {
                     InsertMode::Paste => paste(text, Trigger::Chord),
-                    InsertMode::Switch(hwnd, through_clipboard) => {
-                        let hwnd = hwnd.load(Ordering::SeqCst);
-                        if through_clipboard.load(Ordering::SeqCst) {
-                            paste(text, Trigger::Message(hwnd))
-                        } else {
-                            replace_selection(hwnd, &text)
-                        }
-                    }
-                    InsertMode::Window(hwnd) => {
-                        replace_selection(hwnd.load(Ordering::SeqCst), &text)
-                    }
-                    InsertMode::Lagging(hwnd, lag) => {
-                        replace_selection_after(hwnd.load(Ordering::SeqCst), text, lag)
-                    }
+                    InsertMode::Custom(insert) => insert(text),
                 },
                 Action::AutoPaused(apps) => {
                     log(&format!("auto-paused in {apps:?}"));
