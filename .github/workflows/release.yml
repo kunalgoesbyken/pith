@@ -5,28 +5,45 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   LIBCLANG_PATH: C:\Program Files\LLVM\bin
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - run: cargo test --workspace
       - run: cargo build --release
       - name: Checksum
         shell: pwsh
         run: |
-          $hash = (Get-FileHash target/release/pith.exe -Algorithm SHA256).Hash.ToLower()
+          Copy-Item target/release/pith.exe pith.exe
+          $hash = (Get-FileHash pith.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  pith.exe" | Out-File -Encoding ascii pith.exe.sha256
-      - name: Publish
-        shell: pwsh
-        env:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pith
+          path: |
+            pith.exe
+            pith.exe.sha256
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pith
+      - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME target/release/pith.exe pith.exe.sha256 --title "Pith $env:GITHUB_REF_NAME" --generate-notes
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" pith.exe pith.exe.sha256 --repo "$GITHUB_REPOSITORY" --title "Pith $TAG" --generate-notes
