@@ -72,30 +72,6 @@ impl Worker {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn worker(prepare: Prepare) -> Worker {
-        Worker::spawn(prepare, Box::new(|_| {}), Box::new(|_, _| {}))
-    }
-
-    #[test]
-    fn shutdown_waits_until_the_thread_has_let_go() {
-        let worker = worker(Box::new(|| Err("no model".into())));
-        assert!(worker.shutdown(Duration::from_secs(5)));
-    }
-
-    #[test]
-    fn shutdown_reports_a_thread_still_busy_after_the_wait() {
-        let worker = worker(Box::new(|| {
-            std::thread::sleep(Duration::from_millis(400));
-            Err("late".into())
-        }));
-        assert!(!worker.shutdown(Duration::from_millis(20)));
-    }
-}
-
 type Job = (u64, CompletionRequest);
 
 enum Exit {
@@ -244,4 +220,28 @@ pub fn cpu_supported() -> Result<(), String> {
 #[cfg(not(target_arch = "x86_64"))]
 pub fn cpu_supported() -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn worker(prepare: Prepare) -> Worker {
+        Worker::spawn(prepare, Box::new(|_| {}), Box::new(|_, _| {}))
+    }
+
+    #[test]
+    fn shutdown_waits_until_the_thread_has_let_go() {
+        let worker = worker(Box::new(|| Err("no model".into())));
+        assert!(worker.shutdown(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn shutdown_reports_a_thread_still_busy_after_the_wait() {
+        let worker = worker(Box::new(|| {
+            std::thread::sleep(Duration::from_millis(400));
+            Err("late".into())
+        }));
+        assert!(!worker.shutdown(Duration::from_millis(20)));
+    }
 }

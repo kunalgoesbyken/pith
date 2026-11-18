@@ -336,12 +336,11 @@ note = "kept"
         let dir = scratch("noop");
         let path = dir.join("config.toml");
         std::fs::create_dir_all(&dir).unwrap();
-        let source = COMMENTED;
-        std::fs::write(&path, &source).unwrap();
+        std::fs::write(&path, COMMENTED).unwrap();
         Setting::Block("teams.exe".into()).persist(&path).unwrap();
         Setting::Unblock("nothing".into()).persist(&path).unwrap();
         Setting::Enabled(true).persist(&path).unwrap();
-        assert_eq!(stored(&path), source);
+        assert_eq!(stored(&path), COMMENTED);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
