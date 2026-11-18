@@ -521,6 +521,7 @@ fn main() {
         )
     });
     let options = Options {
+        onboarding: None,
         source: Source::Window(edit),
         insert: InsertMode::Window(edit),
         tray: false,

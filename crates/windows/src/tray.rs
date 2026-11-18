@@ -1,5 +1,10 @@
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Shell::{
+    NIF_INFO, NIIF_INFO, NIM_MODIFY, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
+    Shell_NotifyIconGetRect, Shell_NotifyIconW,
+};
 
 pub enum TrayCommand {
     Toggle,
@@ -9,6 +14,25 @@ pub enum TrayCommand {
 
 fn toggle_label(enabled: bool) -> &'static str {
     if enabled { "Pause" } else { "Resume" }
+}
+
+fn fill(target: &mut [u16], text: &str) {
+    let room = target.len() - 1;
+    for (slot, unit) in target.iter_mut().take(room).zip(text.encode_utf16()) {
+        *slot = unit;
+    }
+}
+
+fn icon_id(hwnd: HWND) -> Option<u32> {
+    (1..=256).find(|&id| {
+        let identifier = NOTIFYICONIDENTIFIER {
+            cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
+            hWnd: hwnd,
+            uID: id,
+            ..Default::default()
+        };
+        unsafe { Shell_NotifyIconGetRect(&identifier).is_ok() }
+    })
 }
 
 pub struct Tray {
@@ -79,6 +103,24 @@ impl Tray {
     pub fn set_enabled(&self, enabled: bool) {
         self.toggle.set_text(toggle_label(enabled));
         let _ = self.icon.set_icon(Some(glyph(enabled)));
+    }
+
+    pub fn balloon(&self, title: &str, text: &str) {
+        let hwnd = HWND(self.icon.window_handle());
+        let Some(id) = icon_id(hwnd) else { return };
+        let mut data = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd,
+            uID: id,
+            uFlags: NIF_INFO,
+            dwInfoFlags: NIIF_INFO,
+            ..Default::default()
+        };
+        fill(&mut data.szInfoTitle, title);
+        fill(&mut data.szInfo, text);
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
+        }
     }
 
     pub fn poll(&self) -> Option<TrayCommand> {

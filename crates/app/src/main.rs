@@ -9,6 +9,7 @@ struct Paths {
     config: PathBuf,
     models: PathBuf,
     log: PathBuf,
+    onboarded: PathBuf,
 }
 
 fn paths() -> Paths {
@@ -17,6 +18,7 @@ fn paths() -> Paths {
         config: dirs.config_dir().join("config.toml"),
         models: dirs.data_local_dir().join("models"),
         log: dirs.data_local_dir().join("pith.log"),
+        onboarded: dirs.data_local_dir().join("onboarded"),
     }
 }
 
@@ -44,6 +46,7 @@ fn resolve_backend(
     config: &Config,
     models: &Path,
     status: &dyn Fn(String),
+    progress: &dyn Fn(u64, u64),
 ) -> Result<Backend, String> {
     if let Some(url) = config.remote_url.clone() {
         return Ok(Backend::Remote {
@@ -62,10 +65,16 @@ fn resolve_backend(
     let model_path = match config.model_path.clone().or_else(|| find_local(models, spec)) {
         Some(path) => path,
         None => {
+            progress(0, spec.bytes);
             status(format!("downloading {}", spec.file));
             let last = std::cell::Cell::new(0);
+            let reported = std::cell::Cell::new(0);
             download(spec, models, &|done, total| {
                 let percent = done * 100 / total.max(1);
+                if percent > reported.get() {
+                    reported.set(percent);
+                    progress(done, total);
+                }
                 if percent >= last.get() + 10 {
                     last.set(percent);
                     status(format!("downloading model {percent}%"));
@@ -117,14 +126,23 @@ fn main() {
     let prepare_config = config.clone();
     let models = paths.models.clone();
     let (status_sender, status_waker) = (sender.clone(), waker.clone());
+    let (progress_sender, progress_waker) = (sender.clone(), waker.clone());
     let (ready_sender, ready_waker) = (sender.clone(), waker.clone());
     let (done_sender, done_waker) = (sender.clone(), waker.clone());
     let worker = Worker::spawn(
         Box::new(move || {
-            resolve_backend(&prepare_config, &models, &|text| {
-                let _ = status_sender.send(Inbound::Status(text));
-                status_waker.wake();
-            })
+            resolve_backend(
+                &prepare_config,
+                &models,
+                &|text| {
+                    let _ = status_sender.send(Inbound::Status(text));
+                    status_waker.wake();
+                },
+                &|done, total| {
+                    let _ = progress_sender.send(Inbound::Progress(done, total));
+                    progress_waker.wake();
+                },
+            )
         }),
         Box::new(move |status: Result<String, String>| {
             let status = match &config_error {
@@ -147,6 +165,7 @@ fn main() {
         config_path: Some(paths.config.clone()),
         observer: None,
         global_keys: true,
+        onboarding: (!paths.onboarded.exists()).then(|| paths.onboarded.clone()),
     };
     log("pith starting");
     if let Err(error) = run(config, worker, (sender, receiver), waker, options) {
