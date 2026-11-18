@@ -28,8 +28,12 @@ pub fn valid_utf8_prefix(bytes: &[u8]) -> &str {
     }
 }
 
-pub fn common_prefix_len<T: PartialEq>(a: &[T], b: &[T]) -> usize {
+fn common_prefix_len<T: PartialEq>(a: &[T], b: &[T]) -> usize {
     a.iter().zip(b).take_while(|(x, y)| x == y).count()
+}
+
+pub fn reusable_prefix<T: PartialEq>(cached: &[T], tokens: &[T]) -> usize {
+    common_prefix_len(cached, tokens).min(tokens.len().saturating_sub(1))
 }
 
 #[cfg(test)]
@@ -78,5 +82,29 @@ mod tests {
     fn common_prefix() {
         assert_eq!(common_prefix_len(&[1, 2, 3], &[1, 2, 4]), 2);
         assert_eq!(common_prefix_len::<i32>(&[], &[1]), 0);
+    }
+
+    #[test]
+    fn appended_tokens_keep_the_whole_cache() {
+        assert_eq!(reusable_prefix(&[1, 2, 3], &[1, 2, 3, 4, 5]), 3);
+    }
+
+    #[test]
+    fn edit_truncates_to_the_common_prefix() {
+        assert_eq!(reusable_prefix(&[1, 2, 3, 4], &[1, 2, 9, 4]), 2);
+        assert_eq!(reusable_prefix(&[1, 2, 3, 4], &[1, 2]), 1);
+    }
+
+    #[test]
+    fn identical_prompt_still_reevaluates_the_last_token_for_logits() {
+        assert_eq!(reusable_prefix(&[1, 2, 3], &[1, 2, 3]), 2);
+        assert_eq!(reusable_prefix(&[1, 2, 3, 4], &[1, 2, 3]), 2);
+    }
+
+    #[test]
+    fn cold_or_unrelated_cache_reuses_nothing() {
+        assert_eq!(reusable_prefix::<i32>(&[], &[1, 2]), 0);
+        assert_eq!(reusable_prefix(&[7, 8], &[1, 2]), 0);
+        assert_eq!(reusable_prefix::<i32>(&[1], &[]), 0);
     }
 }

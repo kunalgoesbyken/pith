@@ -3,6 +3,8 @@ mod llama;
 mod models;
 mod remote;
 mod sampling;
+#[cfg(feature = "llama")]
+mod slots;
 mod worker;
 
 #[cfg(feature = "llama")]
