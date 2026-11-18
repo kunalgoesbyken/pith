@@ -12,6 +12,7 @@ use crate::registry;
 use crate::rival;
 use crate::settings::{SettingsWindow, StatsView};
 use crate::tray::{ForegroundApp, Tray, TrayCommand, TrayView};
+use crate::update::Update;
 use crate::util::local_time;
 
 const STATS_FILE: &str = "stats.toml";
@@ -37,6 +38,7 @@ pub struct Presenter {
     model: Model,
     skip: Option<SkipReason>,
     notice: Option<String>,
+    update: Update,
 }
 
 impl Presenter {
@@ -66,11 +68,20 @@ impl Presenter {
             model: Model::Loading,
             skip: None,
             notice: options.notice.clone(),
+            update: Update::default(),
         }
     }
 
     pub fn set_model(&mut self, model: Model) {
         self.model = model;
+    }
+
+    pub fn update(&self) -> &Update {
+        &self.update
+    }
+
+    pub fn set_update(&mut self, update: Update) {
+        self.update = update;
     }
 
     pub fn set_skip(&mut self, skip: Option<SkipReason>) {
@@ -149,6 +160,7 @@ impl Presenter {
                 name: name.to_string(),
                 access: prefs.saved().access(name),
             }),
+            update: self.update.clone(),
         });
     }
 

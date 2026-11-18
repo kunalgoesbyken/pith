@@ -6,6 +6,7 @@ mod resolve;
 mod sampling;
 #[cfg(feature = "llama")]
 mod slots;
+mod update;
 mod worker;
 
 #[cfg(feature = "llama")]
@@ -15,4 +16,5 @@ pub use models::{
 };
 pub use remote::RemoteCompleter;
 pub use resolve::{DownloadProgress, Stage, resolve_backend};
+pub use update::{Release, UpdateCheck, UpdateFailure, check_for_update};
 pub use worker::{Backend, DoneCallback, Prepare, ReadyCallback, Worker, cpu_supported};

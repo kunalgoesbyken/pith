@@ -1,13 +1,14 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use pith_core::{Completion, Event, FieldSnapshot, Model, check, log};
-use pith_infer::Stage;
+use pith_infer::{Stage, UpdateCheck, check_for_update};
 use windows::Win32::Foundation::HWND;
 
 use super::App;
 use crate::control::Waker;
 use crate::onboarding::Event as OnboardingEvent;
 use crate::tray::TrayCommand;
+use crate::update::Update;
 
 pub enum Inbound {
     Snapshot(Option<FieldSnapshot>, Option<u64>),
@@ -15,6 +16,7 @@ pub enum Inbound {
     Ready(Result<String, String>),
     Preparing(Stage),
     Command(TrayCommand),
+    Update(UpdateCheck),
 }
 
 #[derive(Clone)]
@@ -53,9 +55,22 @@ impl App {
                 Inbound::Ready(status) => self.model_ready(status),
                 Inbound::Preparing(stage) => self.model_preparing(stage),
                 Inbound::Command(command) => quit |= self.command(command),
+                Inbound::Update(result) => self.update_done(result),
             }
         }
         quit
+    }
+
+    pub(super) fn start_update_check(&mut self) {
+        self.presenter.set_update(Update::Checking);
+        self.refresh();
+        let inbox = self.inbox.clone();
+        std::thread::spawn(move || inbox.post(Inbound::Update(check_for_update())));
+    }
+
+    fn update_done(&mut self, result: UpdateCheck) {
+        self.presenter.set_update(Update::Done(result));
+        self.refresh();
     }
 
     fn snapshot_read(&mut self, snapshot: Option<FieldSnapshot>, served: Option<u64>) {

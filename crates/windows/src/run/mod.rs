@@ -65,6 +65,7 @@ struct App {
     overlay: Overlay,
     data_dir: Option<PathBuf>,
     erasing: Option<PathBuf>,
+    inbox: Inbox,
     inbound: Receiver<Inbound>,
 }
 
@@ -74,7 +75,7 @@ impl App {
         config: Config,
         reader: Reader,
         worker: Worker,
-        inbound: Receiver<Inbound>,
+        (inbox, inbound): (Inbox, Receiver<Inbound>),
         options: Options,
     ) -> windows::core::Result<Self> {
         let mut app = Self {
@@ -89,6 +90,7 @@ impl App {
             worker,
             data_dir: options.data_dir,
             erasing: None,
+            inbox,
             inbound,
         };
         app.keyboard.set_trigger(config.enabled);
@@ -204,7 +206,7 @@ pub fn run(
             None,
         );
     }
-    let mut app = App::new(control, config, reader, worker, inbound, options)?;
+    let mut app = App::new(control, config, reader, worker, (inbox, inbound), options)?;
     app.pump();
     app.shutdown();
     Ok(())

@@ -13,6 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
 
 use crate::brand;
 use crate::reach::tooltip;
+use crate::update::Update;
 
 pub const POWER_TOOLTIP: &str = "Pith \u{b7} paused while battery saver is on";
 const MENU_TEXT_CHARS: usize = 100;
@@ -30,6 +31,7 @@ pub enum TrayCommand {
     Pause(PauseSpan),
     Resume,
     ChangeApp,
+    Update,
     Settings,
     Quit,
     ResumeApp(String),
@@ -47,6 +49,7 @@ pub struct TrayView {
     pub active: bool,
     pub pause: Option<Pause>,
     pub foreground: Option<ForegroundApp>,
+    pub update: Update,
 }
 
 impl TrayView {
@@ -109,6 +112,7 @@ pub struct Tray {
     pauses: Vec<(MenuItem, PauseSpan)>,
     resume: MenuItem,
     app: MenuItem,
+    update: MenuItem,
     settings: MenuItem,
     quit: MenuItem,
     resting_tooltip: String,
@@ -143,6 +147,7 @@ impl Tray {
             .collect();
         let resume = MenuItem::new("Resume", false, None);
         let app = MenuItem::new(TrayView::default().app_label(), false, None);
+        let update = MenuItem::new(Update::default().label(), true, None);
         let settings = MenuItem::new("Settings\u{2026}", true, None);
         let quit = MenuItem::new("Quit", true, None);
         menu.append(&status).ok()?;
@@ -153,6 +158,7 @@ impl Tray {
         menu.append(&resume).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
         menu.append(&app).ok()?;
+        menu.append(&update).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
         menu.append(&settings).ok()?;
         menu.append(&quit).ok()?;
@@ -171,6 +177,7 @@ impl Tray {
             pauses,
             resume,
             app,
+            update,
             settings,
             quit,
             resting_tooltip,
@@ -216,6 +223,10 @@ impl Tray {
             self.app.set_text(menu_text(&view.app_label()));
             self.app.set_enabled(view.can_change_app());
         }
+        if before.is_none_or(|old| old.update != view.update) {
+            self.update.set_text(menu_text(&view.update.label()));
+            self.update.set_enabled(view.update.can_act());
+        }
         *shown = Some(view);
     }
 
@@ -253,6 +264,8 @@ impl Tray {
             Some(TrayCommand::Resume)
         } else if event.id == *self.app.id() {
             Some(TrayCommand::ChangeApp)
+        } else if event.id == *self.update.id() {
+            Some(TrayCommand::Update)
         } else if event.id == *self.settings.id() {
             Some(TrayCommand::Settings)
         } else if event.id == *self.quit.id() {

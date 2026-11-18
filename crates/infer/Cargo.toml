@@ -3,6 +3,7 @@ name = "pith-infer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [features]
 default = ["llama"]
@@ -14,4 +15,5 @@ llama-cpp-2 = { workspace = true, optional = true }
 ureq.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+semver.workspace = true
 sha2.workspace = true

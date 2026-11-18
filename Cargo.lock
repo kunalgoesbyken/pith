@@ -1228,6 +1228,7 @@ version = "0.1.0"
 dependencies = [
  "llama-cpp-2",
  "pith-core",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

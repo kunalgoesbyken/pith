@@ -20,6 +20,7 @@ mod run;
 mod settings;
 mod tray;
 mod ui;
+mod update;
 mod util;
 
 pub use clipboard::{Trigger, paste};

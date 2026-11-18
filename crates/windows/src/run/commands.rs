@@ -1,10 +1,12 @@
 use pith_core::{Access, Event, Setting, log};
+use pith_infer::UpdateCheck;
 
 use super::App;
 use crate::registry;
 use crate::rival;
 use crate::settings::{UiEvent, take_events};
 use crate::tray::TrayCommand;
+use crate::update::Update;
 use crate::util::{open_path, open_target};
 
 impl App {
@@ -57,6 +59,7 @@ impl App {
             TrayCommand::Resume => self.resume(),
             TrayCommand::ResumeApp(app) => self.dispatch(Event::Resume(app)),
             TrayCommand::ChangeApp => self.change_foreground_app(),
+            TrayCommand::Update => self.update_clicked(),
             TrayCommand::Settings => self.presenter.open_settings(&self.prefs),
             TrayCommand::Quit => return true,
         }
@@ -65,6 +68,14 @@ impl App {
 }
 
 impl App {
+    fn update_clicked(&mut self) {
+        match self.presenter.update() {
+            Update::Done(UpdateCheck::Available(release)) => open_target(&release.url),
+            Update::Checking => {}
+            Update::Idle | Update::Done(_) => self.start_update_check(),
+        }
+    }
+
     fn change_foreground_app(&mut self) {
         let Some(app) = self.presenter.foreground_app() else {
             return;

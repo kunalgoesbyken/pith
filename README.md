@@ -2,7 +2,7 @@
 
 Local autocomplete for every text box on Windows. Pause while you type and Pith shows the rest of your sentence in grey at the caret. Tab keeps all of it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, and Ctrl+Shift+Space asks for a suggestion right away.
 
-A 0.6B model runs on your CPU. There is no account, no telemetry and no network use after the one-time model download. It is built for ordinary laptops with 8 GB RAM and no GPU.
+A 0.6B model runs on your CPU. There is no account and no telemetry. The only network use is the one-time model download and the update check you start yourself. It is built for ordinary laptops with 8 GB RAM and no GPU.
 
 Status: Windows MVP. macOS and Linux are planned; the engine and inference crates are already platform-free.
 
@@ -11,7 +11,7 @@ Status: Windows MVP. macOS and Linux are planned; the engine and inference crate
 | | |
 |---|---|
 | Text you type | Read from the focused field only, held in memory for the prompt, never written to disk or sent anywhere |
-| Network | One download of the model from Hugging Face (pinned revision, SHA-256 checked). Nothing else, unless you set `remote_url` |
+| Network | Two things, and only these. One download of the model from Hugging Face (pinned revision, SHA-256 checked). One request to `api.github.com` for the releases of this repository, only when you click Check for updates in the tray; it sends no text and no identifier, and nothing is downloaded or installed. Nothing else, unless you set `remote_url` |
 | Telemetry | None |
 | Keystrokes | Never seen. There is no keyboard hook |
 | Password fields, password managers, sign-in screens, blocked apps | Never read |
@@ -71,7 +71,7 @@ Pith recommends a model from the memory and logical cores it finds: `large` with
 
 Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs the tray says so instead of crashing, and `remote_url` lets you use a server instead.
 
-The tray shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model). It pauses Pith for 15 minutes, an hour or until you resume, and turns it off in the app you were just using. In a code editor, which Pith skips by default, the same item reads Allow Pith in that app.
+The tray shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model). It pauses Pith for 15 minutes, an hour or until you resume, and turns it off in the app you were just using. Check for updates in the same menu asks GitHub once for the latest release and shows the result there; the release page opens in your browser only when you click it. In a code editor, which Pith skips by default, the same item reads Allow Pith in that app.
 
 Settings changes apply at once:
 
@@ -168,7 +168,7 @@ cargo run --release -p pith-windows --example ui_shots
 - Typo fixes alongside the completion
 - Snippets and per-site rules
 - Several candidates to choose from
-- Code signing, winget and update notices
+- Code signing, winget and automatic update notices
 - macOS (Accessibility API) and Linux (AT-SPI)
 
 ## License

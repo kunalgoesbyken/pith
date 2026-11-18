@@ -5,7 +5,7 @@ const TOOLTIP_UNITS: usize = 127;
 pub fn promise(reach: &Reach) -> String {
     match reach {
         Reach::ThisPc => {
-            "Finishes your sentences as you type, on this PC. Nothing leaves it.".into()
+            "Finishes your sentences as you type, on this PC. Your text never leaves it.".into()
         }
         Reach::Server(host) => format!(
             "Finishes your sentences as you type, using the server at {host}. The text before the caret is sent there."
@@ -15,14 +15,14 @@ pub fn promise(reach: &Reach) -> String {
 
 pub fn footer(reach: &Reach) -> String {
     match reach {
-        Reach::ThisPc => "Runs on this PC. Nothing leaves it.".into(),
+        Reach::ThisPc => "Runs on this PC. Your text never leaves it.".into(),
         Reach::Server(host) => format!("Sends the text before the caret to {host}."),
     }
 }
 
 pub fn tooltip(reach: &Reach) -> String {
     let full = match reach {
-        Reach::ThisPc => "Pith \u{b7} local only, nothing leaves this PC".to_string(),
+        Reach::ThisPc => "Pith \u{b7} local only, your text stays on this PC".to_string(),
         Reach::Server(host) => format!("Pith \u{b7} sends text to {host}"),
     };
     if full.encode_utf16().count() <= TOOLTIP_UNITS {
@@ -52,8 +52,8 @@ mod tests {
         let reach = server("api.example.com");
         for text in [promise(&reach), footer(&reach), tooltip(&reach)] {
             assert!(text.contains("api.example.com"), "{text}");
-            assert!(!text.contains("Nothing leaves"), "{text}");
-            assert!(!text.contains("local only"), "{text}");
+            assert!(!text.contains("never leaves"), "{text}");
+            assert!(!text.contains("stays on this PC"), "{text}");
         }
     }
 
