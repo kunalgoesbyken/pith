@@ -72,6 +72,11 @@ mod tests {
             ("min_mean_logprob = nan", false),
             ("min_token_logprob = nan", false),
             ("min_mean_logprob = -inf", true),
+            ("ghost_opacity = 35", true),
+            ("ghost_opacity = 100", true),
+            ("ghost_opacity = 9", false),
+            ("ghost_opacity = 101", false),
+            ("ghost_opacity = 0", false),
         ] {
             assert_eq!(Config::from_toml(toml).is_ok(), ok, "{toml}");
         }
@@ -118,6 +123,7 @@ const ALWAYS_BLOCKED: [&str; 23] = [
 
 const MIN_CONTEXT_HEADROOM: u32 = 64;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
+const MIN_GHOST_OPACITY: u8 = 10;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -144,6 +150,7 @@ pub struct Config {
     pub context_chars: usize,
     pub min_chars_before: usize,
     pub blocked_apps: Vec<String>,
+    pub ghost_opacity: u8,
     pub remote_url: Option<String>,
     pub remote_model: Option<String>,
 }
@@ -165,6 +172,7 @@ impl Default for Config {
             context_chars: 1200,
             min_chars_before: 3,
             blocked_apps: Vec::new(),
+            ghost_opacity: 50,
             remote_url: None,
             remote_model: None,
         }
@@ -220,6 +228,10 @@ impl Config {
                 "logprob thresholds must be numbers",
             ),
             (self.debounce_ms <= MAX_DEBOUNCE_MS, "debounce_ms must be at most 5000"),
+            (
+                (MIN_GHOST_OPACITY..=100).contains(&self.ghost_opacity),
+                "ghost_opacity must be a percentage from 10 to 100",
+            ),
             (
                 self.remote_url.as_deref().is_none_or(is_private_remote),
                 "remote_url must use https, or http to this computer",

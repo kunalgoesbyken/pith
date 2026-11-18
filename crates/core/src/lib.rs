@@ -1,5 +1,6 @@
 mod config;
 mod engine;
+mod ghost;
 mod log;
 mod policy;
 mod prompt;
@@ -8,6 +9,10 @@ mod types;
 
 pub use config::{Config, ModelPreset, app_name};
 pub use engine::{Action, Engine, Event};
+pub use ghost::{
+    FADE_ALPHAS, FADE_FRAME_MS, Flow, Ink, Line, flow_bounds, ink, is_rtl, layout, lines_that_fit,
+    median_by_luminance, next_word_alpha, opacity_alpha,
+};
 pub use log::{init_log, log};
 pub use policy::{SkipReason, check};
 pub use prompt::{CompletionRequest, build, suggestion};
