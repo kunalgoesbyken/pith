@@ -24,7 +24,6 @@ mod ui;
 mod util;
 
 pub use clipboard::{Trigger, paste};
-pub use control::Waker;
 pub use keys::KeyAction;
 pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
@@ -32,7 +31,8 @@ pub use onboarding::{
 };
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use rival::Rival;
-pub use run::{Inbound, InsertMode, Options, run};
+pub use run::{Inbound, Inbox, InsertMode, Options, run};
 pub use settings::{SettingsWindow, StatsView};
+pub use tray::TrayCommand;
 pub use ui::force_dark_theme;
 pub use util::{hardware, open_path, single_instance};

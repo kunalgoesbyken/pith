@@ -38,10 +38,25 @@ fn is_readable_own_field(hwnd: HWND) -> bool {
     !hwnd.0.is_null() && hwnd.0 as isize == READABLE_OWN_FIELD.load(Ordering::SeqCst)
 }
 
-pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, u64) + Send>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Poke {
+    Changed,
+    Key(u64),
+}
+
+impl Poke {
+    fn key(self) -> Option<u64> {
+        match self {
+            Poke::Changed => None,
+            Poke::Key(id) => Some(id),
+        }
+    }
+}
+
+pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, Option<u64>) + Send>;
 
 pub struct Reader {
-    pokes: Sender<u64>,
+    pokes: Sender<Poke>,
     config: Arc<Mutex<Config>>,
 }
 
@@ -65,14 +80,14 @@ impl Reader {
     }
 
     pub fn poke(&self) {
-        let _ = self.pokes.send(0);
+        let _ = self.pokes.send(Poke::Changed);
     }
 
     pub fn request(&self, id: u64) {
-        let _ = self.pokes.send(id);
+        let _ = self.pokes.send(Poke::Key(id));
     }
 
-    pub fn sender(&self) -> Sender<u64> {
+    pub fn sender(&self) -> Sender<Poke> {
         self.pokes.clone()
     }
 }
@@ -90,7 +105,12 @@ fn automation() -> Result<IUIAutomation> {
     }
 }
 
-fn serve(source: Source, config: &Mutex<Config>, rx: Receiver<u64>, on_snapshot: SnapshotCallback) {
+fn serve(
+    source: Source,
+    config: &Mutex<Config>,
+    rx: Receiver<Poke>,
+    on_snapshot: SnapshotCallback,
+) {
     let automation = match automation() {
         Ok(automation) => automation,
         Err(error) => return pith_core::log(&format!("uia unavailable: {error}")),
@@ -100,7 +120,10 @@ fn serve(source: Source, config: &Mutex<Config>, rx: Receiver<u64>, on_snapshot:
     let mut first = true;
     let mut errors = 0;
     while let Ok(request) = rx.recv() {
-        let served = rx.try_iter().fold(request, u64::max);
+        let served = std::iter::once(request)
+            .chain(rx.try_iter())
+            .filter_map(Poke::key)
+            .max();
         let current = config
             .lock()
             .map(|shared| shared.clone())
@@ -115,13 +138,13 @@ fn serve(source: Source, config: &Mutex<Config>, rx: Receiver<u64>, on_snapshot:
                 errors = 0;
                 snapshot
             }
-            Err(_) if errors + 1 < MAX_READ_ERRORS && served == 0 => {
+            Err(_) if errors + 1 < MAX_READ_ERRORS && served.is_none() => {
                 errors += 1;
                 continue;
             }
             Err(_) => None,
         };
-        if first || served > 0 || snapshot != last {
+        if first || served.is_some() || snapshot != last {
             first = false;
             last = snapshot.clone();
             on_snapshot(snapshot, served);
@@ -176,6 +199,7 @@ fn read(
             return Ok(None);
         }
         let app = process_name(owner);
+        let blocked = app.as_deref().is_none_or(|name| config.is_blocked(name));
         let is_password = element
             .CurrentIsPassword()
             .map(|b| b.as_bool())
@@ -183,7 +207,7 @@ fn read(
         let Ok(caret) = caret_range(&element) else {
             return Ok(None);
         };
-        let (before, after) = if is_password || config.is_blocked(&app) {
+        let (before, after) = if is_password || blocked {
             (String::new(), String::new())
         } else {
             let lookback = config.lookback_chars();
@@ -193,7 +217,7 @@ fn read(
         let element_rect = element.CurrentBoundingRectangle().ok().map(rect_of);
         Ok(Some(FieldSnapshot {
             field_id: runtime_id(&element),
-            app,
+            app: app.unwrap_or_default(),
             window_title: window_title(root),
             before: normalize(before),
             after: normalize(after),

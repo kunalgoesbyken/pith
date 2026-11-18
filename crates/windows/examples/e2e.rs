@@ -5,11 +5,14 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot, ModelPreset, Reach};
+use pith_core::{
+    Action, Completion, CompletionRequest, Config, FieldSnapshot, Keymap, ModelPreset, PauseSpan,
+    Reach,
+};
 use pith_infer::{Backend, Worker};
 use pith_windows::{
-    Inbound, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options, Outcome,
-    Reader, Source, Trigger, Waker, paste, run,
+    Inbound, Inbox, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options,
+    Outcome, Reader, Source, TrayCommand, Trigger, paste, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -500,12 +503,12 @@ struct Rig {
     secret: Field,
     locked: Field,
     actions: Receiver<Action>,
-    inbound: Sender<Inbound>,
-    waker: Waker,
+    inbox: Inbox,
+    keymap: Keymap,
     completions: Arc<Mutex<Vec<Result<Completion, String>>>>,
     statuses: Receiver<String>,
     probe: Reader,
-    probed: Receiver<(Option<FieldSnapshot>, u64)>,
+    probed: Receiver<(Option<FieldSnapshot>, Option<u64>)>,
     probe_id: u64,
     report: Report,
     out_dir: PathBuf,
@@ -514,13 +517,27 @@ struct Rig {
 
 impl Rig {
     fn key(&self, action: KeyAction) {
-        let _ = self.inbound.send(Inbound::Key(action));
-        self.waker.wake();
+        let control = unsafe {
+            FindWindowExW(Some(HWND_MESSAGE), None, w!("PithControl"), None)
+                .expect("control window")
+        };
+        let id = hotkey_id(&self.keymap, action);
+        unsafe {
+            PostMessageW(Some(control), WM_HOTKEY, WPARAM(id as usize), LPARAM(0))
+                .expect("post hotkey");
+        }
+    }
+
+    fn command(&self, command: TrayCommand) {
+        self.inbox.post(Inbound::Command(command));
     }
 
     fn set_enabled(&self, enabled: bool) {
-        let _ = self.inbound.send(Inbound::SetEnabled(enabled));
-        self.waker.wake();
+        self.command(if enabled {
+            TrayCommand::Resume
+        } else {
+            TrayCommand::Pause(PauseSpan::UntilResumed)
+        });
     }
 
     fn use_field(&self, field: Field) {
@@ -528,8 +545,7 @@ impl Rig {
     }
 
     fn resume(&self, app: String) {
-        let _ = self.inbound.send(Inbound::Resume(app));
-        self.waker.wake();
+        self.command(TrayCommand::ResumeApp(app));
     }
 
     fn resume_target(&mut self) {
@@ -640,7 +656,7 @@ impl Rig {
         let deadline = Instant::now() + Duration::from_secs(5);
         while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
             match self.probed.recv_timeout(remaining) {
-                Ok((snapshot, served)) if served == self.probe_id => return snapshot,
+                Ok((snapshot, served)) if served == Some(self.probe_id) => return snapshot,
                 Ok(_) => {}
                 Err(_) => return None,
             }
@@ -1942,6 +1958,18 @@ fn onboarding_checks() -> usize {
     failed
 }
 
+fn hotkey_id(keymap: &Keymap, action: KeyAction) -> i32 {
+    let accept_all = keymap.accept_all.len();
+    let accept_word = keymap.accept_word.len();
+    let before = match action {
+        KeyAction::AcceptAll => 0,
+        KeyAction::AcceptWord => accept_all,
+        KeyAction::Dismiss => accept_all + accept_word,
+        KeyAction::Trigger => accept_all + accept_word + 1,
+    };
+    before as i32 + 1
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let model = PathBuf::from(args.next().expect("model path"));
@@ -1966,11 +1994,10 @@ fn main() {
         accept_race_ms: 0,
         ..Config::default()
     };
-    let (sender, receiver) = channel();
-    let waker = Waker::default();
+    let (inbox, receiver) = Inbox::channel();
     let (ready_tx, ready_rx) = channel();
     let (status_tx, statuses) = channel();
-    let (done_sender, done_waker) = (sender.clone(), waker.clone());
+    let done_inbox = inbox.clone();
     let completions = Arc::new(Mutex::new(Vec::new()));
     let recorded = completions.clone();
     let threads = config.resolved_threads(
@@ -2012,8 +2039,7 @@ fn main() {
                 );
             }
             recorded.lock().unwrap().push(result.clone());
-            let _ = done_sender.send(Inbound::Done(generation, result));
-            done_waker.wake();
+            done_inbox.post(Inbound::Done(generation, result));
         }),
     );
     let (observer, actions) = channel();
@@ -2025,8 +2051,8 @@ fn main() {
             let _ = probe_tx.send((snapshot, served));
         }),
     );
-    let driver_inbound = sender.clone();
-    let driver_waker = waker.clone();
+    let driver_inbox = inbox.clone();
+    let keymap = config.keymap();
     let driver = std::thread::spawn(move || {
         let _ = ready_rx.recv_timeout(Duration::from_secs(60));
         print_memory("loaded, no request yet");
@@ -2036,8 +2062,8 @@ fn main() {
             secret,
             locked,
             actions,
-            inbound: driver_inbound,
-            waker: driver_waker,
+            inbox: driver_inbox,
+            keymap,
             completions,
             statuses,
             probe,
@@ -2107,8 +2133,7 @@ fn main() {
             "RESULT: {} passed, {} failed",
             rig.report.passed, rig.report.failed
         );
-        let _ = rig.inbound.send(Inbound::Quit);
-        rig.waker.wake();
+        rig.command(TrayCommand::Quit);
         rig.report.failed
     });
     let options = Options {
@@ -2127,7 +2152,7 @@ fn main() {
         notice: None,
         recommended: ModelPreset::Standard,
     };
-    run(config, worker, (sender, receiver), waker, options).expect("run");
+    run(config, worker, inbox, receiver, options).expect("run");
     let failed = driver.join().unwrap_or(1);
     std::process::exit(if failed + onboarding_failed == 0 {
         0

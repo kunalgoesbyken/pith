@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use pith_core::{PauseSpan, Reach};
+use pith_core::{Pause, PauseSpan, Reach};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::HWND;
@@ -35,27 +35,45 @@ pub enum TrayCommand {
     ResumeApp(String),
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct ForegroundApp {
+    pub name: String,
+    pub blocked: bool,
+}
+
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct TrayView {
     pub status: String,
     pub active: bool,
-    pub paused: bool,
-    pub power_paused: bool,
-    pub foreground: Option<String>,
-    pub foreground_blocked: bool,
+    pub pause: Option<Pause>,
+    pub foreground: Option<ForegroundApp>,
 }
 
 impl TrayView {
     fn block_label(&self) -> String {
-        match (&self.foreground, self.foreground_blocked) {
-            (Some(app), true) => format!("Turned off in {app}"),
-            (Some(app), false) => format!("Turn off in {app}"),
-            (None, _) => "Turn off in this app".to_string(),
+        match &self.foreground {
+            Some(ForegroundApp {
+                name,
+                blocked: true,
+            }) => format!("Turned off in {name}"),
+            Some(ForegroundApp {
+                name,
+                blocked: false,
+            }) => format!("Turn off in {name}"),
+            None => "Turn off in this app".to_string(),
         }
     }
 
     fn can_block(&self) -> bool {
-        self.foreground.is_some() && !self.foreground_blocked
+        matches!(self.foreground, Some(ForegroundApp { blocked: false, .. }))
+    }
+
+    fn resumable(&self) -> bool {
+        matches!(self.pause, Some(Pause::Until(_) | Pause::UntilResumed))
+    }
+
+    fn power_paused(&self) -> bool {
+        self.pause == Some(Pause::BatterySaver)
     }
 }
 
@@ -97,7 +115,7 @@ pub struct Tray {
 }
 
 fn tooltip_for<'a>(view: &TrayView, resting: &'a str) -> &'a str {
-    if view.power_paused {
+    if view.power_paused() {
         POWER_TOOLTIP
     } else {
         resting
@@ -185,17 +203,15 @@ impl Tray {
         if before.is_none_or(|old| old.active != view.active) {
             let _ = self.icon.set_icon(Some(glyph(view.active)));
         }
-        if before.is_none_or(|old| old.power_paused != view.power_paused) {
+        if before.is_none_or(|old| old.power_paused() != view.power_paused()) {
             let _ = self
                 .icon
                 .set_tooltip(Some(tooltip_for(&view, &self.resting_tooltip)));
         }
-        if before.is_none_or(|old| old.paused != view.paused) {
-            self.resume.set_enabled(view.paused);
+        if before.is_none_or(|old| old.resumable() != view.resumable()) {
+            self.resume.set_enabled(view.resumable());
         }
-        if before.is_none_or(|old| {
-            old.foreground != view.foreground || old.foreground_blocked != view.foreground_blocked
-        }) {
+        if before.is_none_or(|old| old.foreground != view.foreground) {
             self.block.set_text(menu_text(&view.block_label()));
             self.block.set_enabled(view.can_block());
         }
@@ -255,10 +271,16 @@ mod tests {
         let mut view = TrayView::default();
         assert_eq!(view.block_label(), "Turn off in this app");
         assert!(!view.can_block());
-        view.foreground = Some("Slack".into());
+        view.foreground = Some(ForegroundApp {
+            name: "Slack".into(),
+            blocked: false,
+        });
         assert_eq!(view.block_label(), "Turn off in Slack");
         assert!(view.can_block());
-        view.foreground_blocked = true;
+        view.foreground = Some(ForegroundApp {
+            name: "Slack".into(),
+            blocked: true,
+        });
         assert_eq!(view.block_label(), "Turned off in Slack");
         assert!(!view.can_block());
     }

@@ -2,7 +2,8 @@ use crate::{Pause, SkipReason};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Model {
-    Loading(String),
+    Loading,
+    Downloading { percent: u64 },
     Ready,
     Failed(String),
 }
@@ -29,14 +30,6 @@ pub fn skip_label(reason: SkipReason) -> &'static str {
     }
 }
 
-fn capitalised(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
-    }
-}
-
 impl Status {
     pub fn line(&self) -> String {
         match (&self.pause, &self.model) {
@@ -45,8 +38,8 @@ impl Status {
             (Some(Pause::BatterySaver), _) => "Paused while battery saver is on".to_string(),
             (None, _) if !self.enabled => "Turned off".to_string(),
             (None, Model::Failed(error)) => format!("Error: {error}"),
-            (None, Model::Loading(text)) if text.starts_with("downloading") => capitalised(text),
-            (None, Model::Loading(_)) => "Loading model".to_string(),
+            (None, Model::Downloading { percent }) => format!("Downloading model {percent}%"),
+            (None, Model::Loading) => "Loading model".to_string(),
             (None, Model::Ready) => match (&self.notice, self.skip) {
                 (Some(notice), _) => format!("Settings ignored: {notice}"),
                 (None, Some(reason)) => format!("Skipped: {}", skip_label(reason)),
@@ -78,7 +71,6 @@ mod tests {
     #[test]
     fn line_follows_the_documented_priority() {
         let skip = Some(SkipReason::Password);
-        let loading = Model::Loading("loading model.gguf".into());
         let rows = [
             (status(Model::Ready, None, true, None), "Ready"),
             (
@@ -92,14 +84,9 @@ mod tests {
                 status(Model::Ready, None, true, skip),
                 "Skipped: password field",
             ),
-            (status(loading.clone(), None, true, skip), "Loading model"),
+            (status(Model::Loading, None, true, skip), "Loading model"),
             (
-                status(
-                    Model::Loading("downloading model 40%".into()),
-                    None,
-                    true,
-                    None,
-                ),
+                status(Model::Downloading { percent: 40 }, None, true, None),
                 "Downloading model 40%",
             ),
             (
@@ -108,7 +95,12 @@ mod tests {
             ),
             (status(Model::Ready, None, false, skip), "Turned off"),
             (
-                status(loading, Some(Pause::Until("14:35".into())), true, skip),
+                status(
+                    Model::Loading,
+                    Some(Pause::Until("14:35".into())),
+                    true,
+                    skip,
+                ),
                 "Paused until 14:35",
             ),
             (

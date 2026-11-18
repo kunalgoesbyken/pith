@@ -2,6 +2,7 @@
 mod llama;
 mod models;
 mod remote;
+mod resolve;
 mod sampling;
 #[cfg(feature = "llama")]
 mod slots;
@@ -13,4 +14,5 @@ pub use models::{
     LARGE_MODEL, ModelSpec, SMALL_MODEL, STANDARD_MODEL, download, find_local, preset,
 };
 pub use remote::RemoteCompleter;
+pub use resolve::{DownloadProgress, Stage, resolve_backend};
 pub use worker::{Backend, DoneCallback, Prepare, ReadyCallback, Worker, cpu_supported};

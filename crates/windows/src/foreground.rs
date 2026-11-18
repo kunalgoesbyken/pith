@@ -38,8 +38,7 @@ impl Foreground {
         if pid == std::process::id() || SHELL_CLASSES.contains(&class_name(hwnd).as_str()) {
             return;
         }
-        let name = process_name(pid);
-        if !name.is_empty() {
+        if let Some(name) = process_name(pid) {
             self.app = Some(name);
         }
     }

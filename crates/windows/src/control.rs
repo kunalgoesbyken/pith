@@ -22,9 +22,7 @@ impl Waker {
             }
         }
     }
-}
 
-impl Waker {
     pub fn attach(&self, hwnd: HWND) {
         self.0.store(hwnd.0 as isize, Ordering::SeqCst);
     }
