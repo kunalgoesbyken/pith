@@ -13,6 +13,14 @@ pub enum SkipReason {
 }
 
 pub fn check(field: &FieldSnapshot, config: &Config) -> Result<(), SkipReason> {
+    evaluate(field, config, false)
+}
+
+pub fn check_forced(field: &FieldSnapshot, config: &Config) -> Result<(), SkipReason> {
+    evaluate(field, config, true)
+}
+
+fn evaluate(field: &FieldSnapshot, config: &Config, forced: bool) -> Result<(), SkipReason> {
     if !config.enabled {
         return Err(SkipReason::Disabled);
     }
@@ -33,6 +41,14 @@ pub fn check(field: &FieldSnapshot, config: &Config) -> Result<(), SkipReason> {
         return Err(SkipReason::TextAfterCaret);
     }
     let current_line = field.before.rsplit(['\n', '\r']).next().unwrap_or_default();
+    let has_context = !field.before.trim().is_empty();
+    if forced {
+        return if has_context {
+            Ok(())
+        } else {
+            Err(SkipReason::TooShort)
+        };
+    }
     if current_line.trim().chars().count() < config.min_chars_before {
         return Err(SkipReason::TooShort);
     }
@@ -121,12 +137,42 @@ mod tests {
         ] {
             assert_eq!(check(&field(line, ""), &config), Ok(()), "{line}");
         }
+        for (before, ok) in [
+            ("Hi", true),
+            ("x", true),
+            ("4242 4242", true),
+            ("long first line\nhi", true),
+            ("long first line\n", true),
+            ("", false),
+            (" \n\t", false),
+        ] {
+            let verdict = check_forced(&field(before, ""), &config);
+            assert_eq!(verdict.is_ok(), ok, "{before:?}");
+        }
+        for (change, reason) in [
+            (
+                (|f: &mut FieldSnapshot| f.is_password = true) as fn(&mut FieldSnapshot),
+                SkipReason::Password,
+            ),
+            (|f| f.composing = true, SkipReason::Composing),
+            (|f| f.has_selection = true, SkipReason::Selection),
+            (|f| f.app = "cmd".into(), SkipReason::BlockedApp),
+            (|f| f.after = " tail".into(), SkipReason::TextAfterCaret),
+        ] {
+            let mut f = field("Hi", "");
+            change(&mut f);
+            assert_eq!(check_forced(&f, &config), Err(reason));
+        }
         let disabled = Config {
             enabled: false,
             ..Config::default()
         };
         assert_eq!(
             check(&field("Hello the", ""), &disabled),
+            Err(SkipReason::Disabled)
+        );
+        assert_eq!(
+            check_forced(&field("Hello the", ""), &disabled),
             Err(SkipReason::Disabled)
         );
     }

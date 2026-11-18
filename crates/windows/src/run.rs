@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use pith_core::{Action, Completion, Config, Engine, Event, FieldSnapshot, log};
+use pith_core::{Action, Chord, Completion, Config, Engine, Event, FieldSnapshot, Key, log};
 use pith_infer::Worker;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -18,7 +18,7 @@ use windows::core::w;
 
 use crate::clipboard::{Trigger, paste, replace_selection, replace_selection_after};
 use crate::events::Hooks;
-use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, replay};
+use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, TRIGGER, replay};
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::overlay::Overlay;
 use crate::reader::{Reader, Source};
@@ -27,6 +27,8 @@ use crate::tray::{Tray, TrayCommand};
 const WM_WAKE: u32 = WM_APP + 1;
 const TIMER_POLL: usize = 1;
 const TIMER_DEBOUNCE: usize = 2;
+const TIMER_REARM: usize = 3;
+const REARM_MS: u32 = 60;
 
 pub enum InsertMode {
     Paste,
@@ -69,6 +71,19 @@ impl Waker {
                 let _ = PostMessageW(Some(HWND(hwnd as _)), WM_WAKE, WPARAM(0), LPARAM(0));
             }
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Press {
+    action: i32,
+    chord: Option<Chord>,
+    at: Instant,
+}
+
+impl Press {
+    fn moves_caret(&self) -> bool {
+        self.chord.is_some_and(|chord| chord.key == Key::Right)
     }
 }
 
@@ -142,7 +157,7 @@ struct App {
     inbound: Receiver<Inbound>,
     pending_debounce: u64,
     started: Option<Instant>,
-    keys_awaiting_read: Vec<i32>,
+    keys_awaiting_read: Vec<Press>,
     key_read: u64,
 }
 
@@ -262,7 +277,11 @@ impl App {
                 Inbound::Progress(done, total) => {
                     self.onboard(OnboardingEvent::Progress(done, total))
                 }
-                Inbound::Key(id) => self.hotkey(id),
+                Inbound::Key(action) => self.hotkey(Press {
+                    action,
+                    chord: None,
+                    at: Instant::now(),
+                }),
                 Inbound::SetEnabled(enabled) => self.set_enabled(enabled),
                 Inbound::Resume(app) => self.resume(app),
                 Inbound::Quit => quit = true,
@@ -290,30 +309,43 @@ impl App {
         }
     }
 
-    fn hotkey(&mut self, id: i32) {
-        if self.engine.suggestion().is_none() && self.keys_awaiting_read.is_empty() {
-            self.pass_through(id);
+    fn hotkey(&mut self, press: Press) {
+        let needs_field = press.action == TRIGGER;
+        if !needs_field && self.engine.suggestion().is_none() && self.keys_awaiting_read.is_empty()
+        {
+            self.pass_through(press);
             return;
         }
-        self.keys_awaiting_read.push(id);
+        self.keys_awaiting_read.push(press);
         self.key_read += 1;
         self.reader.request(self.key_read);
     }
 
     fn release_keys(&mut self) {
-        for id in std::mem::take(&mut self.keys_awaiting_read) {
-            if self.engine.suggestion().is_some() {
-                self.key(id);
+        for press in std::mem::take(&mut self.keys_awaiting_read) {
+            let handled = match press.action {
+                TRIGGER => true,
+                DISMISS => self.engine.suggestion().is_some(),
+                _ => self.engine.can_accept(press.at, press.moves_caret()),
+            };
+            if handled {
+                self.key(press.action);
             } else {
-                self.pass_through(id);
+                self.pass_through(press);
             }
         }
     }
 
-    fn pass_through(&mut self, id: i32) {
-        if self.options.global_keys {
-            self.keys.disarm(self.control);
-            replay(id);
+    fn pass_through(&mut self, press: Press) {
+        let Some(chord) = press.chord.filter(|_| self.options.global_keys) else {
+            return;
+        };
+        self.keys.disarm(self.control);
+        replay(&chord);
+        if self.engine.suggestion().is_some() {
+            unsafe {
+                SetTimer(Some(self.control), TIMER_REARM, REARM_MS, None);
+            }
         }
     }
 
@@ -335,8 +367,24 @@ impl App {
                     .handle(Event::DebounceElapsed(self.pending_debounce));
                 self.apply(actions);
             }
+            Signal::Timer(TIMER_REARM) => {
+                unsafe {
+                    let _ = KillTimer(Some(self.control), TIMER_REARM);
+                }
+                if self.options.global_keys && self.engine.suggestion().is_some() {
+                    self.keys.arm(self.control);
+                }
+            }
             Signal::Timer(_) => {}
-            Signal::Hotkey(id) => self.hotkey(id),
+            Signal::Hotkey(id) => {
+                if let Some(binding) = self.keys.binding(id) {
+                    self.hotkey(Press {
+                        action: binding.action,
+                        chord: Some(binding.chord),
+                        at: Instant::now(),
+                    });
+                }
+            }
         }
         false
     }
@@ -346,6 +394,7 @@ impl App {
             ACCEPT_ALL => Event::AcceptAll,
             ACCEPT_WORD => Event::AcceptWord,
             DISMISS => Event::Dismiss,
+            TRIGGER => Event::Trigger,
             _ => return,
         };
         let actions = self.engine.handle(event);
@@ -354,6 +403,7 @@ impl App {
 
     fn set_enabled(&mut self, enabled: bool) {
         self.reader.set_enabled(enabled);
+        self.sync_trigger(enabled);
         let actions = self.engine.handle(Event::SetEnabled(enabled));
         self.apply(actions);
         if let Some(tray) = &self.tray {
@@ -364,6 +414,12 @@ impl App {
     fn resume(&mut self, app: String) {
         let actions = self.engine.handle(Event::Resume(app));
         self.apply(actions);
+    }
+
+    fn sync_trigger(&mut self, enabled: bool) {
+        if self.options.global_keys {
+            self.keys.set_trigger(self.control, enabled);
+        }
     }
 
     fn tray_command(&mut self) -> bool {
@@ -421,12 +477,17 @@ pub fn run(
             .map_err(|error| log(&format!("welcome window failed: {error}")))
             .ok()
     });
+    let keymap = config
+        .keymap()
+        .or_else(|_| Config::default().keymap())
+        .unwrap_or_default();
+    let enabled = config.enabled;
     let mut app = App {
         control,
         overlay: Overlay::create(config.ghost_opacity)?,
         engine: Engine::new(config),
         worker,
-        keys: Keys::new(),
+        keys: Keys::new(&keymap),
         reader,
         tray,
         onboarding,
@@ -437,6 +498,7 @@ pub fn run(
         keys_awaiting_read: Vec::new(),
         key_read: 0,
     };
+    app.sync_trigger(enabled);
     app.reader.poke();
     let mut message = MSG::default();
     'outer: while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {
@@ -456,5 +518,6 @@ pub fn run(
     }
     app.overlay.hide();
     app.keys.disarm(app.control);
+    app.keys.set_trigger(app.control, false);
     Ok(())
 }

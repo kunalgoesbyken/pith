@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::chord::Chord;
+
 pub fn app_name(path_or_name: &str) -> String {
     let leaf = path_or_name
         .rsplit(['\\', '/'])
@@ -77,6 +79,27 @@ mod tests {
             ("ghost_opacity = 9", false),
             ("ghost_opacity = 101", false),
             ("ghost_opacity = 0", false),
+            ("accept_race_ms = 0", true),
+            ("accept_race_ms = 1001", false),
+            ("trigger_mode = \"manual\"", true),
+            ("trigger_mode = \"manual\"\nforce_trigger = false", false),
+            ("trigger_mode = \"sometimes\"", false),
+            ("accept_keys = [\"Right\", \"Tab\"]", true),
+            ("accept_keys = []", true),
+            ("accept_keys = [\"Tab\", \"Tab\"]", false),
+            ("accept_keys = [\"Shift+Tab\"]", false),
+            ("accept_keys = [\"Esc\"]", false),
+            ("accept_keys = [\"a\"]", false),
+            ("accept_keys = [\"Hyper+Tab\"]", false),
+            ("accept_word_keys = [\"Tab\"]", false),
+            (
+                "accept_keys = [\"Right\"]\naccept_word_keys = [\"Tab\"]",
+                true,
+            ),
+            ("force_trigger_key = \"Tab\"", false),
+            ("force_trigger_key = \"Ctrl+Right\"", false),
+            ("force_trigger = false\nforce_trigger_key = \"Tab\"", true),
+            ("force_trigger_key = \"Ctrl+Alt+Space\"", false),
         ] {
             assert_eq!(Config::from_toml(toml).is_ok(), ok, "{toml}");
         }
@@ -84,6 +107,39 @@ mod tests {
             Config::from_toml("model_path = \"\"").unwrap().model_path,
             None
         );
+    }
+
+    #[test]
+    fn old_config_files_get_the_default_keys() {
+        let old = Config::from_toml(
+            "debounce_ms = 200
+max_words = 4",
+        )
+        .unwrap();
+        let keymap = old.keymap().unwrap();
+        let defaults = Config::default().keymap().unwrap();
+        assert_eq!(keymap, defaults);
+        assert_eq!(old.trigger_mode, TriggerMode::Auto);
+        assert_eq!(old.accept_race_ms, 150);
+        assert_eq!(keymap.accept_all.len(), 1);
+        assert_eq!(keymap.accept_word.len(), 2);
+        assert!(keymap.trigger.is_some());
+    }
+
+    #[test]
+    fn custom_keys_replace_the_defaults() {
+        let config = Config::from_toml(
+            "accept_keys = [\"Right\", \"Ctrl+j\"]
+accept_word_keys = [\"Alt+Right\"]
+force_trigger_key = \"F9\"",
+        )
+        .unwrap();
+        let keymap = config.keymap().unwrap();
+        assert_eq!(keymap.accept_all.len(), 2);
+        assert_eq!(keymap.accept_word.len(), 1);
+        assert_eq!(keymap.trigger, Some(Chord::parse("F9").unwrap()));
+        let off = Config::from_toml("force_trigger = false").unwrap();
+        assert_eq!(off.keymap().unwrap().trigger, None);
     }
 
     #[test]
@@ -128,6 +184,7 @@ const MIN_CONTEXT_HEADROOM: u32 = 64;
 const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
 const MIN_GHOST_OPACITY: u8 = 10;
+const MAX_ACCEPT_RACE_MS: u64 = 1_000;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -135,6 +192,21 @@ pub enum ModelPreset {
     #[default]
     Standard,
     Lite,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TriggerMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Keymap {
+    pub accept_all: Vec<Chord>,
+    pub accept_word: Vec<Chord>,
+    pub trigger: Option<Chord>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -155,6 +227,12 @@ pub struct Config {
     pub min_chars_before: usize,
     pub auto_pause_after: u32,
     pub smart_space: bool,
+    pub trigger_mode: TriggerMode,
+    pub accept_keys: Vec<String>,
+    pub accept_word_keys: Vec<String>,
+    pub accept_race_ms: u64,
+    pub force_trigger: bool,
+    pub force_trigger_key: String,
     pub blocked_apps: Vec<String>,
     pub ghost_opacity: u8,
     pub remote_url: Option<String>,
@@ -179,6 +257,12 @@ impl Default for Config {
             min_chars_before: 3,
             auto_pause_after: 12,
             smart_space: false,
+            trigger_mode: TriggerMode::Auto,
+            accept_keys: vec!["Tab".into()],
+            accept_word_keys: vec!["Shift+Tab".into(), "Ctrl+Right".into()],
+            accept_race_ms: 150,
+            force_trigger: true,
+            force_trigger_key: "Ctrl+Shift+Space".into(),
             blocked_apps: Vec::new(),
             ghost_opacity: 50,
             remote_url: None,
@@ -217,7 +301,37 @@ impl Config {
         toml::to_string_pretty(self).unwrap_or_default()
     }
 
+    pub fn keymap(&self) -> Result<Keymap, String> {
+        let parse_all = |keys: &[String]| {
+            keys.iter()
+                .map(|k| Chord::parse(k))
+                .collect::<Result<Vec<_>, _>>()
+        };
+        let keymap = Keymap {
+            accept_all: parse_all(&self.accept_keys)?,
+            accept_word: parse_all(&self.accept_word_keys)?,
+            trigger: self
+                .force_trigger
+                .then(|| Chord::parse(&self.force_trigger_key))
+                .transpose()?,
+        };
+        let mut taken = vec![Chord::ESCAPE];
+        for chord in keymap
+            .accept_all
+            .iter()
+            .chain(&keymap.accept_word)
+            .chain(&keymap.trigger)
+        {
+            if taken.contains(chord) {
+                return Err("each key can be bound to only one action, and Esc hides".into());
+            }
+            taken.push(*chord);
+        }
+        Ok(keymap)
+    }
+
     pub fn validate(mut self) -> Result<Self, String> {
+        self.keymap()?;
         self.model_path = self.model_path.filter(|p| !p.as_os_str().is_empty());
         self.remote_url = self
             .remote_url
@@ -242,6 +356,14 @@ impl Config {
             (
                 (MIN_GHOST_OPACITY..=100).contains(&self.ghost_opacity),
                 "ghost_opacity must be a percentage from 10 to 100",
+            ),
+            (
+                self.accept_race_ms <= MAX_ACCEPT_RACE_MS,
+                "accept_race_ms must be at most 1000",
+            ),
+            (
+                self.trigger_mode == TriggerMode::Auto || self.force_trigger,
+                "trigger_mode manual needs force_trigger",
             ),
             (
                 self.remote_url.as_deref().is_none_or(is_private_remote),

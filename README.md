@@ -1,6 +1,6 @@
 # Pith
 
-Local autocomplete for every text box. Pause while typing in any app and Pith shows the rest of your sentence in grey at the caret. Tab keeps it, Shift+Tab keeps one word, Esc hides it.
+Local autocomplete for every text box. Pause while typing in any app and Pith shows the rest of your sentence in grey at the caret. Tab keeps it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, Ctrl+Shift+Space asks for a suggestion right now.
 
 Everything runs on your machine: a 0.6B model on the CPU, no account, no network after the one-time model download. It is built for ordinary laptops: 8 GB RAM, no GPU.
 
@@ -21,12 +21,12 @@ Status: Windows MVP. macOS and Linux are planned (the engine and inference crate
 
 - **Reads text** through Windows UI Automation on a background thread with 250 ms timeouts, so a hung app never freezes Pith.
 - **Notices typing** through WinEvents (focus, value, caret). There is no keyboard hook, so Pith never sees your keystrokes.
-- **Captures Tab / Shift+Tab / Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after.
+- **Captures the accept keys and Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after. A key pressed within `accept_race_ms` of the suggestion appearing, or Right at a caret that is not at the end of the text, goes through to the app untouched.
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
 - **Inserts** accepted text with a clipboard paste that is hidden from clipboard history and restores your clipboard afterwards.
 - **Predicts** with llama.cpp embedded in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so suggestions finish the word correctly. Low-confidence suggestions are dropped.
 - **Skips** password fields, IME composition, selections, text after the caret, terminals, code editors and password managers. Text in password fields and blocked apps is never read.
-- **Re-reads the field** when you press Tab, Shift+Tab or Esc, and only acts if the suggestion still fits what is on screen.
+- **Re-reads the field** when you press an accept key or Esc, and only acts if the suggestion still fits what is on screen.
 
 ```
 crates/core      engine state machine, policy, prompt, text utils (pure, unit-tested)
@@ -57,6 +57,12 @@ Invalid settings are reported in the tray and the defaults are used until you fi
 | `max_words` | 6 | longest suggestion |
 | `min_mean_logprob` | -1.6 | confidence gate; raise for fewer, safer suggestions |
 | `ghost_opacity` | 50 | ghost text strength, 10 to 100 percent; raised automatically to keep 3:1 contrast |
+| `trigger_mode` | auto | `auto` suggests as you pause; `manual` only on the force-trigger key |
+| `accept_keys` | ["Tab"] | keys that accept the whole suggestion, e.g. `["Tab", "Right"]` (Right only accepts at the end of the text) |
+| `accept_word_keys` | ["Shift+Tab", "Ctrl+Right"] | keys that accept one word |
+| `accept_race_ms` | 150 | a Tab pressed this soon after the suggestion appears is passed through, so a tab you were typing is not swallowed |
+| `force_trigger` | true | register the force-trigger key |
+| `force_trigger_key` | Ctrl+Shift+Space | asks for a suggestion now, even in fields skipped for short or non-prose text |
 | `idle_unload_secs` | 300 | free the model after this much idle time (0 = never) |
 | `auto_pause_after` | 12 | stop suggesting in an app after this many shown suggestions in a row were ignored (0 = never); the tray offers "Resume" |
 | `smart_space` | false | add a trailing space when you accept the last word of a suggestion |

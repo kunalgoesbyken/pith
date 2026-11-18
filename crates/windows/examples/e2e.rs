@@ -9,7 +9,7 @@ use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot};
 use pith_infer::{Backend, Worker};
 use pith_windows::{
     ACCEPT_ALL, ACCEPT_WORD, DISMISS, Inbound, InsertMode, Onboarding, OnboardingEvent,
-    OnboardingStep, Options, Outcome, Reader, Source, Waker, run,
+    OnboardingStep, Options, Outcome, Reader, Source, TRIGGER, Waker, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -1212,6 +1212,84 @@ fn rapid_accept_chain(rig: &mut Rig) {
     );
 }
 
+fn forced_trigger(rig: &mut Rig) {
+    let field = rig.a;
+    rig.fresh(field, "");
+    for text in ["Hi", "Hello", "Re"] {
+        rig.fresh(field, "");
+        rig.type_slowly(field.edit, text, 10);
+        let auto = rig.settle(Duration::from_millis(900));
+        rig.check(
+            "short text asks nothing on its own",
+            !auto.iter().any(is_request) && last_show(&auto).is_none(),
+            format!("{text:?}"),
+        );
+        rig.key(TRIGGER);
+        let Some(first) = rig.wait_show(Duration::from_secs(20)) else {
+            rig.check(
+                "force trigger shows a suggestion",
+                false,
+                format!("{text:?}"),
+            );
+            continue;
+        };
+        let seen = rig.settle(Duration::from_millis(500));
+        let suggestion = last_show(&seen).unwrap_or(first);
+        rig.check(
+            "force trigger shows a suggestion in a field too short for auto",
+            !suggestion.trim().is_empty(),
+            format!("{text:?} -> {suggestion:?}"),
+        );
+        rig.key(TRIGGER);
+        let again = rig.settle(Duration::from_millis(500));
+        rig.check(
+            "force trigger while a suggestion is visible does nothing",
+            !again.iter().any(|a| is_request(a) || is_hide(a)),
+            format!("{again:?}"),
+        );
+        if word_count(&suggestion) < 2 {
+            continue;
+        }
+        let before = get_text(field.edit);
+        rig.key(ACCEPT_WORD);
+        let seen = rig.settle(Duration::from_millis(600));
+        let words = inserted(&seen);
+        let word = words.first().cloned().unwrap_or_default();
+        let rest = suggestion[word.len().min(suggestion.len())..].to_string();
+        rig.check(
+            "word accept on a forced suggestion keeps the rest with no new request",
+            words.len() == 1
+                && get_text(field.edit) == format!("{before}{word}")
+                && last_show(&seen).as_deref() == Some(rest.as_str())
+                && !seen.iter().any(is_request),
+            format!("rest {rest:?}, shown {:?}, seen {seen:?}", last_show(&seen)),
+        );
+        rig.key(ACCEPT_ALL);
+        let seen = rig.settle(Duration::from_millis(600));
+        rig.check(
+            "accept all finishes the forced suggestion",
+            get_text(field.edit) == format!("{before}{suggestion}") && inserted(&seen).len() == 1,
+            format!("tail {:?}", tail(&get_text(field.edit))),
+        );
+        return;
+    }
+}
+
+fn keys_without_a_suggestion(rig: &mut Rig) {
+    let field = rig.a;
+    rig.fresh(field, "Please sign the");
+    let base = get_text(field.edit);
+    for key in [ACCEPT_ALL, ACCEPT_WORD, DISMISS] {
+        rig.key(key);
+    }
+    let seen = rig.settle(Duration::from_millis(500));
+    rig.check(
+        "accept and dismiss keys do nothing without a suggestion",
+        inserted(&seen).is_empty() && get_text(field.edit) == base,
+        format!("{seen:?}"),
+    );
+}
+
 fn stale_keys(rig: &mut Rig) {
     let field = rig.a;
     let Some((_, suggestion)) = rig.suggestion_for(field, &PROSE, 2) else {
@@ -1761,7 +1839,10 @@ fn main() {
     let secret = spawn_test_window("Pith e2e secret", 60, 520, ES_AUTOHSCROLL);
     let locked = spawn_test_window("Pith e2e locked", 60, 750, ES_PASSWORD | ES_AUTOHSCROLL);
     TARGET.store(a.edit, Ordering::SeqCst);
-    let config = Config::default();
+    let config = Config {
+        accept_race_ms: 0,
+        ..Config::default()
+    };
     let (sender, receiver) = channel();
     let waker = Waker::default();
     let (ready_tx, ready_rx) = channel();
@@ -1845,7 +1926,7 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 21] = [
+        let scenarios: [(&str, Scenario); 23] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
@@ -1858,6 +1939,8 @@ fn main() {
             ("readcost", read_cost),
             ("long", long_document),
             ("chain", rapid_accept_chain),
+            ("force", forced_trigger),
+            ("nokeys", keys_without_a_suggestion),
             ("stale", stale_keys),
             ("escape", escape_then_flicker),
             ("selection", selection_while_visible),
