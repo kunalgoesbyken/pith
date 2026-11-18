@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -18,7 +18,7 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::w;
+use windows::core::{PCWSTR, w};
 
 use crate::clipboard::{Trigger, paste, replace_selection, replace_selection_after};
 use crate::events::Hooks;
@@ -30,7 +30,7 @@ use crate::reader::{Reader, Source};
 use crate::registry;
 use crate::settings::{SettingsWindow, UiEvent, take_events};
 use crate::tray::{Tray, TrayCommand, TrayView};
-use crate::util::remove_contents;
+use crate::util::{leftover_notice, remove_contents, wide};
 
 const WM_WAKE: u32 = WM_APP + 1;
 const TIMER_POLL: usize = 1;
@@ -39,6 +39,7 @@ const TIMER_REARM: usize = 3;
 const REARM_MS: u32 = 60;
 const DELETE_ATTEMPTS: u32 = 8;
 const DELETE_RETRY: Duration = Duration::from_millis(250);
+const RELEASE_WAIT: Duration = Duration::from_secs(5);
 
 pub enum InsertMode {
     Paste,
@@ -631,6 +632,26 @@ impl App {
     }
 }
 
+fn erase(dir: &Path, worker: Worker) {
+    let released = worker.shutdown(RELEASE_WAIT);
+    let left = remove_contents(dir, DELETE_ATTEMPTS, DELETE_RETRY);
+    log(&format!(
+        "data removed, model released {released}, {} item(s) left",
+        left.len()
+    ));
+    if let Some(notice) = leftover_notice(dir, &left) {
+        let text = wide(&notice);
+        unsafe {
+            MessageBoxW(
+                None,
+                PCWSTR(text.as_ptr()),
+                w!("Pith"),
+                MB_OK | MB_ICONWARNING,
+            );
+        }
+    }
+}
+
 pub fn run(
     config: Config,
     worker: Worker,
@@ -723,14 +744,9 @@ pub fn run(
     app.overlay.hide();
     app.keys.disarm();
     app.keys.set_trigger(false);
-    let wipe = app
-        .delete_data
-        .then(|| app.options.data_dir.clone())
-        .flatten();
-    drop(app);
-    if let Some(dir) = wipe {
-        let left = remove_contents(&dir, DELETE_ATTEMPTS, DELETE_RETRY);
-        log(&format!("data removed, {} item(s) left", left.len()));
+    match app.delete_data.then(|| app.options.data_dir.clone()).flatten() {
+        Some(dir) => erase(&dir, app.worker),
+        None => drop(app.worker),
     }
     Ok(())
 }
