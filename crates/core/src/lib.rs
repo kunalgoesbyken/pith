@@ -4,6 +4,7 @@ mod engine;
 mod ghost;
 mod ignore;
 mod log;
+mod placement;
 mod policy;
 mod prompt;
 mod setting;
@@ -20,6 +21,7 @@ pub use ghost::{
     median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
 };
 pub use log::{init_log, log};
+pub use placement::{Placement, anchor_pill, place};
 pub use policy::{SkipReason, check, check_forced};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use setting::{Setting, Suggestions};

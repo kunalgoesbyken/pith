@@ -2,7 +2,7 @@ mod common;
 
 use common::{Rng, fragment, is_boundary, text};
 use pith_core::{
-    Action, Completion, Config, Engine, Event, FieldSnapshot, Rect, StopReason, check,
+    Action, Completion, Config, Engine, Event, FieldSnapshot, Placement, Rect, StopReason, check,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -56,12 +56,17 @@ const STOPS: &[StopReason] = &[
 
 const APPS: &[&str] = &["notepad", "WINWORD.EXE", "Code", "C:\\x\\mail.exe"];
 
-fn rect(rng: &mut Rng) -> Rect {
-    Rect {
+fn placement(rng: &mut Rng) -> Placement {
+    let rect = Rect {
         x: rng.below(200) as i32,
         y: rng.below(200) as i32,
         width: 1,
         height: 16,
+    };
+    if rng.chance(50) {
+        Placement::Inline(rect)
+    } else {
+        Placement::Anchored(rect)
     }
 }
 
@@ -152,7 +157,7 @@ impl Harness {
             field_id: 1,
             app: "notepad".into(),
             before: "Please sign the".into(),
-            caret: Some(rect(&mut rng)),
+            placement: Some(placement(&mut rng)),
             ..Default::default()
         };
         Self {
@@ -229,7 +234,7 @@ impl Harness {
                         "start for a field policy rejects",
                     );
                     self.expect(
-                        field.is_some_and(|f| f.caret.is_some()),
+                        field.is_some_and(|f| f.placement.is_some()),
                         "start without a caret",
                     );
                     self.expect(
@@ -251,9 +256,9 @@ impl Harness {
                     self.expect(!text.trim().is_empty(), "blank suggestion shown");
                     self.expect(!text.contains(['\n', '\r']), "multiline suggestion shown");
                     self.expect(
-                        self.sent
-                            .as_ref()
-                            .is_some_and(|f| f.caret.is_some() && check(f, &self.config).is_ok()),
+                        self.sent.as_ref().is_some_and(|f| {
+                            f.placement.is_some() && check(f, &self.config).is_ok()
+                        }),
                         "show for a field that is not eligible",
                     );
                     self.stats.shows += 1;
@@ -305,7 +310,7 @@ impl Harness {
             self.expect(is_boundary(pre, inserted.len()), "insert cuts a grapheme");
             let rest = &pre[inserted.len()..];
             let expected = (!rest.trim().is_empty()
-                && self.sent.as_ref().is_some_and(|f| f.caret.is_some()))
+                && self.sent.as_ref().is_some_and(|f| f.placement.is_some()))
             .then_some(rest);
             self.expect(
                 self.engine.suggestion() == expected,
@@ -382,7 +387,7 @@ impl Harness {
             12..=14 => self.backspace(),
             15..=16 => self.replace_text(),
             17..=18 => self.switch_field(),
-            19..=21 => self.toggle_caret(),
+            19..=21 => self.toggle_placement(),
             22..=23 => self.toggle_flag(),
             24..=25 => self.set_after(),
             26..=33 => self.type_through(),
@@ -459,21 +464,21 @@ impl Harness {
         } else {
             text(&mut self.rng, 8)
         };
-        let caret = Some(rect(&mut self.rng));
+        let placement = Some(placement(&mut self.rng));
         self.world = Some(FieldSnapshot {
             field_id: id,
             app,
             before,
-            caret,
+            placement,
             ..Default::default()
         });
         self.publish();
     }
 
-    fn toggle_caret(&mut self) {
-        let caret = self.rng.chance(50).then(|| rect(&mut self.rng));
+    fn toggle_placement(&mut self) {
+        let placement = self.rng.chance(50).then(|| placement(&mut self.rng));
         if let Some(field) = &mut self.world {
-            field.caret = caret;
+            field.placement = placement;
         }
         self.publish();
     }
@@ -517,7 +522,7 @@ impl Harness {
         self.world = Some(next.clone());
         self.send(Event::Field(Some(next.clone())));
         let rest = &suggestion[typed.len()..];
-        let eligible = check(&next, &self.config).is_ok() && next.caret.is_some();
+        let eligible = check(&next, &self.config).is_ok() && next.placement.is_some();
         let expected = (eligible && !rest.trim().is_empty()).then_some(rest);
         self.expect(
             self.engine.suggestion() == expected,

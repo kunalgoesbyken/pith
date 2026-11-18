@@ -1,3 +1,5 @@
+use crate::placement::Placement;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rect {
     pub x: i32,
@@ -16,7 +18,7 @@ pub struct FieldSnapshot {
     pub has_selection: bool,
     pub is_password: bool,
     pub composing: bool,
-    pub caret: Option<Rect>,
+    pub placement: Option<Placement>,
     pub font_family: Option<String>,
     pub font_px: Option<f32>,
     pub text_color: Option<u32>,

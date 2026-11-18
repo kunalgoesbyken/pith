@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
-use pith_core::{Config, FieldSnapshot};
+use pith_core::{Config, FieldSnapshot, place};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -18,7 +18,7 @@ use crate::caret::{
     caret_range, caret_rect, composing, font, has_selection, runtime_id, text_around,
 };
 use crate::onboarding::is_practice;
-use crate::util::{is_elevated, process_name, window_pid, window_title};
+use crate::util::{is_elevated, process_name, rect_of, window_pid, window_title, work_areas};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Source {
@@ -197,6 +197,7 @@ fn read(
         };
         let (font_family, font_points, text_color) = font(&caret);
         let dpi = GetDpiForWindow(root).max(96) as f64;
+        let element_rect = element.CurrentBoundingRectangle().ok().map(rect_of);
         Ok(Some(FieldSnapshot {
             field_id: runtime_id(&element),
             app,
@@ -206,7 +207,7 @@ fn read(
             has_selection: has_selection(&element),
             is_password,
             composing: composing(&element),
-            caret: caret_rect(&caret, foreground),
+            placement: place(caret_rect(&caret, foreground), element_rect, &work_areas()),
             font_family,
             font_px: font_points.map(|pt| (pt * dpi / 72.0) as f32),
             text_color,

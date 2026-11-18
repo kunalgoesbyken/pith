@@ -1096,7 +1096,7 @@ fn long_document(rig: &mut Rig) {
         .unwrap_or_default();
     println!(
         "[INFO] long document caret {:?}",
-        snapshot.as_ref().map(|s| s.caret)
+        snapshot.as_ref().map(|s| s.placement)
     );
     rig.check(
         "long document read is a bounded suffix of the document",
@@ -1144,7 +1144,7 @@ fn long_document(rig: &mut Rig) {
     ];
     println!(
         "[INFO] caret before the accept flow {:?}",
-        rig.read(field).map(|s| s.caret)
+        rig.read(field).map(|s| s.placement)
     );
     let Some((_, suggestion)) = rig.suggestion_for_long(field, &candidates) else {
         return rig.check("long document accept flow", false, "no suggestion".into());
@@ -1707,6 +1707,59 @@ fn overlay_at_screen_edge(rig: &mut Rig) {
     move_host(field, rect.left, rect.top);
 }
 
+fn overlay_anchors_without_a_usable_caret(rig: &mut Rig) {
+    let field = rig.a;
+    let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
+    let rect = window_rect(HWND(field.host as _));
+    let Some((_, suggestion)) = rig.suggestion_for(field, &PROSE, 1) else {
+        return rig.check("anchor setup", false, "no suggestion".into());
+    };
+    let (caret_x, _) = caret_screen(field.edit, text_length(field.edit));
+    let beyond = 300;
+    move_host(
+        field,
+        rect.left + monitor.right + beyond - caret_x,
+        rect.top,
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    let edit = window_rect(HWND(field.edit as _));
+    let pill = overlay_window()
+        .map(window_rect)
+        .filter(|_| overlay_visible());
+    rig.check(
+        "caret off the monitor anchors the suggestion to the field, inside the monitor and clear of its text",
+        pill.is_some_and(|p| {
+            let clear = p.bottom <= edit.top || p.top >= edit.bottom;
+            p.left >= monitor.left
+                && p.right <= monitor.right
+                && p.top >= monitor.top
+                && p.bottom <= monitor.bottom
+                && clear
+        }),
+        format!(
+            "pill {:?}, edit {:?}, monitor {:?}, suggestion {suggestion:?}",
+            pill.map(|p| (p.left, p.top, p.right, p.bottom)),
+            (edit.left, edit.top, edit.right, edit.bottom),
+            (monitor.left, monitor.top, monitor.right, monitor.bottom)
+        ),
+    );
+    move_host(field, rect.left, rect.top);
+    std::thread::sleep(Duration::from_millis(500));
+    let back = overlay_window().map(window_rect);
+    let (caret_x, caret_y) = caret_screen(field.edit, text_length(field.edit));
+    rig.check(
+        "caret back on the monitor returns the ghost inline",
+        overlay_visible()
+            && back.is_some_and(|g| {
+                (g.left - caret_x).abs() <= 12 && g.top <= caret_y + 24 && g.bottom >= caret_y
+            }),
+        format!(
+            "caret ({caret_x},{caret_y}), ghost {:?}",
+            back.map(|g| (g.left, g.top, g.right, g.bottom))
+        ),
+    );
+}
+
 fn idle_unload(rig: &mut Rig, unload_after: Duration) {
     let field = rig.a;
     rig.fresh(field, "");
@@ -2025,6 +2078,11 @@ fn main() {
             println!("--- edge");
             rig.resume_target();
             overlay_at_screen_edge(&mut rig);
+        }
+        if only.as_deref().is_none_or(|o| "anchor".contains(o)) {
+            println!("--- anchor");
+            rig.resume_target();
+            overlay_anchors_without_a_usable_caret(&mut rig);
         }
         print_memory("loaded, after scenarios");
         if idle_unload_secs > 0 && only.as_deref().is_none_or(|o| "unload".contains(o)) {

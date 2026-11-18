@@ -131,13 +131,13 @@ impl App {
                 Action::CancelCompletion => self.worker.cancel(),
                 Action::Show {
                     text,
-                    caret,
+                    placement,
                     font_family,
                     font_px,
                     color,
                 } => self
                     .overlay
-                    .show(&text, caret, font_family.as_deref(), font_px, color),
+                    .show(&text, placement, font_family.as_deref(), font_px, color),
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => match &self.options.insert {
                     InsertMode::Paste => paste(text, Trigger::Chord),

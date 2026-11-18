@@ -4,8 +4,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ignore::IgnoreTracker;
 use crate::{
-    Completion, CompletionRequest, Config, FieldSnapshot, Rect, SkipReason, TriggerMode, build,
-    check, check_forced, continue_window, ends_spaced_word, next_word, suggestion,
+    Completion, CompletionRequest, Config, FieldSnapshot, Placement, SkipReason, TriggerMode,
+    build, check, check_forced, continue_window, ends_spaced_word, next_word, suggestion,
 };
 
 const READ_TIME: Duration = Duration::from_millis(500);
@@ -44,7 +44,7 @@ pub enum Action {
     CancelCompletion,
     Show {
         text: String,
-        caret: Rect,
+        placement: Placement,
         font_family: Option<String>,
         font_px: Option<f32>,
         color: Option<u32>,
@@ -203,7 +203,7 @@ impl Engine {
         let Some(field) = &self.field else { return };
         if self.suggestion.is_some()
             || self.in_flight
-            || field.caret.is_none()
+            || field.placement.is_none()
             || check_forced(field, &self.config).is_err()
         {
             return;
@@ -275,7 +275,7 @@ impl Engine {
                 self.config.lookback_chars(),
             );
         }
-        let suggestable = field.caret.is_some() && check(&field, &self.config).is_ok();
+        let suggestable = field.placement.is_some() && check(&field, &self.config).is_ok();
         self.dismissed.take_if(|(id, before)| {
             suggestable && *id == field.field_id && *before != field.before
         });
@@ -285,9 +285,11 @@ impl Engine {
                 && previous.app == field.app
                 && self.eligible(&field).is_ok();
             if same_field && previous.before == field.before && previous.after == field.after {
-                let moved = previous.caret != field.caret;
+                let moved = previous.placement != field.placement;
                 let unblocked = self.eligible(previous).is_err()
-                    || (previous.caret.is_none() && self.suggestion.is_none() && !self.in_flight);
+                    || (previous.placement.is_none()
+                        && self.suggestion.is_none()
+                        && !self.in_flight);
                 self.field = Some(field);
                 if unblocked {
                     self.schedule(out);
@@ -350,7 +352,7 @@ impl Engine {
             .is_some_and(|(id, before)| *id == field.field_id && *before == field.before);
         if dismissed
             || self.config.trigger_mode == TriggerMode::Manual
-            || field.caret.is_none()
+            || field.placement.is_none()
             || check(field, &self.config).is_err()
             || self.ignores.is_paused(&field.app)
         {
@@ -367,7 +369,7 @@ impl Engine {
             return;
         }
         let Some(field) = &self.field else { return };
-        if field.caret.is_none() || self.suppressed(field) {
+        if field.placement.is_none() || self.suppressed(field) {
             return;
         }
         self.in_flight = true;
@@ -392,7 +394,7 @@ impl Engine {
         let Some(text) = suggestion(&completion, &field.before, &self.config) else {
             return;
         };
-        if field.caret.is_none() {
+        if field.placement.is_none() {
             return;
         }
         self.suggestion = Some(text);
@@ -442,10 +444,10 @@ impl Engine {
         let (Some(text), Some(field)) = (&self.suggestion, &self.field) else {
             return;
         };
-        match field.caret {
-            Some(caret) => out.push(Action::Show {
+        match field.placement {
+            Some(placement) => out.push(Action::Show {
                 text: text.clone(),
-                caret,
+                placement,
                 font_family: field.font_family.clone(),
                 font_px: field.font_px,
                 color: field.text_color,
@@ -462,19 +464,19 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::StopReason;
+    use crate::{Rect, StopReason};
 
     fn field(before: &str) -> FieldSnapshot {
         FieldSnapshot {
             field_id: 1,
             app: "notepad".into(),
             before: before.into(),
-            caret: Some(Rect {
+            placement: Some(Placement::Inline(Rect {
                 x: 10,
                 y: 10,
                 width: 1,
                 height: 16,
-            }),
+            })),
             ..Default::default()
         }
     }
@@ -605,12 +607,12 @@ mod tests {
         let out = engine.handle(Event::Dismiss);
         assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
         let mut moved = field("Please sign the");
-        moved.caret = Some(Rect {
+        moved.placement = Some(Placement::Inline(Rect {
             x: 50,
             y: 10,
             width: 1,
             height: 16,
-        });
+        }));
         assert!(engine.handle(Event::Field(Some(moved))).is_empty());
         let out = engine.handle(Event::Field(Some(field("Please sign the d"))));
         assert!(
@@ -628,13 +630,13 @@ mod tests {
 
     fn blind(before: &str) -> FieldSnapshot {
         FieldSnapshot {
-            caret: None,
+            placement: None,
             ..field(before)
         }
     }
 
     #[test]
-    fn never_infers_without_a_visible_caret() {
+    fn never_infers_without_a_placement() {
         let mut engine = Engine::new(Config::default());
         for _ in 0..3 {
             let out = engine.handle(Event::Field(Some(blind("Please sign the"))));
@@ -664,10 +666,64 @@ mod tests {
         let mut engine = Engine::new(Config::default());
         suggest(&mut engine, "Please sign the", " contract");
         let mut blind = field("Please sign the");
-        blind.caret = None;
+        blind.placement = None;
         let out = engine.handle(Event::Field(Some(blind)));
         assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
         assert!(engine.suggestion().is_none());
+    }
+
+    fn anchored(before: &str) -> FieldSnapshot {
+        FieldSnapshot {
+            placement: Some(Placement::Anchored(Rect {
+                x: 0,
+                y: 0,
+                width: 300,
+                height: 40,
+            })),
+            ..field(before)
+        }
+    }
+
+    #[test]
+    fn a_field_without_a_trusted_caret_still_suggests_anchored() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(anchored("Please sign the"))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        let expected = anchored("").placement;
+        assert!(
+            matches!(&out[0], Action::Show { placement, .. } if Some(*placement) == expected),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn the_ghost_follows_a_placement_switch_between_inline_and_anchored() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        let out = engine.handle(Event::Field(Some(anchored("Please sign the"))));
+        let expected = anchored("").placement;
+        assert!(
+            matches!(out.as_slice(), [Action::Show { placement, .. }] if Some(*placement) == expected),
+            "{out:?}"
+        );
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        assert!(
+            matches!(
+                out.as_slice(),
+                [Action::Show {
+                    placement: Placement::Inline(_),
+                    ..
+                }]
+            ),
+            "{out:?}"
+        );
     }
 
     #[test]

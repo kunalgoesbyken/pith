@@ -1,8 +1,8 @@
 use std::ffi::c_void;
 
 use pith_core::{
-    FADE_ALPHAS, FADE_FRAME_MS, Flow, Line, Rect, flow_bounds, ink, is_rtl, layout, lines_that_fit,
-    median_by_luminance, next_word, next_word_alpha, strong_span,
+    FADE_ALPHAS, FADE_FRAME_MS, Flow, Line, Placement, Rect, anchor_pill, flow_bounds, ink, is_rtl,
+    layout, lines_that_fit, median_by_luminance, next_word, next_word_alpha, strong_span,
 };
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -11,8 +11,14 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
-use crate::util::wide;
+use crate::pill::{Pill, Style};
+use crate::ui::{Role, STROKE, Scale, Theme};
+use crate::util::{rect_of, wide};
 
+const PILL_PADDING_X: i32 = 10;
+const PILL_PADDING_Y: i32 = 5;
+const PILL_GAP: i32 = 4;
+const PILL_MIN_WIDTH: i32 = 240;
 const WHITE: u32 = 0x00FF_FFFF;
 const CLR_INVALID: u32 = 0xFFFF_FFFF;
 const FALLBACK_FONT: &str = "Segoe UI";
@@ -67,19 +73,10 @@ unsafe extern "system" fn procedure(
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
 }
 
-fn rect_of(raw: RECT) -> Rect {
-    Rect {
-        x: raw.left,
-        y: raw.top,
-        width: raw.right - raw.left,
-        height: raw.bottom - raw.top,
-    }
-}
-
 fn monitor_of(caret: Rect) -> (Rect, u32) {
     unsafe {
         let point = POINT {
-            x: caret.x,
+            x: caret.x + caret.width / 2,
             y: caret.y + caret.height / 2,
         };
         let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
@@ -196,10 +193,21 @@ impl Drop for Face {
     }
 }
 
+struct Picture<'a> {
+    text: &'a str,
+    lines: &'a [Line],
+    rtl: bool,
+    origin: POINT,
+    destination: POINT,
+    width: i32,
+    height: i32,
+}
+
 pub struct Overlay {
     hwnd: HWND,
     visible: bool,
     background: u32,
+    style: Style,
     opacity: u8,
 }
 
@@ -237,12 +245,27 @@ impl Overlay {
                 hwnd,
                 visible: false,
                 background: WHITE,
+                style: Style::of(&Theme::detect()),
                 opacity,
             })
         }
     }
 
     pub fn show(
+        &mut self,
+        text: &str,
+        placement: Placement,
+        font_family: Option<&str>,
+        font_px: Option<f32>,
+        color: Option<u32>,
+    ) {
+        match placement {
+            Placement::Inline(caret) => self.show_inline(text, caret, font_family, font_px, color),
+            Placement::Anchored(element) => self.show_anchored(text, element),
+        }
+    }
+
+    fn show_inline(
         &mut self,
         text: &str,
         caret: Rect,
@@ -306,94 +329,221 @@ impl Overlay {
                 .map(|line| strong_span(text, line, strong_end, rtl, &measure))
                 .collect();
             let rows = row_spans(&lines, &spans, left, first, face.line_height, height);
-            let info = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: width,
-                    biHeight: -height,
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    ..Default::default()
-                },
-                ..Default::default()
+            let (red, green, blue) = (
+                paint.color & 0xFF,
+                (paint.color >> 8) & 0xFF,
+                (paint.color >> 16) & 0xFF,
+            );
+            let shade = |column: i32, row: i32, coverage: u32| {
+                let emphasised =
+                    rows[row as usize].is_some_and(|(from, to)| (from..to).contains(&column));
+                let ceiling = u32::from(if emphasised { strong } else { paint.alpha });
+                let alpha = coverage * ceiling / 255;
+                (alpha << 24)
+                    | ((red * alpha / 255) << 16)
+                    | ((green * alpha / 255) << 8)
+                    | (blue * alpha / 255)
             };
-            let mut bits: *mut c_void = std::ptr::null_mut();
-            if let Ok(bitmap) =
-                CreateDIBSection(Some(face.memory), &info, DIB_RGB_COLORS, &mut bits, None, 0)
-            {
-                let previous_bitmap = SelectObject(face.memory, bitmap.into());
-                SetBkMode(face.memory, TRANSPARENT);
-                SetTextColor(face.memory, COLORREF(WHITE));
-                for line in &lines {
-                    let units: Vec<u16> = text[line.start..line.end].encode_utf16().collect();
-                    let options = if rtl { ETO_RTLREADING } else { ETO_OPTIONS(0) };
-                    let _ = ExtTextOutW(
-                        face.memory,
-                        line.x - left,
-                        line.y - first,
-                        options,
-                        None,
-                        PCWSTR(units.as_ptr()),
-                        units.len() as u32,
-                        None,
-                    );
-                }
-                let (red, green, blue) = (
-                    paint.color & 0xFF,
-                    (paint.color >> 8) & 0xFF,
-                    (paint.color >> 16) & 0xFF,
-                );
-                let pixels =
-                    std::slice::from_raw_parts_mut(bits as *mut u32, (width * height) as usize);
-                for (row, band) in pixels.chunks_exact_mut(width as usize).enumerate() {
-                    for (column, pixel) in band.iter_mut().enumerate() {
-                        let coverage = ((*pixel >> 16) & 0xFF)
-                            .max((*pixel >> 8) & 0xFF)
-                            .max(*pixel & 0xFF);
-                        let emphasised = rows[row]
-                            .is_some_and(|(from, to)| (from..to).contains(&(column as i32)));
-                        let ceiling = u32::from(if emphasised { strong } else { paint.alpha });
-                        let alpha = coverage * ceiling / 255;
-                        *pixel = (alpha << 24)
-                            | ((red * alpha / 255) << 16)
-                            | ((green * alpha / 255) << 8)
-                            | (blue * alpha / 255);
-                    }
-                }
-                let step = if self.visible {
-                    GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as usize
-                } else {
-                    0
-                };
-                let destination = POINT { x: left, y: first };
-                let extent = SIZE {
-                    cx: width,
-                    cy: height,
-                };
-                let origin = POINT { x: 0, y: 0 };
-                let blend = BLENDFUNCTION {
-                    BlendOp: AC_SRC_OVER as u8,
-                    BlendFlags: 0,
-                    SourceConstantAlpha: FADE_ALPHAS[step.min(FADE_ALPHAS.len() - 1)],
-                    AlphaFormat: AC_SRC_ALPHA as u8,
-                };
-                let _ = UpdateLayeredWindow(
-                    self.hwnd,
-                    Some(screen),
-                    Some(&destination),
-                    Some(&extent),
-                    Some(face.memory),
-                    Some(&origin),
-                    COLORREF(0),
-                    Some(&blend),
-                    ULW_ALPHA,
-                );
-                SelectObject(face.memory, previous_bitmap);
-                let _ = DeleteObject(bitmap.into());
-            }
+            let origin = POINT { x: left, y: first };
+            let picture = Picture {
+                text,
+                lines: &lines,
+                rtl,
+                origin,
+                destination: origin,
+                width,
+                height,
+            };
+            self.draw(&face, screen, &picture, &shade);
             drop(face);
             ReleaseDC(None, screen);
+        }
+        self.reveal();
+    }
+
+    fn show_anchored(&mut self, text: &str, element: Rect) {
+        let rtl = is_rtl(text);
+        let (work, dpi) = monitor_of(element);
+        let scale = Scale(dpi);
+        if !self.visible {
+            self.style = Style::of(&Theme::detect());
+        }
+        let strong_end = next_word(text).len();
+        let (padding_x, padding_y) = (scale.px(PILL_PADDING_X), scale.px(PILL_PADDING_Y));
+        let room = element.width.max(scale.px(PILL_MIN_WIDTH)).min(work.width) - 2 * padding_x;
+        unsafe {
+            let screen = GetDC(None);
+            let face = Face::new(
+                screen,
+                FALLBACK_FONT,
+                scale.size(Role::Body.size()).round() as i32,
+            );
+            let measure = |segment: &str| face.measure(segment);
+            let flow = Flow {
+                caret: Rect {
+                    x: if rtl { room } else { -1 },
+                    y: 0,
+                    width: 0,
+                    height: face.line_height,
+                },
+                top: 0,
+                line_height: face.line_height,
+                bounds: Rect {
+                    x: 0,
+                    y: 0,
+                    width: room,
+                    height: face.line_height,
+                },
+                rtl,
+                max_lines: 1,
+            };
+            let lines = layout(text, &flow, &measure);
+            let height = face.line_height + 2 * padding_y;
+            let placed = lines.first().and_then(|line| {
+                anchor_pill(
+                    element,
+                    line.width + 2 * padding_x,
+                    height,
+                    scale.px(PILL_GAP),
+                    work,
+                    rtl,
+                )
+                .map(|pill| (*line, pill))
+            });
+            let Some((line, pill)) = placed else {
+                ReleaseDC(None, screen);
+                drop(face);
+                self.hide();
+                return;
+            };
+            let origin = POINT {
+                x: line.x - padding_x,
+                y: -padding_y,
+            };
+            let span = [strong_span(text, &line, strong_end, rtl, &measure)];
+            let rows = row_spans(&[line], &span, origin.x, origin.y, face.line_height, height);
+            let shape = Pill {
+                width: pill.width,
+                height: pill.height,
+                edge: scale.px(STROKE).max(1),
+            };
+            let style = self.style;
+            let shade = |column: i32, row: i32, coverage: u32| {
+                let emphasised =
+                    rows[row as usize].is_some_and(|(from, to)| (from..to).contains(&column));
+                style.pixel(shape, column, row, coverage, emphasised)
+            };
+            let picture = Picture {
+                text,
+                lines: &[line],
+                rtl,
+                origin,
+                destination: POINT {
+                    x: pill.x,
+                    y: pill.y,
+                },
+                width: pill.width,
+                height: pill.height,
+            };
+            self.draw(&face, screen, &picture, &shade);
+            drop(face);
+            ReleaseDC(None, screen);
+        }
+        self.reveal();
+    }
+
+    fn draw(
+        &self,
+        face: &Face,
+        screen: HDC,
+        picture: &Picture,
+        shade: &dyn Fn(i32, i32, u32) -> u32,
+    ) {
+        let (width, height) = (picture.width, picture.height);
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        unsafe {
+            let Ok(bitmap) =
+                CreateDIBSection(Some(face.memory), &info, DIB_RGB_COLORS, &mut bits, None, 0)
+            else {
+                return;
+            };
+            let previous_bitmap = SelectObject(face.memory, bitmap.into());
+            SetBkMode(face.memory, TRANSPARENT);
+            SetTextColor(face.memory, COLORREF(WHITE));
+            for line in picture.lines {
+                let units: Vec<u16> = picture.text[line.start..line.end].encode_utf16().collect();
+                let options = if picture.rtl {
+                    ETO_RTLREADING
+                } else {
+                    ETO_OPTIONS(0)
+                };
+                let _ = ExtTextOutW(
+                    face.memory,
+                    line.x - picture.origin.x,
+                    line.y - picture.origin.y,
+                    options,
+                    None,
+                    PCWSTR(units.as_ptr()),
+                    units.len() as u32,
+                    None,
+                );
+            }
+            let pixels =
+                std::slice::from_raw_parts_mut(bits as *mut u32, (width * height) as usize);
+            for (row, band) in pixels.chunks_exact_mut(width as usize).enumerate() {
+                for (column, pixel) in band.iter_mut().enumerate() {
+                    let coverage = ((*pixel >> 16) & 0xFF)
+                        .max((*pixel >> 8) & 0xFF)
+                        .max(*pixel & 0xFF);
+                    *pixel = shade(column as i32, row as i32, coverage);
+                }
+            }
+            let step = if self.visible {
+                GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as usize
+            } else {
+                0
+            };
+            let extent = SIZE {
+                cx: width,
+                cy: height,
+            };
+            let source = POINT { x: 0, y: 0 };
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: FADE_ALPHAS[step.min(FADE_ALPHAS.len() - 1)],
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
+            let _ = UpdateLayeredWindow(
+                self.hwnd,
+                Some(screen),
+                Some(&picture.destination),
+                Some(&extent),
+                Some(face.memory),
+                Some(&source),
+                COLORREF(0),
+                Some(&blend),
+                ULW_ALPHA,
+            );
+            SelectObject(face.memory, previous_bitmap);
+            let _ = DeleteObject(bitmap.into());
+        }
+    }
+
+    fn reveal(&mut self) {
+        unsafe {
             if !self.visible {
                 SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
                 let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);

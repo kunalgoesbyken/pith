@@ -1,7 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND};
+use pith_core::Rect;
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, RECT,
+};
+use windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
+};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{
     CreateMutexW, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
@@ -11,7 +17,45 @@ use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowTextW, GetWindowThreadProcessId, SW_SHOWNORMAL,
 };
-use windows::core::{PCWSTR, PWSTR, w};
+use windows::core::{BOOL, PCWSTR, PWSTR, w};
+
+pub fn rect_of(raw: RECT) -> Rect {
+    Rect {
+        x: raw.left,
+        y: raw.top,
+        width: raw.right - raw.left,
+        height: raw.bottom - raw.top,
+    }
+}
+
+unsafe extern "system" fn collect_work_area(
+    monitor: HMONITOR,
+    _: HDC,
+    _: *mut RECT,
+    data: LPARAM,
+) -> BOOL {
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        unsafe { &mut *(data.0 as *mut Vec<Rect>) }.push(rect_of(info.rcWork));
+    }
+    BOOL(1)
+}
+
+pub fn work_areas() -> Vec<Rect> {
+    let mut areas: Vec<Rect> = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(collect_work_area),
+            LPARAM(&mut areas as *mut Vec<Rect> as isize),
+        );
+    }
+    areas
+}
 
 pub fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()

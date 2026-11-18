@@ -9,6 +9,7 @@ mod foreground;
 mod keys;
 mod onboarding;
 mod overlay;
+mod pill;
 mod reader;
 mod registry;
 mod run;
