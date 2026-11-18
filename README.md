@@ -71,7 +71,7 @@ cargo run --release -p nib-infer --example typing_bench -- path\to\model.gguf 4
 cargo run --release -p nib-windows --example e2e -- path\to\model.gguf .
 ```
 
-`typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed. `e2e` drives the full app against its own RichEdit window through window messages, so it never sends keystrokes to other apps.
+`typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed. `e2e` drives the full app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, rapid accept chains, stale keys, escape, selection, password fields, pause, field switching, overlay geometry and memory. `NIB_E2E_ONLY=<name>` runs matching scenarios, `NIB_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `NIB_E2E_INSERT_LAG_MS=<ms>` delays insertion like the real paste, `NIB_E2E_TRACE=1` prints every action.
 
 ## Roadmap
 
