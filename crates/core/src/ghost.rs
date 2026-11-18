@@ -178,6 +178,27 @@ struct Cursor {
     room: i32,
 }
 
+pub fn strong_span(
+    text: &str,
+    line: &Line,
+    strong_end: usize,
+    rtl: bool,
+    measure: &dyn Fn(&str) -> i32,
+) -> Option<(i32, i32)> {
+    if strong_end <= line.start {
+        return None;
+    }
+    if strong_end >= line.end {
+        return Some((0, line.width));
+    }
+    let covered = measure(text.get(line.start..strong_end)?).clamp(0, line.width);
+    Some(if rtl {
+        (line.width - covered, line.width)
+    } else {
+        (0, covered)
+    })
+}
+
 pub fn layout(text: &str, flow: &Flow, measure: &dyn Fn(&str) -> i32) -> Vec<Line> {
     let anchor = if flow.rtl {
         flow.caret.x
@@ -406,6 +427,42 @@ mod tests {
         for line in layout("next", &rtl, &measure) {
             assert!(line.x >= 0 && line.x + line.width <= 400);
         }
+    }
+
+    #[test]
+    fn strong_span_covers_the_next_word_from_the_logical_start() {
+        let text = " alpha beta gamma";
+        let flow = flow(0, 0, 100, false);
+        let lines = layout(text, &flow, &measure);
+        let strong_end = " alpha".len();
+        assert_eq!(strong_span(text, &lines[0], strong_end, false, &measure), Some((0, 60)));
+        assert_eq!(strong_span(text, &lines[1], strong_end, false, &measure), None);
+    }
+
+    #[test]
+    fn strong_span_is_the_whole_line_when_the_word_ends_after_it() {
+        let text = "aaaa bbbb";
+        let flow = flow(60, 0, 100, true);
+        let lines = layout(text, &flow, &measure);
+        assert_eq!(strong_span(text, &lines[0], 9, true, &measure), Some((0, 40)));
+        assert_eq!(strong_span(text, &lines[1], 4, true, &measure), None);
+    }
+
+    #[test]
+    fn strong_span_sits_at_the_right_end_of_an_rtl_line() {
+        let text = "aaaa bbbb";
+        let flow = flow(200, 0, 400, true);
+        let lines = layout(text, &flow, &measure);
+        assert_eq!(strong_span(text, &lines[0], 4, true, &measure), Some((50, 90)));
+        assert_eq!(strong_span(text, &lines[0], 4, false, &measure), Some((0, 40)));
+    }
+
+    #[test]
+    fn strong_span_ignores_a_boundary_inside_a_character() {
+        let text = " שלום עולם";
+        let flow = flow(300, 0, 400, true);
+        let lines = layout(text, &flow, &measure);
+        assert_eq!(strong_span(text, &lines[0], 2, true, &measure), None);
     }
 
     #[test]
