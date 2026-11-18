@@ -37,16 +37,22 @@ pub fn tail_chars(text: &str, window: usize) -> &str {
         return text;
     }
     let step = (window / 2).max(1);
-    let start = ((total - window) / step + 1) * step;
+    let start = (((total - window) / step + 1) * step).min(total - 1);
     let start_byte = text
         .grapheme_indices(true)
         .nth(start)
         .map_or(text.len(), |(i, _)| i);
     let rest = &text[start_byte..];
     match rest.find(char::is_whitespace) {
-        Some(offset) if offset < rest.len() / 2 => rest[offset..].trim_start(),
+        Some(offset) if offset < rest.len() / 2 => trim_start_graphemes(&rest[offset..]),
         _ => rest,
     }
+}
+
+fn trim_start_graphemes(text: &str) -> &str {
+    text.grapheme_indices(true)
+        .find(|(_, grapheme)| !grapheme.starts_with(char::is_whitespace))
+        .map_or("", |(start, _)| &text[start..])
 }
 
 pub fn split_partial(before: &str) -> (&str, &str) {
@@ -99,6 +105,7 @@ pub fn clean_completion(raw: &str, max_words: usize, truncated: bool) -> Option<
     if truncated
         && words > 1
         && end == line.len()
+        && !line.ends_with(char::is_whitespace)
         && let Some(start) = last_word_start
     {
         text = &line[..start];
@@ -218,5 +225,29 @@ mod tests {
             let tail = tail_chars(&text, window);
             assert!(!tail.starts_with(|c: char| ('ऀ'..='ः').contains(&c) || ('ा'..='्').contains(&c)), "{window}");
         }
+    }
+
+    #[test]
+    fn tail_window_of_one_keeps_the_last_grapheme() {
+        assert_eq!(tail_chars("hello", 1), "o");
+        assert_eq!(tail_chars("cafe\u{301}", 1), "e\u{301}");
+    }
+
+    #[test]
+    fn tail_never_leaves_a_mark_whose_space_was_trimmed() {
+        let text = format!("{}\u{2003}\u{fe0f}{}", "a".repeat(27), "b".repeat(32));
+        assert_eq!(tail_chars(&text, 50), "b".repeat(32));
+    }
+
+    #[test]
+    fn clean_completion_keeps_a_word_followed_by_space_when_truncated() {
+        assert_eq!(
+            clean_completion(" one two ", 6, true).as_deref(),
+            Some(" one two")
+        );
+        assert_eq!(
+            clean_completion(" one two", 6, true).as_deref(),
+            Some(" one")
+        );
     }
 }

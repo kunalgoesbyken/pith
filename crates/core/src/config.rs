@@ -10,7 +10,7 @@ pub fn app_name(path_or_name: &str) -> String {
         .trim();
     let mut stem = leaf;
     while stem.to_ascii_lowercase().ends_with(".exe") {
-        stem = &stem[..stem.len() - 4];
+        stem = stem[..stem.len() - 4].trim_end();
     }
     stem.to_string()
 }
@@ -29,11 +29,14 @@ mod tests {
             "",
             ".exe",
             "a.exe.exe",
+            "foo .exe",
+            ".EXE \u{a0}\t.exe",
         ] {
             let once = app_name(raw);
             assert_eq!(app_name(&once), once, "{raw}");
         }
         assert_eq!(app_name(r"C:\Apps\Foo.Bar.EXE"), "Foo.Bar");
+        assert_eq!(app_name("foo .exe"), "foo");
     }
 
     #[test]
@@ -66,6 +69,9 @@ mod tests {
             ("model_path = \"\"", true),
             ("model_path = \"Z:/missing/model.gguf\"", false),
             ("context_tokens = 32", false),
+            ("min_mean_logprob = nan", false),
+            ("min_token_logprob = nan", false),
+            ("min_mean_logprob = -inf", true),
         ] {
             assert_eq!(Config::from_toml(toml).is_ok(), ok, "{toml}");
         }
@@ -208,6 +214,10 @@ impl Config {
             (
                 self.context_tokens as usize >= self.max_tokens + MIN_CONTEXT_HEADROOM as usize,
                 "context_tokens must exceed max_tokens by at least 64",
+            ),
+            (
+                !self.min_token_logprob.is_nan() && !self.min_mean_logprob.is_nan(),
+                "logprob thresholds must be numbers",
             ),
             (self.debounce_ms <= MAX_DEBOUNCE_MS, "debounce_ms must be at most 5000"),
             (
