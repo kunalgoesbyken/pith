@@ -127,6 +127,16 @@ pub fn next_word(suggestion: &str) -> &str {
     &suggestion[..end]
 }
 
+pub fn ends_spaced_word(text: &str) -> bool {
+    let line = text.rsplit(['\n', '\r']).next().unwrap_or_default();
+    let mut segments = line.split_word_bounds().rev();
+    segments.next().is_some_and(is_word_like) && segments.next().is_some_and(is_inline_blank)
+}
+
+fn is_inline_blank(segment: &str) -> bool {
+    !segment.is_empty() && segment.chars().all(is_inline_space)
+}
+
 pub fn exceeds_words(text: &str, max_words: usize) -> bool {
     text.split_word_bounds()
         .filter(|segment| is_word_like(segment))
@@ -167,6 +177,30 @@ pub fn clean_completion(raw: &str, max_words: usize, truncated: bool) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spaced_word_needs_a_space_before_the_last_word() {
+        for text in [
+            "Please sign the contract",
+            "a b",
+            "Das ist gut",
+            "Meeting начало",
+        ] {
+            assert!(ends_spaced_word(text), "{text:?}");
+        }
+        for text in [
+            "",
+            "contract",
+            "Please sign the contract.",
+            "Please sign the contract ",
+            "well-known",
+            "我喜欢苹果",
+            "日本語の文章",
+            "first line\nsecond",
+        ] {
+            assert!(!ends_spaced_word(text), "{text:?}");
+        }
+    }
 
     #[test]
     fn split_partial_cases() {
@@ -308,7 +342,10 @@ mod tests {
         assert_eq!(sentence_end(" कल आऊँगा।"), Some(SentenceEnd::NeedsSpace));
         assert_eq!(sentence_end(" ..."), None);
         assert_eq!(sentence_end(" costs 3.5."), Some(SentenceEnd::NeedsSpace));
-        assert_eq!(sentence_end(" on www.example.com."), Some(SentenceEnd::NeedsSpace));
+        assert_eq!(
+            sentence_end(" on www.example.com."),
+            Some(SentenceEnd::NeedsSpace)
+        );
         assert_eq!(sentence_end(" at 9:30 a.m."), None);
         assert_eq!(sentence_end(" in the U.S."), None);
         assert_eq!(sentence_end(" (i.e."), None);

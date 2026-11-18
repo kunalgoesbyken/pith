@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::HWND;
@@ -10,6 +12,7 @@ pub enum TrayCommand {
     Toggle,
     OpenConfig,
     Quit,
+    Resume(String),
 }
 
 fn toggle_label(enabled: bool) -> &'static str {
@@ -36,6 +39,8 @@ fn icon_id(hwnd: HWND) -> Option<u32> {
 }
 
 pub struct Tray {
+    menu: Menu,
+    resumes: RefCell<Vec<(MenuItem, String)>>,
     icon: TrayIcon,
     status: MenuItem,
     toggle: MenuItem,
@@ -81,12 +86,14 @@ impl Tray {
         menu.append(&config).ok()?;
         menu.append(&quit).ok()?;
         let icon = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
+            .with_menu(Box::new(menu.clone()))
             .with_tooltip("Pith")
             .with_icon(glyph(enabled))
             .build()
             .ok()?;
         Some(Self {
+            menu,
+            resumes: RefCell::new(Vec::new()),
             icon,
             status,
             toggle,
@@ -98,6 +105,21 @@ impl Tray {
     pub fn set_status(&self, text: &str) {
         self.status.set_text(format!("Pith: {text}"));
         let _ = self.icon.set_tooltip(Some(format!("Pith: {text}")));
+    }
+
+    pub fn set_auto_paused(&self, apps: &[String]) {
+        let mut resumes = self.resumes.borrow_mut();
+        for (item, _) in resumes.drain(..) {
+            let _ = self.menu.remove(&item);
+        }
+        for (position, app) in apps.iter().enumerate() {
+            let name = app.replace('&', "&&");
+            let label = format!("Paused in {name} (ignored) \u{2014} Resume");
+            let item = MenuItem::new(label, true, None);
+            if self.menu.insert(&item, 1 + position).is_ok() {
+                resumes.push((item, app.clone()));
+            }
+        }
     }
 
     pub fn set_enabled(&self, enabled: bool) {
@@ -125,6 +147,14 @@ impl Tray {
 
     pub fn poll(&self) -> Option<TrayCommand> {
         let event = MenuEvent::receiver().try_recv().ok()?;
+        if let Some((_, app)) = self
+            .resumes
+            .borrow()
+            .iter()
+            .find(|(item, _)| event.id == *item.id())
+        {
+            return Some(TrayCommand::Resume(app.clone()));
+        }
         if event.id == *self.toggle.id() {
             Some(TrayCommand::Toggle)
         } else if event.id == *self.config.id() {

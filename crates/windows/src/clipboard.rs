@@ -10,7 +10,7 @@ use windows::Win32::System::Memory::{
 use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::UI::Controls::EM_REPLACESEL;
 use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_V};
-use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_PASTE};
 use windows::core::PCWSTR;
 
 use crate::keys::{send_chord, wait_for_modifiers_released};
@@ -129,17 +129,41 @@ fn sequence() -> u32 {
     unsafe { GetClipboardSequenceNumber() }
 }
 
-fn paste_burst(first: String, queue: &Receiver<String>) {
+#[derive(Clone, Copy)]
+pub enum Trigger {
+    Chord,
+    Message(isize),
+}
+
+impl Trigger {
+    fn ready(self) -> bool {
+        match self {
+            Trigger::Chord => wait_for_modifiers_released(MODIFIER_WAIT),
+            Trigger::Message(_) => true,
+        }
+    }
+
+    fn fire(self) {
+        match self {
+            Trigger::Chord => send_chord(&[VK_CONTROL], VK_V),
+            Trigger::Message(hwnd) => unsafe {
+                SendMessageW(HWND(hwnd as _), WM_PASTE, None, None);
+            },
+        }
+    }
+}
+
+fn paste_burst(first: (Trigger, String), queue: &Receiver<(Trigger, String)>) {
     let Some(saved) = save() else { return };
     let mut ours = None;
     let mut next = Some(first);
-    while let Some(text) = next {
+    while let Some((trigger, text)) = next {
         let untouched = ours.is_none_or(|seq| seq == sequence());
-        if !untouched || !wait_for_modifiers_released(MODIFIER_WAIT) || !set_text(&text) {
+        if !untouched || !trigger.ready() || !set_text(&text) {
             break;
         }
         ours = Some(sequence());
-        send_chord(&[VK_CONTROL], VK_V);
+        trigger.fire();
         next = queue.recv_timeout(RESTORE_AFTER).ok();
     }
     if ours.is_some_and(|seq| seq == sequence()) {
@@ -147,10 +171,10 @@ fn paste_burst(first: String, queue: &Receiver<String>) {
     }
 }
 
-pub fn paste(text: String) {
-    static QUEUE: OnceLock<Mutex<Sender<String>>> = OnceLock::new();
+pub fn paste(text: String, trigger: Trigger) {
+    static QUEUE: OnceLock<Mutex<Sender<(Trigger, String)>>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
-        let (sender, receiver) = channel::<String>();
+        let (sender, receiver) = channel::<(Trigger, String)>();
         std::thread::spawn(move || {
             while let Ok(text) = receiver.recv() {
                 paste_burst(text, &receiver);
@@ -159,7 +183,7 @@ pub fn paste(text: String) {
         Mutex::new(sender)
     });
     if let Ok(sender) = queue.lock() {
-        let _ = sender.send(text);
+        let _ = sender.send((trigger, text));
     }
 }
 

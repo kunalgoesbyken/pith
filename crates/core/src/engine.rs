@@ -1,8 +1,9 @@
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::ignore::IgnoreTracker;
 use crate::{
     Completion, CompletionRequest, Config, FieldSnapshot, Rect, build, check, continue_window,
-    next_word, suggestion,
+    ends_spaced_word, next_word, suggestion,
 };
 
 fn is_grapheme_boundary(text: &str, index: usize) -> bool {
@@ -21,6 +22,7 @@ pub enum Event {
     AcceptWord,
     Dismiss,
     SetEnabled(bool),
+    Resume(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +47,12 @@ pub enum Action {
     Insert(String),
     ArmKeys,
     DisarmKeys,
+    AutoPaused(Vec<String>),
+}
+
+fn closes_spaced_word(field: &FieldSnapshot, accepted: &str) -> bool {
+    !field.after.starts_with(char::is_whitespace)
+        && ends_spaced_word(&format!("{}{accepted}", field.before))
 }
 
 pub struct Engine {
@@ -53,7 +61,9 @@ pub struct Engine {
     generation: u64,
     in_flight: bool,
     suggestion: Option<String>,
+    engaged: bool,
     dismissed: Option<(u64, String)>,
+    ignores: IgnoreTracker,
     unlanded: Vec<String>,
 }
 
@@ -65,7 +75,9 @@ impl Engine {
             generation: 0,
             in_flight: false,
             suggestion: None,
+            engaged: false,
             dismissed: None,
+            ignores: IgnoreTracker::default(),
             unlanded: Vec::new(),
         }
     }
@@ -93,7 +105,11 @@ impl Engine {
             Event::AcceptAll => self.on_accept(false, &mut out),
             Event::AcceptWord => self.on_accept(true, &mut out),
             Event::Dismiss => {
+                let ignored = self.unengaged_app();
                 self.reset(&mut out);
+                if let Some(app) = ignored {
+                    self.note_ignored(&app, &mut out);
+                }
                 self.dismissed = self
                     .field
                     .as_ref()
@@ -104,8 +120,25 @@ impl Engine {
                 self.reset(&mut out);
                 self.schedule(&mut out);
             }
+            Event::Resume(app) => {
+                if self.ignores.resume(&app) {
+                    out.push(Action::AutoPaused(self.ignores.paused()));
+                    self.schedule(&mut out);
+                }
+            }
         }
         out
+    }
+
+    fn unengaged_app(&self) -> Option<String> {
+        let field = self.field.as_ref()?;
+        (self.suggestion.is_some() && !self.engaged).then(|| field.app.clone())
+    }
+
+    fn note_ignored(&mut self, app: &str, out: &mut Vec<Action>) {
+        if self.ignores.ignored(app, self.config.auto_pause_after) {
+            out.push(Action::AutoPaused(self.ignores.paused()));
+        }
     }
 
     fn reset(&mut self, out: &mut Vec<Action>) {
@@ -177,6 +210,7 @@ impl Engine {
         }
         self.dismissed
             .take_if(|(id, before)| *id == field.field_id && *before != field.before);
+        let mut ignored = None;
         if let Some(previous) = &self.field {
             let same_field = previous.field_id == field.field_id
                 && previous.app == field.app
@@ -194,20 +228,28 @@ impl Engine {
                 return;
             }
             if same_field && let Some(rest) = self.typed_through(previous, &field) {
-                self.field = Some(field);
                 if rest.trim().is_empty() {
+                    self.ignores.accepted(&field.app);
                     self.suggestion = None;
                     out.push(Action::Hide);
                     out.push(Action::DisarmKeys);
+                    self.field = Some(field);
                     self.schedule(out);
                 } else {
+                    self.field = Some(field);
                     self.suggestion = Some(rest);
                     self.show_current(out);
                 }
                 return;
             }
+            if same_field && previous.before != field.before {
+                ignored = self.unengaged_app();
+            }
         }
         self.reset(out);
+        if let Some(app) = ignored {
+            self.note_ignored(&app, out);
+        }
         self.field = Some(field);
         self.schedule(out);
     }
@@ -222,13 +264,17 @@ impl Engine {
         is_grapheme_boundary(suggestion, typed.len()).then(|| rest.to_string())
     }
 
+    fn suppressed(&self, field: &FieldSnapshot) -> bool {
+        check(field, &self.config).is_err() || self.ignores.is_paused(&field.app)
+    }
+
     fn schedule(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
         let dismissed = self
             .dismissed
             .as_ref()
             .is_some_and(|(id, before)| *id == field.field_id && *before == field.before);
-        if dismissed || field.caret.is_none() || check(field, &self.config).is_err() {
+        if dismissed || field.caret.is_none() || self.suppressed(field) {
             return;
         }
         out.push(Action::ScheduleDebounce {
@@ -242,7 +288,7 @@ impl Engine {
             return;
         }
         let Some(field) = &self.field else { return };
-        if field.caret.is_none() || check(field, &self.config).is_err() {
+        if field.caret.is_none() || self.suppressed(field) {
             return;
         }
         self.in_flight = true;
@@ -271,6 +317,7 @@ impl Engine {
             return;
         }
         self.suggestion = Some(text);
+        self.engaged = false;
         self.show_current(out);
         out.push(Action::ArmKeys);
     }
@@ -285,6 +332,14 @@ impl Engine {
             suggestion.clone()
         };
         let rest = suggestion[accepted.len()..].to_string();
+        self.engaged = true;
+        let mut accepted = accepted;
+        if let Some(field) = &self.field {
+            self.ignores.accepted(&field.app);
+            if self.config.smart_space && rest.is_empty() && closes_spaced_word(field, &accepted) {
+                accepted.push(' ');
+            }
+        }
         out.push(Action::Insert(accepted.clone()));
         if let Some(field) = &mut self.field {
             field.before.push_str(&accepted);
@@ -850,5 +905,234 @@ mod tests {
         });
         assert!(again.is_empty(), "{again:?}");
         assert_eq!(engine.suggestion(), Some(" contract"));
+    }
+
+    fn pausing(limit: u32) -> Engine {
+        Engine::new(Config {
+            auto_pause_after: limit,
+            ..Config::default()
+        })
+    }
+
+    fn in_app(app: &str, before: &str) -> FieldSnapshot {
+        FieldSnapshot {
+            app: app.into(),
+            ..field(before)
+        }
+    }
+
+    fn suggest_in(engine: &mut Engine, app: &str, before: &str, text: &str) {
+        let out = engine.handle(Event::Field(Some(in_app(app, before))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(text)),
+        });
+        assert!(engine.suggestion().is_some());
+    }
+
+    fn paused_in(out: &[Action]) -> Option<&Vec<String>> {
+        out.iter().find_map(|action| match action {
+            Action::AutoPaused(apps) => Some(apps),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn mismatched_typing_counts_as_ignored_until_the_app_pauses() {
+        let mut engine = pausing(3);
+        for round in 0..3 {
+            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign thez"))));
+            assert_eq!(paused_in(&out).is_some(), round == 2, "{round}: {out:?}");
+        }
+        let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign thezz"))));
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn dismissals_count_and_report_the_paused_app() {
+        let mut engine = pausing(2);
+        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
+        assert!(paused_in(&engine.handle(Event::Dismiss)).is_none());
+        suggest_in(&mut engine, "Slack", "Please sign the d", " contract");
+        let out = engine.handle(Event::Dismiss);
+        assert_eq!(paused_in(&out), Some(&vec!["Slack".to_string()]));
+    }
+
+    #[test]
+    fn accepting_resets_the_streak() {
+        let mut engine = pausing(2);
+        for _ in 0..4 {
+            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            assert!(paused_in(&engine.handle(Event::Dismiss)).is_none());
+            suggest_in(&mut engine, "notepad", "Please sign the d", " contract");
+            engine.handle(Event::AcceptAll);
+        }
+    }
+
+    #[test]
+    fn typing_the_suggestion_through_counts_as_accepted() {
+        let mut engine = pausing(2);
+        for _ in 0..4 {
+            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
+            engine.handle(Event::Dismiss);
+            suggest_in(&mut engine, "notepad", "Please sign the d", " contract");
+            let out = engine.handle(Event::Field(Some(in_app(
+                "notepad",
+                "Please sign the d contract",
+            ))));
+            assert!(paused_in(&out).is_none(), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn dismissing_after_a_partial_accept_is_not_an_ignore() {
+        let mut engine = pausing(1);
+        suggest_in(
+            &mut engine,
+            "notepad",
+            "Please sign the",
+            " contract by Friday",
+        );
+        engine.handle(Event::AcceptWord);
+        assert!(engine.suggestion().is_some());
+        let out = engine.handle(Event::Dismiss);
+        assert!(paused_in(&out).is_none(), "{out:?}");
+    }
+
+    #[test]
+    fn pause_is_per_app() {
+        let mut engine = pausing(1);
+        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        let out = engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
+        assert!(out.is_empty(), "{out:?}");
+        let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign the"))));
+        assert!(
+            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn resume_restarts_suggesting_in_the_paused_app() {
+        let mut engine = pausing(1);
+        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
+        let out = engine.handle(Event::Resume("slack".into()));
+        assert_eq!(paused_in(&out), Some(&Vec::new()));
+        assert!(
+            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
+            "{out:?}"
+        );
+        assert!(engine.handle(Event::Resume("slack".into())).is_empty());
+    }
+
+    #[test]
+    fn zero_limit_disables_auto_pause() {
+        let mut engine = pausing(0);
+        for round in 0..30 {
+            let before = format!("Please sign the {round}");
+            suggest_in(&mut engine, "notepad", &before, " contract");
+            let out = engine.handle(Event::Dismiss);
+            assert!(paused_in(&out).is_none());
+        }
+    }
+
+    fn accepted_insert(config: Config, before: &str, text: &str, event: Event) -> String {
+        let mut engine = Engine::new(config);
+        suggest(&mut engine, before, text);
+        let out = engine.handle(event);
+        out.into_iter()
+            .find_map(|action| match action {
+                Action::Insert(text) => Some(text),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    fn spaced() -> Config {
+        Config {
+            smart_space: true,
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn trailing_space_only_closes_a_whole_final_word() {
+        let cases = [
+            (
+                "Please sign the",
+                " contract",
+                Event::AcceptAll,
+                " contract ",
+            ),
+            ("Please sign the contr", "act", Event::AcceptAll, "act "),
+            (
+                "Please sign the",
+                " contract by Friday",
+                Event::AcceptWord,
+                " contract",
+            ),
+            (
+                "Please sign the",
+                " contract by Friday.",
+                Event::AcceptAll,
+                " contract by Friday.",
+            ),
+            (
+                "Please sign the",
+                " contract,",
+                Event::AcceptAll,
+                " contract,",
+            ),
+            ("我喜欢", "苹果", Event::AcceptAll, "苹果"),
+        ];
+        for (before, text, event, expected) in cases {
+            let inserted = accepted_insert(spaced(), before, text, event.clone());
+            assert_eq!(inserted, expected, "{before:?} + {text:?}");
+        }
+    }
+
+    #[test]
+    fn trailing_space_is_off_by_default_and_never_doubles() {
+        let off = accepted_insert(
+            Config::default(),
+            "Please sign the",
+            " contract",
+            Event::AcceptAll,
+        );
+        assert_eq!(off, " contract");
+        let mut engine = Engine::new(spaced());
+        let mut snapshot = field("Please sign the");
+        snapshot.after = " ".into();
+        let out = engine.handle(Event::Field(Some(snapshot)));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        let out = engine.handle(Event::AcceptAll);
+        assert!(out.contains(&Action::Insert(" contract".into())), "{out:?}");
+    }
+
+    #[test]
+    fn spaced_accept_lands_without_resetting_the_engine() {
+        let mut engine = Engine::new(spaced());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::AcceptAll);
+        let out = engine.handle(Event::Field(Some(field("Please sign the contract "))));
+        assert!(
+            !out.iter().any(|a| matches!(a, Action::CancelCompletion)),
+            "{out:?}"
+        );
     }
 }

@@ -272,6 +272,7 @@ impl Harness {
                     self.expect(self.shown.is_none(), "disarmed before hide");
                     self.armed = false;
                 }
+                Action::AutoPaused(_) => {}
                 Action::Insert(inserted_text) => {
                     self.expect(
                         self.shown.is_some() && self.armed,
@@ -338,7 +339,7 @@ impl Harness {
                     self.sched = None;
                 }
             }
-            Event::DebounceElapsed(_) => {}
+            Event::DebounceElapsed(_) | Event::Resume(_) => {}
         }
         self.check_dismissal(&event, scheduled_now);
         if matches!(event, Event::Field(None)) {

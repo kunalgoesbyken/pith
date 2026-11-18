@@ -1,6 +1,7 @@
 mod config;
 mod engine;
 mod ghost;
+mod ignore;
 mod log;
 mod policy;
 mod prompt;
@@ -17,8 +18,8 @@ pub use log::{init_log, log};
 pub use policy::{SkipReason, check};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use text::{
-    SentenceEnd, clean_completion, continue_window, exceeds_words, next_word, sentence_end,
-    split_partial, tail_chars,
+    SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words, next_word,
+    sentence_end, split_partial, tail_chars,
 };
 pub use types::{Completion, FieldSnapshot, Rect, StopReason};
 

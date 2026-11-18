@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -13,19 +13,26 @@ use pith_windows::{
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, GetClipboardData, GetClipboardSequenceNumber, IsClipboardFormatAvailable,
+    OpenClipboard,
+};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, LoadLibraryW};
+use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_LINEFROMCHAR, EM_LINESCROLL, EM_POSFROMCHAR, EM_REPLACESEL,
-    EM_SETSEL, PBM_GETPOS,
+    EM_SETSEL, EM_UNDO, PBM_GETPOS,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 static TARGET: AtomicIsize = AtomicIsize::new(0);
+static THROUGH_CLIPBOARD: AtomicBool = AtomicBool::new(false);
 
 const ES_MULTILINE: u32 = 0x0004;
 const ES_AUTOVSCROLL: u32 = 0x0040;
@@ -182,6 +189,37 @@ fn get_text(edit: isize) -> String {
     let mut buffer = vec![0u16; text_length(edit) + 1];
     let length = send(edit, WM_GETTEXT, buffer.len(), buffer.as_mut_ptr() as isize);
     String::from_utf16_lossy(&buffer[..length as usize]).replace('\r', "\n")
+}
+
+fn read_clipboard_text() -> Option<String> {
+    unsafe {
+        IsClipboardFormatAvailable(CF_UNICODETEXT.0 as u32).ok()?;
+        let handle = GetClipboardData(CF_UNICODETEXT.0 as u32).ok()?;
+        let global = windows::Win32::Foundation::HGLOBAL(handle.0);
+        let pointer = GlobalLock(global) as *const u16;
+        if pointer.is_null() {
+            return None;
+        }
+        let mut length = 0;
+        while *pointer.add(length) != 0 {
+            length += 1;
+        }
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(pointer, length));
+        let _ = GlobalUnlock(global);
+        Some(text)
+    }
+}
+
+fn clipboard_text() -> Option<String> {
+    for _ in 0..50 {
+        if unsafe { OpenClipboard(None) }.is_ok() {
+            let text = read_clipboard_text();
+            let _ = unsafe { CloseClipboard() };
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    None
 }
 
 fn caret_screen(edit: isize, index: usize) -> (i32, i32) {
@@ -371,6 +409,10 @@ fn is_show(action: &Action) -> bool {
 
 fn is_hide(action: &Action) -> bool {
     matches!(action, Action::Hide)
+}
+
+fn is_auto_paused(action: &Action) -> bool {
+    matches!(action, Action::AutoPaused(apps) if !apps.is_empty())
 }
 
 fn is_request(action: &Action) -> bool {
@@ -638,6 +680,134 @@ fn accept_word_then_rest(rig: &mut Rig) {
         "accept all inserts the rest",
         inserted(&seen).first() == Some(&rest) && text == format!("{before}{suggestion}"),
         format!("rest {rest:?}, tail {:?}", tail(&text)),
+    );
+}
+
+fn accept_is_one_undo_step(rig: &mut Rig) {
+    let field = rig.a;
+    for (mode, through_clipboard) in [("selection insert", false), ("clipboard paste", true)] {
+        THROUGH_CLIPBOARD.store(through_clipboard, Ordering::SeqCst);
+        let Some(_) = rig.suggestion_for(field, &PROSE, 1) else {
+            rig.check(
+                &format!("undo ({mode}) setup"),
+                false,
+                "no suggestion".into(),
+            );
+            continue;
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        let clipboard_before = clipboard_text();
+        let sequence_before = unsafe { GetClipboardSequenceNumber() };
+        let before = get_text(field.edit);
+        rig.key(ACCEPT_WORD);
+        let seen = rig.settle(Duration::from_millis(1500));
+        let words = inserted(&seen);
+        let landed = get_text(field.edit);
+        rig.check(
+            &format!("undo ({mode}): accept inserted the word"),
+            words.len() == 1 && landed == format!("{before}{}", words[0]),
+            format!("inserted {words:?}, tail {:?}", tail(&landed)),
+        );
+        let undone = send(field.edit, EM_UNDO, 0, 0) != 0;
+        let after_undo = get_text(field.edit);
+        rig.check(
+            &format!("undo ({mode}): one undo removes exactly the inserted text"),
+            undone && after_undo == before,
+            format!(
+                "undone {undone}, before {:?}, after {:?}",
+                tail(&before),
+                tail(&after_undo)
+            ),
+        );
+        let clipboard_after = clipboard_text();
+        let touched = unsafe { GetClipboardSequenceNumber() } != sequence_before;
+        rig.check(
+            &format!("undo ({mode}): clipboard text is restored"),
+            clipboard_after == clipboard_before,
+            format!(
+                "before {:?}, after {:?}, sequence changed {touched}",
+                clipboard_before.as_deref().map(tail),
+                clipboard_after.as_deref().map(tail)
+            ),
+        );
+        rig.check(
+            &format!("undo ({mode}): only the clipboard path touches the clipboard"),
+            touched == through_clipboard,
+            format!("sequence changed {touched}"),
+        );
+    }
+    THROUGH_CLIPBOARD.store(false, Ordering::SeqCst);
+}
+
+fn auto_pause_on_ignore(rig: &mut Rig) {
+    let field = rig.a;
+    rig.fresh(field, "");
+    let Some(app) = rig.read(field).map(|snapshot| snapshot.app) else {
+        return rig.check("auto-pause setup", false, "no snapshot".into());
+    };
+    let limit = Config::default().auto_pause_after as usize;
+    let _ = rig.inbound.send(Inbound::Resume(app.clone()));
+    rig.waker.wake();
+    rig.drain();
+    let mut ignored = 0;
+    let mut accepted_once = false;
+    let mut paused_after = None;
+    for attempt in 0..(limit * 3) {
+        let text = PROSE[attempt % PROSE.len()];
+        let Some(_) = rig.type_and_wait(field, text, 10) else {
+            continue;
+        };
+        std::thread::sleep(Duration::from_millis(200));
+        if !accepted_once && ignored == limit / 2 {
+            rig.key(ACCEPT_ALL);
+            let seen = rig.settle(Duration::from_millis(400));
+            rig.check(
+                "an accept in the middle resets the ignore streak",
+                !seen.iter().any(is_auto_paused),
+                format!("{seen:?}"),
+            );
+            accepted_once = true;
+            ignored = 0;
+            continue;
+        }
+        rig.key(DISMISS);
+        ignored += 1;
+        let seen = rig.settle(Duration::from_millis(400));
+        if seen.iter().any(is_auto_paused) {
+            paused_after = Some(ignored);
+            break;
+        }
+    }
+    rig.check(
+        "the app pauses after exactly the configured run of ignored suggestions",
+        paused_after == Some(limit),
+        format!("paused after {paused_after:?}, limit {limit}"),
+    );
+    rig.fresh(field, "");
+    rig.type_slowly(field.edit, PROSE[0], 10);
+    let seen = rig.settle(Duration::from_millis(1500));
+    rig.check(
+        "a paused app asks the model for nothing and shows nothing",
+        !seen.iter().any(is_request) && !seen.iter().any(is_show),
+        format!("{seen:?}"),
+    );
+    let _ = rig.inbound.send(Inbound::Resume("not-the-app".into()));
+    rig.waker.wake();
+    let seen = rig.settle(Duration::from_millis(800));
+    rig.check(
+        "resuming another app changes nothing",
+        !seen.iter().any(is_auto_paused) && !seen.iter().any(is_request),
+        format!("{seen:?}"),
+    );
+    let _ = rig.inbound.send(Inbound::Resume(app));
+    rig.waker.wake();
+    let seen = rig.settle(Duration::from_millis(2000));
+    rig.check(
+        "resume reports an empty pause list and asks the model again",
+        seen.iter()
+            .any(|a| matches!(a, Action::AutoPaused(apps) if apps.is_empty()))
+            && seen.iter().any(is_request),
+        format!("{seen:?}"),
     );
 }
 
@@ -1675,9 +1845,10 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 19] = [
+        let scenarios: [(&str, Scenario); 21] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
+            ("undo", accept_is_one_undo_step),
             ("through", typing_through_and_escape),
             ("after", text_after_caret),
             ("multiline", multi_line),
@@ -1695,6 +1866,7 @@ fn main() {
             ("pause", pause_and_resume),
             ("switch", switching_fields),
             ("geometry", overlay_geometry),
+            ("autopause", auto_pause_on_ignore),
         ];
         for (name, scenario) in scenarios {
             if only.as_deref().is_some_and(|o| !name.contains(o)) {
@@ -1729,7 +1901,7 @@ fn main() {
         onboarding: None,
         source: Source::Window(&TARGET),
         insert: match insert_lag_ms {
-            0 => InsertMode::Window(&TARGET),
+            0 => InsertMode::Switch(&TARGET, &THROUGH_CLIPBOARD),
             lag => InsertMode::Lagging(&TARGET, Duration::from_millis(lag)),
         },
         tray: false,
@@ -1740,5 +1912,9 @@ fn main() {
     };
     run(config, worker, (sender, receiver), waker, options).expect("run");
     let failed = driver.join().unwrap_or(1);
-    std::process::exit(if failed + onboarding_failed == 0 { 0 } else { 1 });
+    std::process::exit(if failed + onboarding_failed == 0 {
+        0
+    } else {
+        1
+    });
 }

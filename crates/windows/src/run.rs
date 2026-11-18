@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,7 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
-use crate::clipboard::{paste, replace_selection, replace_selection_after};
+use crate::clipboard::{Trigger, paste, replace_selection, replace_selection_after};
 use crate::events::Hooks;
 use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, replay};
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
@@ -31,6 +31,7 @@ const TIMER_DEBOUNCE: usize = 2;
 pub enum InsertMode {
     Paste,
     Window(&'static AtomicIsize),
+    Switch(&'static AtomicIsize, &'static AtomicBool),
     Lagging(&'static AtomicIsize, Duration),
 }
 
@@ -53,6 +54,7 @@ pub enum Inbound {
     Progress(u64, u64),
     Key(i32),
     SetEnabled(bool),
+    Resume(String),
     Quit,
 }
 
@@ -179,7 +181,15 @@ impl App {
                     .show(&text, caret, font_family.as_deref(), font_px, color),
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => match self.options.insert {
-                    InsertMode::Paste => paste(text),
+                    InsertMode::Paste => paste(text, Trigger::Chord),
+                    InsertMode::Switch(hwnd, through_clipboard) => {
+                        let hwnd = hwnd.load(Ordering::SeqCst);
+                        if through_clipboard.load(Ordering::SeqCst) {
+                            paste(text, Trigger::Message(hwnd))
+                        } else {
+                            replace_selection(hwnd, &text)
+                        }
+                    }
                     InsertMode::Window(hwnd) => {
                         replace_selection(hwnd.load(Ordering::SeqCst), &text)
                     }
@@ -187,6 +197,12 @@ impl App {
                         replace_selection_after(hwnd.load(Ordering::SeqCst), text, lag)
                     }
                 },
+                Action::AutoPaused(apps) => {
+                    log(&format!("auto-paused in {apps:?}"));
+                    if let Some(tray) = &self.tray {
+                        tray.set_auto_paused(&apps);
+                    }
+                }
                 Action::ArmKeys if self.options.global_keys => self.keys.arm(self.control),
                 Action::ArmKeys => {}
                 Action::DisarmKeys => self.keys.disarm(self.control),
@@ -248,6 +264,7 @@ impl App {
                 }
                 Inbound::Key(id) => self.hotkey(id),
                 Inbound::SetEnabled(enabled) => self.set_enabled(enabled),
+                Inbound::Resume(app) => self.resume(app),
                 Inbound::Quit => quit = true,
             }
         }
@@ -344,6 +361,11 @@ impl App {
         }
     }
 
+    fn resume(&mut self, app: String) {
+        let actions = self.engine.handle(Event::Resume(app));
+        self.apply(actions);
+    }
+
     fn tray_command(&mut self) -> bool {
         let Some(command) = self.tray.as_ref().and_then(Tray::poll) else {
             return false;
@@ -355,6 +377,7 @@ impl App {
                     crate::util::open_path(path);
                 }
             }
+            TrayCommand::Resume(app) => self.resume(app),
             TrayCommand::Quit => return true,
         }
         false
