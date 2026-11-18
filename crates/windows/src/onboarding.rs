@@ -184,35 +184,49 @@ fn message_font(dpi: u32) -> Option<HFONT> {
     }
 }
 
+struct Child<'a> {
+    class: PCWSTR,
+    text: &'a str,
+    bounds: (i32, i32, i32, i32),
+    style: u32,
+    extended: WINDOW_EX_STYLE,
+    id: usize,
+}
+
+impl<'a> Child<'a> {
+    fn new(class: PCWSTR, text: &'a str, bounds: (i32, i32, i32, i32)) -> Self {
+        Self {
+            class,
+            text,
+            bounds,
+            style: 0,
+            extended: WINDOW_EX_STYLE(0),
+            id: 0,
+        }
+    }
+}
+
 struct Layout {
     dpi: u32,
 }
 
 impl Layout {
-    fn child(
-        &self,
-        parent: HWND,
-        class: PCWSTR,
-        text: &str,
-        style: u32,
-        extended: WINDOW_EX_STYLE,
-        bounds: (i32, i32, i32, i32),
-        id: usize,
-    ) -> windows::core::Result<HWND> {
-        let text = wide(text);
+    fn add(&self, parent: HWND, child: Child) -> windows::core::Result<HWND> {
+        let text = wide(child.text);
+        let bounds = child.bounds;
         unsafe {
             let instance = GetModuleHandleW(None)?;
             CreateWindowExW(
-                extended,
-                class,
+                child.extended,
+                child.class,
                 PCWSTR(text.as_ptr()),
-                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(style),
+                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(child.style),
                 scaled(bounds.0, self.dpi),
                 scaled(bounds.1, self.dpi),
                 scaled(bounds.2, self.dpi),
                 scaled(bounds.3, self.dpi),
                 Some(parent),
-                Some(HMENU(id as _)),
+                Some(HMENU(child.id as _)),
                 Some(instance.into()),
                 None,
             )
@@ -275,60 +289,35 @@ impl Onboarding {
             let layout = Layout { dpi };
             let inner = WIDTH - 2 * MARGIN;
             let label = w!("STATIC");
-            let status = layout.child(
+            let status = layout.add(window, Child::new(label, "", (MARGIN, 16, inner, 20)))?;
+            let progress = layout.add(
                 window,
-                label,
-                "",
-                0,
-                WINDOW_EX_STYLE(0),
-                (MARGIN, 16, inner, 20),
-                0,
+                Child::new(PROGRESS_CLASSW, "", (MARGIN, 42, inner, 16)),
             )?;
-            let progress = layout.child(
+            let hint = layout.add(
                 window,
-                PROGRESS_CLASSW,
-                "",
-                0,
-                WINDOW_EX_STYLE(0),
-                (MARGIN, 42, inner, 16),
-                0,
+                Child::new(label, PRACTICE_HINT, (MARGIN, 76, inner, 36)),
             )?;
-            let hint = layout.child(
+            let practice = layout.add(
                 window,
-                label,
-                PRACTICE_HINT,
-                0,
-                WINDOW_EX_STYLE(0),
-                (MARGIN, 76, inner, 36),
-                0,
+                Child {
+                    style: (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32 | WS_VSCROLL.0,
+                    extended: WS_EX_CLIENTEDGE,
+                    ..Child::new(w!("RICHEDIT50W"), "", (MARGIN, 116, inner, 110))
+                },
             )?;
-            let multiline = (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32 | WS_VSCROLL.0;
-            let practice = layout.child(
+            let keys = layout.add(window, Child::new(label, KEYS, (MARGIN, 240, inner, 80)))?;
+            let done = layout.add(
                 window,
-                w!("RICHEDIT50W"),
-                "",
-                multiline,
-                WS_EX_CLIENTEDGE,
-                (MARGIN, 116, inner, 110),
-                0,
-            )?;
-            let keys = layout.child(
-                window,
-                label,
-                KEYS,
-                0,
-                WINDOW_EX_STYLE(0),
-                (MARGIN, 240, inner, 80),
-                0,
-            )?;
-            let done = layout.child(
-                window,
-                w!("BUTTON"),
-                "Done",
-                (BS_DEFPUSHBUTTON as u32) | WS_TABSTOP.0,
-                WINDOW_EX_STYLE(0),
-                (WIDTH - MARGIN - 96, HEIGHT - 16 - 30, 96, 30),
-                DONE_ID,
+                Child {
+                    style: (BS_DEFPUSHBUTTON as u32) | WS_TABSTOP.0,
+                    id: DONE_ID,
+                    ..Child::new(
+                        w!("BUTTON"),
+                        "Done",
+                        (WIDTH - MARGIN - 96, HEIGHT - 16 - 30, 96, 30),
+                    )
+                },
             )?;
             SendMessageW(
                 progress,
