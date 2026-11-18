@@ -49,6 +49,36 @@ pub fn tail_chars(text: &str, window: usize) -> &str {
     }
 }
 
+pub fn continue_window(previous: &str, current: &str, lookback: usize) -> String {
+    let joined = join_window(previous, current, lookback / 2);
+    let limit = lookback.saturating_mul(2);
+    if joined.len() <= limit || joined.graphemes(true).count() <= limit {
+        return joined;
+    }
+    let cut = joined
+        .grapheme_indices(true)
+        .nth(lookback)
+        .map_or(joined.len(), |(index, _)| index);
+    joined[cut..].to_string()
+}
+
+fn join_window(previous: &str, current: &str, min_overlap: usize) -> String {
+    if current.starts_with(previous) {
+        return current.to_string();
+    }
+    let mut remaining = previous.chars().count();
+    for (start, _) in previous.char_indices() {
+        if remaining < min_overlap {
+            break;
+        }
+        if current.starts_with(&previous[start..]) {
+            return format!("{previous}{}", &current[previous.len() - start..]);
+        }
+        remaining -= 1;
+    }
+    current.to_string()
+}
+
 pub fn split_partial(before: &str) -> (&str, &str) {
     let mut cut = before.len();
     if let Some((start, segment)) = before.split_word_bound_indices().next_back()
@@ -209,6 +239,48 @@ mod tests {
         assert_eq!(sentence_end(" कल आऊँगा।"), Some(SentenceEnd::NeedsSpace));
         assert_eq!(sentence_end(" ..."), None);
         assert_eq!(sentence_end(" by Friday"), None);
+    }
+
+    #[test]
+    fn window_continues_when_the_reader_slides_it() {
+        let document: String = (0..400).map(|n| format!("w{n} ")).collect();
+        let lookback = 200;
+        let window = |end: usize| document[end - lookback..end].to_string();
+        let mut kept = window(1200);
+        for end in 1201..1400 {
+            kept = continue_window(&kept, &window(end), lookback);
+            assert_eq!(kept, document[1000..end], "{end}");
+        }
+    }
+
+    #[test]
+    fn window_never_joins_unrelated_text() {
+        let lookback = 200;
+        let first = "alpha ".repeat(60);
+        for next in [
+            "beta gamma ".repeat(30),
+            "alpha ".repeat(10),
+            String::new(),
+            "alph".into(),
+        ] {
+            assert_eq!(continue_window(&first, &next, lookback), next);
+        }
+        assert_eq!(continue_window("", "hello", lookback), "hello");
+        assert_eq!(continue_window("abc def", "def", 200), "def");
+    }
+
+    #[test]
+    fn window_growth_is_bounded_and_keeps_the_tail_phase() {
+        let lookback = 1200 * 16;
+        let document: String = (0..16000).map(|n| format!("w{n} ")).collect();
+        let mut kept = String::new();
+        for end in (lookback..document.len()).step_by(97) {
+            let next = document[end - lookback..end].to_string();
+            kept = continue_window(&kept, &next, lookback);
+            assert!(kept.len() <= lookback * 2);
+            assert!(kept.ends_with(&next));
+            assert_eq!((end - kept.len()) % lookback, 0, "{end}");
+        }
     }
 
     #[test]

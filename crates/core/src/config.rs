@@ -111,6 +111,7 @@ const ALWAYS_BLOCKED: [&str; 23] = [
 ];
 
 const MIN_CONTEXT_HEADROOM: u32 = 64;
+const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -231,6 +232,10 @@ impl Config {
         } else {
             (available / 2).clamp(1, 4)
         }
+    }
+
+    pub fn lookback_chars(&self) -> usize {
+        self.context_chars.saturating_mul(LOOKBACK_WINDOWS)
     }
 
     pub fn is_blocked(&self, app: &str) -> bool {
