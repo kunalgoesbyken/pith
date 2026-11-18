@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ignore::IgnoreTracker;
+use crate::stats::Counts;
 use crate::{
     Completion, CompletionRequest, Config, FieldSnapshot, Placement, SkipReason, TriggerMode,
     build, check, check_forced, continue_window, ends_spaced_word, next_word, suggestion,
@@ -73,6 +74,7 @@ pub struct Engine {
     forced: Option<(u64, String)>,
     shown_at: Option<Instant>,
     unlanded: Vec<String>,
+    counts: Counts,
 }
 
 impl Engine {
@@ -89,7 +91,12 @@ impl Engine {
             forced: None,
             shown_at: None,
             unlanded: Vec::new(),
+            counts: Counts::default(),
         }
+    }
+
+    pub fn take_counts(&mut self) -> Counts {
+        std::mem::take(&mut self.counts)
     }
 
     pub fn config(&self) -> &Config {
@@ -398,6 +405,7 @@ impl Engine {
             return;
         }
         self.suggestion = Some(text);
+        self.counts.record_shown();
         self.engaged = false;
         self.shown_at = Some(Instant::now());
         self.show_current(out);
@@ -423,6 +431,7 @@ impl Engine {
             }
         }
         self.shown_at = None;
+        self.counts.record_accept(&accepted, one_word);
         out.push(Action::Insert(accepted.clone()));
         if let Some(field) = &mut self.field {
             field.before.push_str(&accepted);
@@ -548,6 +557,56 @@ mod tests {
         let out = engine.handle(Event::AcceptAll);
         assert_eq!(out[0], Action::Insert(" by Friday.".into()));
         assert_eq!(out[1], Action::Hide);
+    }
+
+    #[test]
+    fn counts_follow_shows_and_accepts_and_drain_once() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract by Friday.");
+        engine.handle(Event::Field(Some(field("Please sign the con"))));
+        engine.handle(Event::AcceptWord);
+        engine.handle(Event::AcceptAll);
+        let counts = engine.take_counts();
+        assert_eq!(counts.shown, 1);
+        assert_eq!((counts.accepted, counts.accepted_words), (1, 1));
+        assert_eq!(counts.words, 3);
+        assert_eq!(counts.chars, "tract".len() as u64 + " by Friday.".len() as u64);
+        assert!(engine.take_counts().is_empty());
+    }
+
+    #[test]
+    fn dismissing_refused_and_typed_through_suggestions_insert_nothing() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        engine.handle(Event::AcceptAll);
+        suggest(&mut engine, "Please sign the d", " contract");
+        engine.handle(Event::Field(Some(field("Please sign the d contract"))));
+        let counts = engine.take_counts();
+        assert_eq!(counts.shown, 2);
+        assert_eq!((counts.accepted, counts.accepted_words, counts.words), (0, 0, 0));
+    }
+
+    #[test]
+    fn a_suggestion_redrawn_on_the_same_field_is_shown_once() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract by Friday.");
+        engine.handle(Event::Field(Some(field("Please sign the c"))));
+        engine.handle(Event::Field(Some(field("Please sign the co"))));
+        assert_eq!(engine.take_counts().shown, 1);
+    }
+
+    #[test]
+    fn smart_space_counts_the_inserted_space() {
+        let mut engine = Engine::new(Config {
+            smart_space: true,
+            ..Config::default()
+        });
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::AcceptAll);
+        let counts = engine.take_counts();
+        assert_eq!(counts.chars, " contract ".len() as u64);
+        assert_eq!(counts.words, 1);
     }
 
     #[test]

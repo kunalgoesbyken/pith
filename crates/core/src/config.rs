@@ -91,6 +91,10 @@ mod tests {
             ("ghost_opacity = 9", false),
             ("ghost_opacity = 101", false),
             ("ghost_opacity = 0", false),
+            ("typing_wpm = 1", true),
+            ("typing_wpm = 500", true),
+            ("typing_wpm = 0", false),
+            ("typing_wpm = 501", false),
             ("accept_race_ms = 0", true),
             ("accept_race_ms = 1001", false),
             ("trigger_mode = \"manual\"", true),
@@ -309,9 +313,11 @@ const ALWAYS_BLOCKED: [&str; 23] = [
 const MIN_CONTEXT_HEADROOM: u32 = 64;
 const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
-const MIN_GHOST_OPACITY: u8 = 10;
+pub const MIN_GHOST_OPACITY: u8 = 10;
+pub const MAX_GHOST_OPACITY: u8 = 100;
 const MAX_ACCEPT_RACE_MS: u64 = 1_000;
 const MAX_THREADS: usize = 256;
+const MAX_TYPING_WPM: u32 = 500;
 const MAX_CONTEXT_TOKENS: u32 = 16_384;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -367,6 +373,7 @@ pub struct Config {
     pub ghost_opacity: u8,
     pub remote_url: Option<String>,
     pub remote_model: Option<String>,
+    pub typing_wpm: u32,
 }
 
 impl Default for Config {
@@ -410,6 +417,7 @@ impl Default for Config {
             ghost_opacity: 50,
             remote_url: None,
             remote_model: None,
+            typing_wpm: 40,
         }
     }
 }
@@ -525,7 +533,7 @@ impl Config {
                 "debounce_ms must be at most 5000",
             ),
             (
-                (MIN_GHOST_OPACITY..=100).contains(&self.ghost_opacity),
+                (MIN_GHOST_OPACITY..=MAX_GHOST_OPACITY).contains(&self.ghost_opacity),
                 "ghost_opacity must be a percentage from 10 to 100",
             ),
             (
@@ -543,6 +551,10 @@ impl Config {
             (
                 self.model_path.as_deref().is_none_or(Path::is_file),
                 "model_path does not point to a file",
+            ),
+            (
+                (1..=MAX_TYPING_WPM).contains(&self.typing_wpm),
+                "typing_wpm must be from 1 to 500",
             ),
         ];
         match rules.into_iter().find(|(ok, _)| !ok) {

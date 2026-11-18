@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::config::{MAX_GHOST_OPACITY, MIN_GHOST_OPACITY};
 use crate::stored::{patch, read, write_atomically};
 use crate::{Config, app_name};
 
@@ -36,10 +37,45 @@ impl Suggestions {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Length {
+    Short,
+    Normal,
+    Long,
+}
+
+impl Length {
+    pub const ALL: [Self; 3] = [Self::Short, Self::Normal, Self::Long];
+
+    fn words(self) -> usize {
+        match self {
+            Self::Short => 3,
+            Self::Normal => Config::default().max_words,
+            Self::Long => 10,
+        }
+    }
+
+    pub fn apply(self, config: &mut Config) {
+        config.max_words = self.words();
+    }
+
+    pub fn of(config: &Config) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|length| length.words() == config.max_words)
+    }
+}
+
+pub fn clamp_opacity(percent: u8) -> u8 {
+    percent.clamp(MIN_GHOST_OPACITY, MAX_GHOST_OPACITY)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Setting {
     Enabled(bool),
     Suggestions(Suggestions),
+    Length(Length),
+    GhostOpacity(u8),
     Block(String),
     Unblock(String),
 }
@@ -49,6 +85,8 @@ impl Setting {
         match self {
             Self::Enabled(enabled) => config.enabled = *enabled,
             Self::Suggestions(level) => level.apply(config),
+            Self::Length(length) => length.apply(config),
+            Self::GhostOpacity(percent) => config.ghost_opacity = clamp_opacity(*percent),
             Self::Block(app) => {
                 config.block_app(app);
             }
@@ -134,6 +172,61 @@ mod tests {
         Suggestions::More.apply(&mut config);
         assert_eq!(config.max_words, 9);
         assert_eq!(Suggestions::of(&config), Some(Suggestions::More));
+    }
+
+    #[test]
+    fn lengths_map_to_distinct_word_limits_and_normal_is_the_default() {
+        let words = Length::ALL.map(Length::words);
+        assert!(words[0] < words[1] && words[1] < words[2]);
+        assert_eq!(Length::of(&Config::default()), Some(Length::Normal));
+        for length in Length::ALL {
+            let mut config = Config::default();
+            length.apply(&mut config);
+            let reloaded = Config::from_toml(&config.to_toml()).unwrap();
+            assert_eq!(Length::of(&reloaded), Some(length), "{length:?}");
+            assert_eq!(Suggestions::of(&reloaded), Some(Suggestions::Normal));
+        }
+        let custom = Config {
+            max_words: 9,
+            ..Config::default()
+        };
+        assert_eq!(Length::of(&custom), None);
+    }
+
+    #[test]
+    fn opacity_is_clamped_to_the_range_the_config_accepts() {
+        for (asked, stored) in [(0, 10), (9, 10), (10, 10), (55, 55), (100, 100), (255, 100)] {
+            let mut config = Config::default();
+            Setting::GhostOpacity(asked).apply(&mut config);
+            assert_eq!(config.ghost_opacity, stored, "{asked}");
+            assert!(Config::from_toml(&config.to_toml()).is_ok(), "{asked}");
+        }
+    }
+
+    #[test]
+    fn length_and_opacity_persist_through_the_commented_file() {
+        let dir = scratch("length-opacity");
+        let path = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            "# mine
+ghost_opacity = 50 # faint
+max_words = 6 # short ones
+",
+        )
+        .unwrap();
+        Setting::Length(Length::Long).persist(&path).unwrap();
+        Setting::GhostOpacity(70).persist(&path).unwrap();
+        let text = stored(&path);
+        assert_eq!(
+            text,
+            "# mine
+ghost_opacity = 70 # faint
+max_words = 10 # short ones
+"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
