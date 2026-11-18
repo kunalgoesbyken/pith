@@ -1055,7 +1055,11 @@ fn forced_trigger(rig: &mut Rig) {
         );
         rig.key(TRIGGER);
         let Some(first) = rig.wait_show(Duration::from_secs(20)) else {
-            rig.check("force trigger shows a suggestion", false, format!("{text:?}"));
+            rig.check(
+                "force trigger shows a suggestion",
+                false,
+                format!("{text:?}"),
+            );
             continue;
         };
         let seen = rig.settle(Duration::from_millis(500));

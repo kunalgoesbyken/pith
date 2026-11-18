@@ -98,7 +98,10 @@ impl Keys {
                 )
             };
             if registered.is_err() {
-                log(&format!("hotkey {:?} is taken by another program", binding.chord));
+                log(&format!(
+                    "hotkey {:?} is taken by another program",
+                    binding.chord
+                ));
             }
         }
     }
@@ -202,7 +205,10 @@ mod tests {
     fn default_bindings_cover_every_action_once_per_chord() {
         let all = bindings(&keymap());
         let actions: Vec<i32> = all.iter().map(|b| b.action).collect();
-        assert_eq!(actions, [ACCEPT_ALL, ACCEPT_WORD, ACCEPT_WORD, DISMISS, TRIGGER]);
+        assert_eq!(
+            actions,
+            [ACCEPT_ALL, ACCEPT_WORD, ACCEPT_WORD, DISMISS, TRIGGER]
+        );
         for (index, binding) in all.iter().enumerate() {
             let keys = Keys::new(&keymap());
             assert_eq!(keys.binding(index as i32 + 1), Some(*binding));
@@ -246,7 +252,11 @@ mod tests {
             ("F1", VK_F1.0),
             ("F24", VK_F24.0),
         ] {
-            assert_eq!(virtual_key(Chord::parse(source).unwrap().key), vk, "{source}");
+            assert_eq!(
+                virtual_key(Chord::parse(source).unwrap().key),
+                vk,
+                "{source}"
+            );
         }
         let plain = Chord::parse("Tab").unwrap();
         assert_eq!(hot_key_modifiers(&plain), MOD_NOREPEAT);

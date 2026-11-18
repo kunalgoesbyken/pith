@@ -87,7 +87,10 @@ mod tests {
             ("accept_keys = [\"a\"]", false),
             ("accept_keys = [\"Hyper+Tab\"]", false),
             ("accept_word_keys = [\"Tab\"]", false),
-            ("accept_keys = [\"Right\"]\naccept_word_keys = [\"Tab\"]", true),
+            (
+                "accept_keys = [\"Right\"]\naccept_word_keys = [\"Tab\"]",
+                true,
+            ),
             ("force_trigger_key = \"Tab\"", false),
             ("force_trigger_key = \"Ctrl+Right\"", false),
             ("force_trigger = false\nforce_trigger_key = \"Tab\"", true),
@@ -99,6 +102,39 @@ mod tests {
             Config::from_toml("model_path = \"\"").unwrap().model_path,
             None
         );
+    }
+
+    #[test]
+    fn old_config_files_get_the_default_keys() {
+        let old = Config::from_toml(
+            "debounce_ms = 200
+max_words = 4",
+        )
+        .unwrap();
+        let keymap = old.keymap().unwrap();
+        let defaults = Config::default().keymap().unwrap();
+        assert_eq!(keymap, defaults);
+        assert_eq!(old.trigger_mode, TriggerMode::Auto);
+        assert_eq!(old.accept_race_ms, 150);
+        assert_eq!(keymap.accept_all.len(), 1);
+        assert_eq!(keymap.accept_word.len(), 2);
+        assert!(keymap.trigger.is_some());
+    }
+
+    #[test]
+    fn custom_keys_replace_the_defaults() {
+        let config = Config::from_toml(
+            "accept_keys = [\"Right\", \"Ctrl+j\"]
+accept_word_keys = [\"Alt+Right\"]
+force_trigger_key = \"F9\"",
+        )
+        .unwrap();
+        let keymap = config.keymap().unwrap();
+        assert_eq!(keymap.accept_all.len(), 2);
+        assert_eq!(keymap.accept_word.len(), 1);
+        assert_eq!(keymap.trigger, Some(Chord::parse("F9").unwrap()));
+        let off = Config::from_toml("force_trigger = false").unwrap();
+        assert_eq!(off.keymap().unwrap().trigger, None);
     }
 
     #[test]
@@ -254,7 +290,11 @@ impl Config {
     }
 
     pub fn keymap(&self) -> Result<Keymap, String> {
-        let parse_all = |keys: &[String]| keys.iter().map(|k| Chord::parse(k)).collect::<Result<Vec<_>, _>>();
+        let parse_all = |keys: &[String]| {
+            keys.iter()
+                .map(|k| Chord::parse(k))
+                .collect::<Result<Vec<_>, _>>()
+        };
         let keymap = Keymap {
             accept_all: parse_all(&self.accept_keys)?,
             accept_word: parse_all(&self.accept_word_keys)?,

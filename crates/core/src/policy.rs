@@ -43,7 +43,11 @@ fn evaluate(field: &FieldSnapshot, config: &Config, forced: bool) -> Result<(), 
     let current_line = field.before.rsplit(['\n', '\r']).next().unwrap_or_default();
     let has_context = !field.before.trim().is_empty();
     if forced {
-        return if has_context { Ok(()) } else { Err(SkipReason::TooShort) };
+        return if has_context {
+            Ok(())
+        } else {
+            Err(SkipReason::TooShort)
+        };
     }
     if current_line.trim().chars().count() < config.min_chars_before {
         return Err(SkipReason::TooShort);

@@ -92,9 +92,7 @@ impl Engine {
         let racing = self.shown_at.is_some_and(|shown| {
             now.saturating_duration_since(shown) < Duration::from_millis(self.config.accept_race_ms)
         });
-        self.suggestion.is_some()
-            && !racing
-            && (!moves_caret || field.after.trim().is_empty())
+        self.suggestion.is_some() && !racing && (!moves_caret || field.after.trim().is_empty())
     }
 
     pub fn handle(&mut self, event: Event) -> Vec<Action> {
@@ -176,7 +174,6 @@ impl Engine {
             });
         }
     }
-
 
     fn insert_pending(&mut self, field: &FieldSnapshot) -> bool {
         if self.unlanded.is_empty() {
@@ -917,7 +914,6 @@ mod tests {
         assert_eq!(engine.suggestion(), Some(" contract"));
     }
 
-
     fn no_model_work(out: &[Action]) -> bool {
         !out.iter().any(|a| {
             matches!(
@@ -932,7 +928,11 @@ mod tests {
     #[test]
     fn word_accepts_keep_the_rest_without_any_model_work() {
         let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday afternoon.");
+        suggest(
+            &mut engine,
+            "Please sign the",
+            " contract by Friday afternoon.",
+        );
         let mut typed = String::from("Please sign the");
         for (word, rest) in [
             (" contract", " by Friday afternoon."),
@@ -961,7 +961,11 @@ mod tests {
         let mut engine = Engine::new(Config::default());
         let first = " \u{627}\u{644}\u{644}\u{647}";
         let rest = " \u{627}\u{644}\u{631}\u{62d}\u{645}\u{646}";
-        suggest(&mut engine, "\u{628}\u{633}\u{645}", &format!("{first}{rest}"));
+        suggest(
+            &mut engine,
+            "\u{628}\u{633}\u{645}",
+            &format!("{first}{rest}"),
+        );
         let out = engine.handle(Event::AcceptWord);
         assert_eq!(out[0], Action::Insert(first.into()));
         assert!(no_model_work(&out), "{out:?}");
@@ -1090,7 +1094,10 @@ mod tests {
     fn trigger_starts_immediately_and_supersedes_a_pending_debounce() {
         let mut engine = Engine::new(Config::default());
         let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        let Some(Action::ScheduleDebounce { generation: old, .. }) = out.last().cloned() else {
+        let Some(Action::ScheduleDebounce {
+            generation: old, ..
+        }) = out.last().cloned()
+        else {
             panic!("{out:?}")
         };
         let generation = trigger_now(&mut engine);
@@ -1102,7 +1109,11 @@ mod tests {
     fn trigger_is_ignored_when_it_cannot_help() {
         let mut engine = Engine::new(Config::default());
         assert!(engine.handle(Event::Trigger).is_empty());
-        assert!(engine.handle(Event::Field(Some(blind("Please sign the")))).is_empty());
+        assert!(
+            engine
+                .handle(Event::Field(Some(blind("Please sign the"))))
+                .is_empty()
+        );
         assert!(engine.handle(Event::Trigger).is_empty());
         for change in [
             (|f: &mut FieldSnapshot| f.is_password = true) as fn(&mut FieldSnapshot),
