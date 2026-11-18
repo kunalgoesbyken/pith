@@ -8,15 +8,17 @@ use std::time::{Duration, Instant};
 use pith_core::{Action, Completion, CompletionRequest, Config, FieldSnapshot};
 use pith_infer::{Backend, Worker};
 use pith_windows::{
-    ACCEPT_ALL, ACCEPT_WORD, DISMISS, Inbound, InsertMode, Options, Reader, Source, Waker, run,
+    ACCEPT_ALL, ACCEPT_WORD, DISMISS, Inbound, InsertMode, Onboarding, OnboardingEvent,
+    OnboardingStep, Options, Outcome, Reader, Source, Waker, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, LoadLibraryW};
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_LINEFROMCHAR, EM_LINESCROLL, EM_POSFROMCHAR, EM_REPLACESEL,
-    EM_SETSEL,
+    EM_SETSEL, PBM_GETPOS,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -1447,6 +1449,129 @@ fn idle_unload(rig: &mut Rig, unload_after: Duration) {
     );
 }
 
+fn control_text(hwnd: HWND) -> String {
+    let mut buffer = [0u16; 1024];
+    let length = unsafe { GetWindowTextW(hwnd, &mut buffer) } as usize;
+    String::from_utf16_lossy(&buffer[..length])
+}
+
+fn shown(hwnd: HWND) -> bool {
+    unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE.0 != 0 }
+}
+
+fn onboarding_flow(marker: PathBuf) -> usize {
+    let mut report = Report {
+        passed: 0,
+        failed: 0,
+    };
+    let mut window = Onboarding::create(marker.clone(), false).expect("onboarding window");
+    let controls = window.controls();
+    report.check(
+        "onboarding starts quiet",
+        control_text(controls.status) == "Starting Pith"
+            && !shown(controls.progress)
+            && !shown(controls.practice)
+            && !unsafe { IsWindowEnabled(controls.done).as_bool() },
+        control_text(controls.status),
+    );
+    window.event(OnboardingEvent::Progress(150, 400));
+    let position = unsafe { SendMessageW(controls.progress, PBM_GETPOS, None, None) }.0;
+    report.check(
+        "onboarding shows download progress",
+        shown(controls.progress)
+            && position == 375
+            && control_text(controls.status).contains("MB of"),
+        format!("{} at {position}", control_text(controls.status)),
+    );
+    window.event(OnboardingEvent::Progress(400, 400));
+    report.check(
+        "onboarding reports loading",
+        *window.step() == OnboardingStep::Loading
+            && control_text(controls.status) == "Loading the model"
+            && !shown(controls.progress),
+        control_text(controls.status),
+    );
+    window.event(OnboardingEvent::Ready);
+    let seeded = get_text(controls.practice.0 as isize);
+    report.check(
+        "onboarding opens the practice box with a sentence start",
+        control_text(controls.status) == "Ready"
+            && shown(controls.practice)
+            && unsafe { IsWindowEnabled(controls.practice).as_bool() }
+            && !seeded.is_empty()
+            && !seeded.ends_with(char::is_whitespace),
+        seeded.clone(),
+    );
+    let keys = control_text(controls.keys);
+    report.check(
+        "onboarding lists the keys",
+        ["Tab", "Shift+Tab", "Esc"]
+            .iter()
+            .all(|key| keys.contains(key)),
+        keys,
+    );
+    let style = unsafe { GetWindowLongPtrW(controls.practice, GWL_STYLE) } as u32;
+    report.check(
+        "practice box is multi-line",
+        style & ES_MULTILINE != 0,
+        format!("{style:#x}"),
+    );
+    report.check(
+        "polling before Done stays pending without a marker",
+        window.poll() == Outcome::Pending && !marker.exists(),
+        format!("{:?}", window.step()),
+    );
+    unsafe {
+        SendMessageW(controls.done, BM_CLICK, None, None);
+    }
+    let outcome = window.poll();
+    report.check(
+        "done writes the marker and finishes",
+        outcome == Outcome::Finished && marker.exists() && !shown(controls.window),
+        format!("{outcome:?}"),
+    );
+    drop(window);
+    report.failed
+}
+
+fn onboarding_failure() -> usize {
+    let mut report = Report {
+        passed: 0,
+        failed: 0,
+    };
+    let marker = std::env::temp_dir().join("pith-e2e-onboarding-failed");
+    let mut window = Onboarding::create(marker.clone(), false).expect("onboarding window");
+    let controls = window.controls();
+    window.event(OnboardingEvent::Failed("offline".into()));
+    report.check(
+        "onboarding shows a startup failure",
+        control_text(controls.status).contains("offline")
+            && !shown(controls.practice)
+            && unsafe { IsWindowEnabled(controls.done).as_bool() },
+        control_text(controls.status),
+    );
+    unsafe {
+        SendMessageW(controls.done, BM_CLICK, None, None);
+    }
+    report.check(
+        "closing after failure leaves no marker",
+        window.poll() == Outcome::Closed && !marker.exists(),
+        format!("{:?}", window.step()),
+    );
+    report.failed
+}
+
+fn onboarding_checks() -> usize {
+    let marker = std::env::temp_dir().join("pith-e2e-onboarded");
+    let _ = std::fs::remove_file(&marker);
+    let flow = marker.clone();
+    let failed = std::thread::spawn(move || onboarding_flow(flow) + onboarding_failure())
+        .join()
+        .unwrap_or(1);
+    let _ = std::fs::remove_file(&marker);
+    failed
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let model = PathBuf::from(args.next().expect("model path"));
@@ -1455,6 +1580,12 @@ fn main() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
+    println!("--- onboarding");
+    let onboarding_failed = if only.as_deref().is_none_or(|o| "onboarding".contains(o)) {
+        onboarding_checks()
+    } else {
+        0
+    };
     print_memory("idle, model not loaded");
     let a = spawn_test_window("Pith e2e target", 60, 60, ES_MULTILINE | ES_AUTOVSCROLL);
     let b = spawn_test_window("Pith e2e second", 60, 290, ES_MULTILINE | ES_AUTOVSCROLL);
@@ -1610,5 +1741,5 @@ fn main() {
     };
     run(config, worker, (sender, receiver), waker, options).expect("run");
     let failed = driver.join().unwrap_or(1);
-    std::process::exit(if failed == 0 { 0 } else { 1 });
+    std::process::exit(if failed + onboarding_failed == 0 { 0 } else { 1 });
 }
