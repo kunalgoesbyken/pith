@@ -24,20 +24,6 @@ fn paths() -> Paths {
     }
 }
 
-fn load_config(path: &Path) -> Result<Config, String> {
-    match std::fs::read_to_string(path) {
-        Ok(source) => Config::from_toml(&source),
-        Err(_) => {
-            let config = Config::default();
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(path, config.to_toml());
-            Ok(config)
-        }
-    }
-}
-
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .position(|a| a == name)
@@ -110,7 +96,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let paths = paths();
     init_log(&paths.log);
-    let (mut config, config_error) = match load_config(&paths.config) {
+    let (mut config, config_error) = match Config::load(&paths.config) {
         Ok(config) => (config, None),
         Err(error) => {
             log(&format!("settings error, using defaults: {error}"));
@@ -179,6 +165,6 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    let _ = (paths, load_config, flag, resolve_backend);
+    let _ = (paths, flag, resolve_backend);
     eprintln!("Pith currently runs on Windows; macOS and Linux support is planned.");
 }

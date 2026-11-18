@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::chord::Chord;
+use crate::stored::{read, write_atomically};
 
 pub fn app_name(path_or_name: &str) -> String {
     let leaf = path_or_name
@@ -304,6 +305,17 @@ impl Config {
         toml_edit::de::from_str::<Self>(source)
             .map_err(|e| e.to_string())?
             .validate()
+    }
+
+    pub fn load(path: &Path) -> Result<Self, String> {
+        match read(path)? {
+            Some(source) => Self::from_toml(&source),
+            None => {
+                let config = Self::default();
+                let _ = write_atomically(path, &config.to_toml());
+                Ok(config)
+            }
+        }
     }
 
     pub fn to_toml(&self) -> String {

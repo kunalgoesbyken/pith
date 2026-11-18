@@ -744,7 +744,11 @@ pub fn run(
     app.overlay.hide();
     app.keys.disarm();
     app.keys.set_trigger(false);
-    match app.delete_data.then(|| app.options.data_dir.clone()).flatten() {
+    match app
+        .delete_data
+        .then(|| app.options.data_dir.clone())
+        .flatten()
+    {
         Some(dir) => erase(&dir, app.worker),
         None => drop(app.worker),
     }

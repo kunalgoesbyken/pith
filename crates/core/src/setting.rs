@@ -1,7 +1,6 @@
-use std::io;
 use std::path::Path;
 
-use crate::stored::{patch, write_atomically};
+use crate::stored::{patch, read, write_atomically};
 use crate::{Config, app_name};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,11 +59,7 @@ impl Setting {
     }
 
     pub fn persist(&self, path: &Path) -> Result<(), String> {
-        let source = match std::fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(error.to_string()),
-        };
+        let source = read(path)?.unwrap_or_default();
         let before = Config::from_toml(&source)?;
         let mut after = before.clone();
         self.apply(&mut after);

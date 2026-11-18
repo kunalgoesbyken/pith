@@ -61,6 +61,14 @@ pub fn patch(source: &str, before: &Config, after: &Config) -> Result<String, St
     Ok(document.to_string())
 }
 
+pub fn read(path: &Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(source) => Ok(Some(source)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 pub fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
