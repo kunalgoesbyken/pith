@@ -57,6 +57,8 @@ Invalid settings are reported in the tray and the defaults are used until you fi
 | `max_words` | 6 | longest suggestion |
 | `min_mean_logprob` | -1.6 | confidence gate; raise for fewer, safer suggestions |
 | `idle_unload_secs` | 300 | free the model after this much idle time (0 = never) |
+| `auto_pause_after` | 12 | stop suggesting in an app after this many shown suggestions in a row were ignored (0 = never); the tray offers "Resume" |
+| `smart_space` | false | add a trailing space when you accept the last word of a suggestion |
 | `blocked_apps` | [] | extra process names to ignore; terminals, editors, password managers and sign-in screens are always ignored |
 | `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; must be `https`, or `http` to this computer |
 
