@@ -3,7 +3,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::ignore::IgnoreTracker;
 use crate::{
     Completion, CompletionRequest, Config, FieldSnapshot, Rect, build, check, continue_window,
-    next_word, suggestion,
+    ends_spaced_word, next_word, suggestion,
 };
 
 fn is_grapheme_boundary(text: &str, index: usize) -> bool {
@@ -48,6 +48,11 @@ pub enum Action {
     ArmKeys,
     DisarmKeys,
     AutoPaused(Vec<String>),
+}
+
+fn closes_spaced_word(field: &FieldSnapshot, accepted: &str) -> bool {
+    !field.after.starts_with(char::is_whitespace)
+        && ends_spaced_word(&format!("{}{accepted}", field.before))
 }
 
 pub struct Engine {
@@ -328,8 +333,12 @@ impl Engine {
         };
         let rest = suggestion[accepted.len()..].to_string();
         self.engaged = true;
+        let mut accepted = accepted;
         if let Some(field) = &self.field {
             self.ignores.accepted(&field.app);
+            if self.config.smart_space && rest.is_empty() && closes_spaced_word(field, &accepted) {
+                accepted.push(' ');
+            }
         }
         out.push(Action::Insert(accepted.clone()));
         if let Some(field) = &mut self.field {
@@ -983,7 +992,12 @@ mod tests {
     #[test]
     fn dismissing_after_a_partial_accept_is_not_an_ignore() {
         let mut engine = pausing(1);
-        suggest_in(&mut engine, "notepad", "Please sign the", " contract by Friday");
+        suggest_in(
+            &mut engine,
+            "notepad",
+            "Please sign the",
+            " contract by Friday",
+        );
         engine.handle(Event::AcceptWord);
         assert!(engine.suggestion().is_some());
         let out = engine.handle(Event::Dismiss);
@@ -1028,5 +1042,97 @@ mod tests {
             let out = engine.handle(Event::Dismiss);
             assert!(paused_in(&out).is_none());
         }
+    }
+
+    fn accepted_insert(config: Config, before: &str, text: &str, event: Event) -> String {
+        let mut engine = Engine::new(config);
+        suggest(&mut engine, before, text);
+        let out = engine.handle(event);
+        out.into_iter()
+            .find_map(|action| match action {
+                Action::Insert(text) => Some(text),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    fn spaced() -> Config {
+        Config {
+            smart_space: true,
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn trailing_space_only_closes_a_whole_final_word() {
+        let cases = [
+            (
+                "Please sign the",
+                " contract",
+                Event::AcceptAll,
+                " contract ",
+            ),
+            ("Please sign the contr", "act", Event::AcceptAll, "act "),
+            (
+                "Please sign the",
+                " contract by Friday",
+                Event::AcceptWord,
+                " contract",
+            ),
+            (
+                "Please sign the",
+                " contract by Friday.",
+                Event::AcceptAll,
+                " contract by Friday.",
+            ),
+            (
+                "Please sign the",
+                " contract,",
+                Event::AcceptAll,
+                " contract,",
+            ),
+            ("我喜欢", "苹果", Event::AcceptAll, "苹果"),
+        ];
+        for (before, text, event, expected) in cases {
+            let inserted = accepted_insert(spaced(), before, text, event.clone());
+            assert_eq!(inserted, expected, "{before:?} + {text:?}");
+        }
+    }
+
+    #[test]
+    fn trailing_space_is_off_by_default_and_never_doubles() {
+        let off = accepted_insert(
+            Config::default(),
+            "Please sign the",
+            " contract",
+            Event::AcceptAll,
+        );
+        assert_eq!(off, " contract");
+        let mut engine = Engine::new(spaced());
+        let mut snapshot = field("Please sign the");
+        snapshot.after = " ".into();
+        let out = engine.handle(Event::Field(Some(snapshot)));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        let out = engine.handle(Event::AcceptAll);
+        assert!(out.contains(&Action::Insert(" contract".into())), "{out:?}");
+    }
+
+    #[test]
+    fn spaced_accept_lands_without_resetting_the_engine() {
+        let mut engine = Engine::new(spaced());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::AcceptAll);
+        let out = engine.handle(Event::Field(Some(field("Please sign the contract "))));
+        assert!(
+            !out.iter().any(|a| matches!(a, Action::CancelCompletion)),
+            "{out:?}"
+        );
     }
 }
