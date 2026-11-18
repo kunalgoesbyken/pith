@@ -14,7 +14,8 @@ pub use policy::{SkipReason, check};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use setting::{Setting, Suggestions};
 pub use text::{
-    SentenceEnd, clean_completion, exceeds_words, next_word, sentence_end, split_partial, tail_chars,
+    SentenceEnd, clean_completion, continue_window, exceeds_words, next_word, sentence_end,
+    split_partial, tail_chars,
 };
 pub use types::{Completion, FieldSnapshot, Rect, StopReason};
 
