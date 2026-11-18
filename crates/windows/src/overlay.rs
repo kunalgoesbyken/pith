@@ -1,8 +1,9 @@
 use std::ffi::c_void;
 
 use pith_core::{
-    FADE_ALPHAS, FADE_FRAME_MS, Flow, Line, Placement, Rect, anchor_pill, flow_bounds, ink, is_rtl,
-    layout, lines_that_fit, median_by_luminance, next_word, next_word_alpha, strong_span,
+    FADE_ALPHAS, FADE_FRAME_MS, Flow, Line, Placement, Rect, TextStyle, anchor_pill, flow_bounds,
+    ink, is_rtl, layout, lines_that_fit, median_by_luminance, next_word, next_word_alpha,
+    strong_span,
 };
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -27,14 +28,20 @@ const BASE_DPI: u32 = 96;
 const SAMPLE_COLUMNS: i32 = 4;
 const SAMPLE_ROWS: i32 = 3;
 const SAMPLE_STEP: i32 = 8;
+const FONT_TO_CARET_HEIGHT: f32 = 0.72;
+const MIN_FONT_PX: i32 = 9;
+const MAX_FONT_PX: i32 = 72;
 
-fn apply_fade(hwnd: HWND, step: usize) {
-    let blend = BLENDFUNCTION {
+fn fade_blend(step: usize) -> BLENDFUNCTION {
+    BLENDFUNCTION {
         BlendOp: AC_SRC_OVER as u8,
         BlendFlags: 0,
         SourceConstantAlpha: FADE_ALPHAS[step.min(FADE_ALPHAS.len() - 1)],
         AlphaFormat: AC_SRC_ALPHA as u8,
-    };
+    }
+}
+
+fn apply_fade(hwnd: HWND, step: usize) {
     unsafe {
         let _ = UpdateLayeredWindow(
             hwnd,
@@ -44,9 +51,25 @@ fn apply_fade(hwnd: HWND, step: usize) {
             None,
             None,
             COLORREF(0),
-            Some(&blend),
+            Some(&fade_blend(step)),
             ULW_ALPHA,
         );
+    }
+}
+
+struct ScreenDc(HDC);
+
+impl ScreenDc {
+    fn get() -> Self {
+        Self(unsafe { GetDC(None) })
+    }
+}
+
+impl Drop for ScreenDc {
+    fn drop(&mut self) {
+        unsafe {
+            ReleaseDC(None, self.0);
+        }
     }
 }
 
@@ -115,20 +138,17 @@ fn focused_field() -> Option<Rect> {
 
 fn sample_background(caret: Rect, anchor: i32, rtl: bool) -> u32 {
     let direction = if rtl { -1 } else { 1 };
+    let screen = ScreenDc::get();
     let mut pixels = Vec::new();
-    unsafe {
-        let screen = GetDC(None);
-        for row in 1..=SAMPLE_ROWS {
-            for column in 0..SAMPLE_COLUMNS {
-                let x = anchor + direction * (SAMPLE_STEP / 2 + column * SAMPLE_STEP);
-                let y = caret.y + caret.height * row / (SAMPLE_ROWS + 1);
-                let pixel = GetPixel(screen, x, y).0;
-                if pixel != CLR_INVALID {
-                    pixels.push(pixel);
-                }
+    for row in 1..=SAMPLE_ROWS {
+        for column in 0..SAMPLE_COLUMNS {
+            let x = anchor + direction * (SAMPLE_STEP / 2 + column * SAMPLE_STEP);
+            let y = caret.y + caret.height * row / (SAMPLE_ROWS + 1);
+            let pixel = unsafe { GetPixel(screen.0, x, y) }.0;
+            if pixel != CLR_INVALID {
+                pixels.push(pixel);
             }
         }
-        ReleaseDC(None, screen);
     }
     median_by_luminance(pixels).unwrap_or(WHITE)
 }
@@ -255,28 +275,14 @@ impl Overlay {
         self.opacity = opacity;
     }
 
-    pub fn show(
-        &mut self,
-        text: &str,
-        placement: Placement,
-        font_family: Option<&str>,
-        font_px: Option<f32>,
-        color: Option<u32>,
-    ) {
+    pub fn show(&mut self, text: &str, placement: Placement, style: &TextStyle) {
         match placement {
-            Placement::Inline(caret) => self.show_inline(text, caret, font_family, font_px, color),
+            Placement::Inline(caret) => self.show_inline(text, caret, style),
             Placement::Anchored(element) => self.show_anchored(text, element),
         }
     }
 
-    fn show_inline(
-        &mut self,
-        text: &str,
-        caret: Rect,
-        font_family: Option<&str>,
-        font_px: Option<f32>,
-        color: Option<u32>,
-    ) {
+    fn show_inline(&mut self, text: &str, caret: Rect, style: &TextStyle) {
         let rtl = is_rtl(text);
         let anchor = if rtl {
             caret.x
@@ -287,81 +293,73 @@ impl Overlay {
             self.background = sample_background(caret, anchor, rtl);
         }
         let (work, dpi) = monitor_of(caret);
-        let scale = |value: i32| value * dpi as i32 / BASE_DPI as i32;
-        let px = font_px
-            .map_or(((caret.height as f32) * 0.72).round() as i32, |p| {
-                p.round() as i32
-            })
-            .clamp(scale(9), scale(72));
-        let paint = ink(color, self.background, self.opacity);
+        let scale = Scale(dpi);
+        let px = style
+            .px
+            .unwrap_or(caret.height as f32 * FONT_TO_CARET_HEIGHT)
+            .round() as i32;
+        let px = px.clamp(scale.px(MIN_FONT_PX), scale.px(MAX_FONT_PX));
+        let paint = ink(style.color, self.background, self.opacity);
         let strong = next_word_alpha(paint.alpha);
         let strong_end = next_word(text).len();
-        unsafe {
-            let screen = GetDC(None);
-            let face = Face::new(screen, font_family.unwrap_or(FALLBACK_FONT), px);
-            let measure = |segment: &str| face.measure(segment);
-            let top = caret.y + (caret.height - face.line_height) / 2;
-            let bounds = flow_bounds(focused_field(), caret, work);
-            let flow = Flow {
-                caret,
-                top,
-                line_height: face.line_height,
-                bounds,
-                rtl,
-                max_lines: lines_that_fit(bounds, top, face.line_height),
-            };
-            let lines = layout(text, &flow, &measure);
-            if lines.is_empty() {
-                ReleaseDC(None, screen);
-                drop(face);
-                self.hide();
-                return;
-            }
-            let left = lines.iter().map(|line| line.x).min().unwrap_or(0);
-            let right = lines
-                .iter()
-                .map(|line| line.x + line.width)
-                .max()
-                .unwrap_or(1);
-            let first = lines[0].y;
-            let height = lines
-                .last()
-                .map_or(1, |line| line.y - first + face.line_height);
-            let width = (right - left).max(1);
-            let spans: Vec<_> = lines
-                .iter()
-                .map(|line| strong_span(text, line, strong_end, rtl, &measure))
-                .collect();
-            let rows = row_spans(&lines, &spans, left, first, face.line_height, height);
-            let (red, green, blue) = (
-                paint.color & 0xFF,
-                (paint.color >> 8) & 0xFF,
-                (paint.color >> 16) & 0xFF,
-            );
-            let shade = |column: i32, row: i32, coverage: u32| {
-                let emphasised =
-                    rows[row as usize].is_some_and(|(from, to)| (from..to).contains(&column));
-                let ceiling = u32::from(if emphasised { strong } else { paint.alpha });
-                let alpha = coverage * ceiling / 255;
-                (alpha << 24)
-                    | ((red * alpha / 255) << 16)
-                    | ((green * alpha / 255) << 8)
-                    | (blue * alpha / 255)
-            };
-            let origin = POINT { x: left, y: first };
-            let picture = Picture {
-                text,
-                lines: &lines,
-                rtl,
-                origin,
-                destination: origin,
-                width,
-                height,
-            };
-            self.draw(&face, screen, &picture, &shade);
-            drop(face);
-            ReleaseDC(None, screen);
-        }
+        let screen = ScreenDc::get();
+        let face = Face::new(
+            screen.0,
+            style.family.as_deref().unwrap_or(FALLBACK_FONT),
+            px,
+        );
+        let measure = |segment: &str| face.measure(segment);
+        let top = caret.y + (caret.height - face.line_height) / 2;
+        let bounds = flow_bounds(focused_field(), caret, work);
+        let flow = Flow {
+            caret,
+            top,
+            line_height: face.line_height,
+            bounds,
+            rtl,
+            max_lines: lines_that_fit(bounds, top, face.line_height),
+        };
+        let lines = layout(text, &flow, &measure);
+        let (Some(first), Some(last)) = (lines.first(), lines.last()) else {
+            self.hide();
+            return;
+        };
+        let left = lines.iter().map(|line| line.x).min().unwrap_or(first.x);
+        let right = lines
+            .iter()
+            .map(|line| line.x + line.width)
+            .max()
+            .unwrap_or(left + 1);
+        let origin = POINT {
+            x: left,
+            y: first.y,
+        };
+        let height = last.y - first.y + face.line_height;
+        let spans: Vec<_> = lines
+            .iter()
+            .map(|line| strong_span(text, line, strong_end, rtl, &measure))
+            .collect();
+        let rows = row_spans(&lines, &spans, origin, face.line_height, height);
+        let [red, green, blue] = [0, 8, 16].map(|shift| (paint.color >> shift) & 0xFF);
+        let shade = |column: i32, row: i32, coverage: u32| {
+            let emphasised = rows.covers(column, row);
+            let ceiling = u32::from(if emphasised { strong } else { paint.alpha });
+            let alpha = coverage * ceiling / 255;
+            (alpha << 24)
+                | ((red * alpha / 255) << 16)
+                | ((green * alpha / 255) << 8)
+                | (blue * alpha / 255)
+        };
+        let picture = Picture {
+            text,
+            lines: &lines,
+            rtl,
+            origin,
+            destination: origin,
+            width: (right - left).max(1),
+            height,
+        };
+        self.draw(&face, screen.0, &picture, &shade);
         self.reveal();
     }
 
@@ -375,84 +373,76 @@ impl Overlay {
         let strong_end = next_word(text).len();
         let (padding_x, padding_y) = (scale.px(PILL_PADDING_X), scale.px(PILL_PADDING_Y));
         let room = element.width.max(scale.px(PILL_MIN_WIDTH)).min(work.width) - 2 * padding_x;
-        unsafe {
-            let screen = GetDC(None);
-            let face = Face::new(
-                screen,
-                FALLBACK_FONT,
-                scale.size(Role::Body.size()).round() as i32,
-            );
-            let measure = |segment: &str| face.measure(segment);
-            let flow = Flow {
-                caret: Rect {
-                    x: if rtl { room } else { -1 },
-                    y: 0,
-                    width: 0,
-                    height: face.line_height,
-                },
-                top: 0,
-                line_height: face.line_height,
-                bounds: Rect {
-                    x: 0,
-                    y: 0,
-                    width: room,
-                    height: face.line_height,
-                },
+        let screen = ScreenDc::get();
+        let face = Face::new(
+            screen.0,
+            FALLBACK_FONT,
+            scale.size(Role::Body.size()).round() as i32,
+        );
+        let measure = |segment: &str| face.measure(segment);
+        let flow = Flow {
+            caret: Rect {
+                x: if rtl { room } else { -1 },
+                y: 0,
+                width: 0,
+                height: face.line_height,
+            },
+            top: 0,
+            line_height: face.line_height,
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: room,
+                height: face.line_height,
+            },
+            rtl,
+            max_lines: 1,
+        };
+        let height = face.line_height + 2 * padding_y;
+        let placed = layout(text, &flow, &measure).first().and_then(|line| {
+            let pill = anchor_pill(
+                element,
+                line.width + 2 * padding_x,
+                height,
+                scale.px(PILL_GAP),
+                work,
                 rtl,
-                max_lines: 1,
-            };
-            let lines = layout(text, &flow, &measure);
-            let height = face.line_height + 2 * padding_y;
-            let placed = lines.first().and_then(|line| {
-                anchor_pill(
-                    element,
-                    line.width + 2 * padding_x,
-                    height,
-                    scale.px(PILL_GAP),
-                    work,
-                    rtl,
-                )
-                .map(|pill| (*line, pill))
-            });
-            let Some((line, pill)) = placed else {
-                ReleaseDC(None, screen);
-                drop(face);
-                self.hide();
-                return;
-            };
-            let origin = POINT {
-                x: line.x - padding_x,
-                y: -padding_y,
-            };
-            let span = [strong_span(text, &line, strong_end, rtl, &measure)];
-            let rows = row_spans(&[line], &span, origin.x, origin.y, face.line_height, height);
-            let shape = Pill {
-                width: pill.width,
-                height: pill.height,
-                edge: scale.px(STROKE).max(1),
-            };
-            let style = self.style;
-            let shade = |column: i32, row: i32, coverage: u32| {
-                let emphasised =
-                    rows[row as usize].is_some_and(|(from, to)| (from..to).contains(&column));
-                style.pixel(shape, column, row, coverage, emphasised)
-            };
-            let picture = Picture {
-                text,
-                lines: &[line],
-                rtl,
-                origin,
-                destination: POINT {
-                    x: pill.x,
-                    y: pill.y,
-                },
-                width: pill.width,
-                height: pill.height,
-            };
-            self.draw(&face, screen, &picture, &shade);
-            drop(face);
-            ReleaseDC(None, screen);
-        }
+            )?;
+            Some((*line, pill))
+        });
+        let Some((line, pill)) = placed else {
+            self.hide();
+            return;
+        };
+        let origin = POINT {
+            x: line.x - padding_x,
+            y: -padding_y,
+        };
+        let span = [strong_span(text, &line, strong_end, rtl, &measure)];
+        let rows = row_spans(&[line], &span, origin, face.line_height, height);
+        let shape = Pill {
+            width: pill.width,
+            height: pill.height,
+            edge: scale.px(STROKE).max(1),
+        };
+        let style = self.style;
+        let shade = |column: i32, row: i32, coverage: u32| {
+            let emphasised = rows.covers(column, row);
+            style.pixel(shape, column, row, coverage, emphasised)
+        };
+        let picture = Picture {
+            text,
+            lines: &[line],
+            rtl,
+            origin,
+            destination: POINT {
+                x: pill.x,
+                y: pill.y,
+            },
+            width: pill.width,
+            height: pill.height,
+        };
+        self.draw(&face, screen.0, &picture, &shade);
         self.reveal();
     }
 
@@ -524,12 +514,6 @@ impl Overlay {
                 cy: height,
             };
             let source = POINT { x: 0, y: 0 };
-            let blend = BLENDFUNCTION {
-                BlendOp: AC_SRC_OVER as u8,
-                BlendFlags: 0,
-                SourceConstantAlpha: FADE_ALPHAS[step.min(FADE_ALPHAS.len() - 1)],
-                AlphaFormat: AC_SRC_ALPHA as u8,
-            };
             let _ = UpdateLayeredWindow(
                 self.hwnd,
                 Some(screen),
@@ -538,7 +522,7 @@ impl Overlay {
                 Some(face.memory),
                 Some(&source),
                 COLORREF(0),
-                Some(&blend),
+                Some(&fade_blend(step)),
                 ULW_ALPHA,
             );
             SelectObject(face.memory, previous_bitmap);
@@ -577,26 +561,33 @@ impl Overlay {
     }
 }
 
+struct Emphasis(Vec<Option<(i32, i32)>>);
+
+impl Emphasis {
+    fn covers(&self, column: i32, row: i32) -> bool {
+        self.0[row as usize].is_some_and(|(from, to)| (from..to).contains(&column))
+    }
+}
+
 fn row_spans(
     lines: &[Line],
     spans: &[Option<(i32, i32)>],
-    left: i32,
-    first: i32,
+    origin: POINT,
     line_height: i32,
     height: i32,
-) -> Vec<Option<(i32, i32)>> {
+) -> Emphasis {
     let mut rows = vec![None; height as usize];
     for (line, span) in lines.iter().zip(spans) {
         let Some((from, to)) = span else {
             continue;
         };
-        let origin = line.x - left;
-        let top = (line.y - first) as usize;
+        let start = line.x - origin.x;
+        let top = (line.y - origin.y) as usize;
         for row in rows.iter_mut().skip(top).take(line_height as usize) {
-            *row = Some((origin + from, origin + to));
+            *row = Some((start + from, start + to));
         }
     }
-    rows
+    Emphasis(rows)
 }
 
 #[cfg(test)]
@@ -659,7 +650,14 @@ mod tests {
         ];
         for (lines, spans, left, first, line_height, height, expected) in rows {
             assert_eq!(
-                row_spans(&lines, &spans, left, first, line_height, height),
+                row_spans(
+                    &lines,
+                    &spans,
+                    POINT { x: left, y: first },
+                    line_height,
+                    height
+                )
+                .0,
                 expected,
                 "{spans:?} {left} {first} {line_height} {height}"
             );

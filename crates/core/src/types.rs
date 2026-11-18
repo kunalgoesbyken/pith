@@ -9,6 +9,13 @@ pub struct Rect {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct TextStyle {
+    pub family: Option<String>,
+    pub px: Option<f32>,
+    pub color: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FieldSnapshot {
     pub field_id: u64,
     pub app: String,
@@ -19,9 +26,7 @@ pub struct FieldSnapshot {
     pub is_password: bool,
     pub composing: bool,
     pub placement: Option<Placement>,
-    pub font_family: Option<String>,
-    pub font_px: Option<f32>,
-    pub text_color: Option<u32>,
+    pub style: TextStyle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

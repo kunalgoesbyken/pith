@@ -5,8 +5,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::ignore::IgnoreTracker;
 use crate::stats::Counts;
 use crate::{
-    Completion, CompletionRequest, Config, FieldSnapshot, Placement, SkipReason, TriggerMode,
-    build, check, check_forced, continue_window, ends_spaced_word, next_word, suggestion,
+    Completion, CompletionRequest, Config, FieldSnapshot, Placement, SkipReason, TextStyle,
+    TriggerMode, build, check, check_forced, continue_window, ends_spaced_word, next_word,
+    suggestion,
 };
 
 const READ_TIME: Duration = Duration::from_millis(500);
@@ -46,9 +47,7 @@ pub enum Action {
     Show {
         text: String,
         placement: Placement,
-        font_family: Option<String>,
-        font_px: Option<f32>,
-        color: Option<u32>,
+        style: TextStyle,
     },
     Hide,
     Insert(String),
@@ -457,9 +456,7 @@ impl Engine {
             Some(placement) => out.push(Action::Show {
                 text: text.clone(),
                 placement,
-                font_family: field.font_family.clone(),
-                font_px: field.font_px,
-                color: field.text_color,
+                style: field.style.clone(),
             }),
             None => {
                 self.suggestion = None;

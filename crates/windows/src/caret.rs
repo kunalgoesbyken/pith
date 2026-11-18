@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use pith_core::Rect;
+use pith_core::{Rect, TextStyle};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::Graphics::Gdi::MapWindowPoints;
 use windows::Win32::System::Com::SAFEARRAY;
@@ -15,6 +15,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GUITHREADINFO, GetGUIThreadInfo, GetWindowThreadProcessId,
 };
 use windows::core::{BOOL, Interface, Result};
+
+const POINTS_PER_INCH: f64 = 72.0;
 
 pub fn caret_range(element: &IUIAutomationElement) -> Result<IUIAutomationTextRange> {
     unsafe {
@@ -238,10 +240,10 @@ pub fn caret_rect(caret: &IUIAutomationTextRange, foreground: Option<HWND>) -> O
     }
 }
 
-pub fn font(caret: &IUIAutomationTextRange) -> (Option<String>, Option<f64>, Option<u32>) {
+pub fn font(caret: &IUIAutomationTextRange, dpi: u32) -> TextStyle {
     unsafe {
         let Ok(range) = caret.Clone() else {
-            return (None, None, None);
+            return TextStyle::default();
         };
         if range
             .MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -1)
@@ -250,22 +252,23 @@ pub fn font(caret: &IUIAutomationTextRange) -> (Option<String>, Option<f64>, Opt
         {
             let _ = range.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 1);
         }
-        let name = range
+        let family = range
             .GetAttributeValue(UIA_FontNameAttributeId)
             .ok()
             .map(|v| v.to_string())
             .filter(|s| !s.is_empty());
-        let size = range
+        let px = range
             .GetAttributeValue(UIA_FontSizeAttributeId)
             .ok()
             .and_then(|v| f64::try_from(&v).ok())
-            .filter(|s| *s > 0.0);
+            .filter(|points| *points > 0.0)
+            .map(|points| (points * f64::from(dpi) / POINTS_PER_INCH) as f32);
         let color = range
             .GetAttributeValue(UIA_ForegroundColorAttributeId)
             .ok()
             .and_then(|v| i32::try_from(&v).ok())
             .map(|c| c as u32 & 0x00FF_FFFF);
-        (name, size, color)
+        TextStyle { family, px, color }
     }
 }
 

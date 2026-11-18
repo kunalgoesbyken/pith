@@ -147,12 +147,8 @@ impl App {
                 Action::Show {
                     text,
                     placement,
-                    font_family,
-                    font_px,
-                    color,
-                } => self
-                    .overlay
-                    .show(&text, placement, font_family.as_deref(), font_px, color),
+                    style,
+                } => self.overlay.show(&text, placement, &style),
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => match &self.options.insert {
                     InsertMode::Paste => paste(text, Trigger::Chord),

@@ -195,8 +195,7 @@ fn read(
             let lookback = config.lookback_chars();
             text_around(&caret, i32::try_from(lookback).unwrap_or(i32::MAX), 200)?
         };
-        let (font_family, font_points, text_color) = font(&caret);
-        let dpi = GetDpiForWindow(root).max(96) as f64;
+        let style = font(&caret, GetDpiForWindow(root).max(96));
         let element_rect = element.CurrentBoundingRectangle().ok().map(rect_of);
         Ok(Some(FieldSnapshot {
             field_id: runtime_id(&element),
@@ -208,9 +207,7 @@ fn read(
             is_password,
             composing: composing(&element),
             placement: place(caret_rect(&caret, foreground), element_rect, &work_areas()),
-            font_family,
-            font_px: font_points.map(|pt| (pt * dpi / 72.0) as f32),
-            text_color,
+            style,
         }))
     }
 }

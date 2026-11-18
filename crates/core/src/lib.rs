@@ -36,7 +36,7 @@ pub use text::{
     SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words, next_word,
     sentence_end, split_partial, tail_chars,
 };
-pub use types::{Completion, FieldSnapshot, Rect, StopReason};
+pub use types::{Completion, FieldSnapshot, Rect, StopReason, TextStyle};
 
 pub trait Completer {
     fn complete(
