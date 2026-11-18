@@ -12,9 +12,12 @@ use pith_core::{
     Completer, Completion, CompletionRequest, SentenceEnd, StopReason, exceeds_words, sentence_end,
 };
 
-use crate::sampling::{common_prefix_len, consistent_with_prefix, log_sum_exp, valid_utf8_prefix};
+use crate::sampling::{consistent_with_prefix, log_sum_exp, reusable_prefix, valid_utf8_prefix};
+use crate::slots::Slots;
 
 const BATCH: usize = 64;
+const FIELD_SLOTS: usize = 2;
+const DEFAULT_FIELD: u64 = 0;
 
 pub struct LlamaModelHandle {
     model: LlamaModel,
@@ -49,6 +52,18 @@ impl LlamaModelHandle {
     }
 
     pub fn session(&self, threads: usize, context_tokens: u32) -> Result<LlamaSession<'_>, String> {
+        let mut slots = Slots::new(FIELD_SLOTS);
+        slots.acquire(DEFAULT_FIELD, || self.slot(threads, context_tokens))?;
+        Ok(LlamaSession {
+            handle: self,
+            threads,
+            context_tokens,
+            slots,
+            batch: LlamaBatch::new(BATCH, 1),
+        })
+    }
+
+    fn slot(&self, threads: usize, context_tokens: u32) -> Result<Slot<'_>, String> {
         let threads = i32::try_from(threads.max(1)).unwrap_or(1);
         let params = LlamaContextParams::default()
             .with_n_ctx(NonZeroU32::new(context_tokens.max(256)))
@@ -62,25 +77,14 @@ impl LlamaModelHandle {
             .model
             .new_context(&self.backend, params)
             .map_err(|e| e.to_string())?;
-        Ok(LlamaSession {
-            handle: self,
+        Ok(Slot {
             ctx,
             cached: Vec::new(),
-            batch: LlamaBatch::new(BATCH, 1),
         })
     }
-}
 
-pub struct LlamaSession<'a> {
-    handle: &'a LlamaModelHandle,
-    ctx: LlamaContext<'a>,
-    cached: Vec<LlamaToken>,
-    batch: LlamaBatch<'static>,
-}
-
-impl LlamaSession<'_> {
     fn tokenize(&self, prompt: &str) -> Vec<LlamaToken> {
-        let vocab = self.handle.model.vocab();
+        let vocab = self.model.vocab();
         let mut tokens = vocab.tokenize(prompt.as_bytes(), true, false);
         if tokens.is_empty() {
             tokens = vocab.tokenize(b"\n", false, false);
@@ -88,15 +92,42 @@ impl LlamaSession<'_> {
         tokens
     }
 
-    fn evaluate_prompt(
+    fn pick(&self, logits: &[f32], remaining: &[u8]) -> Option<(LlamaToken, f32)> {
+        let lse = log_sum_exp(logits);
+        let vocab = self.model.vocab();
+        let mut best: Option<(usize, f32)> = None;
+        for (id, logit) in logits.iter().enumerate() {
+            if self.blocked.get(id).copied().unwrap_or(true) {
+                continue;
+            }
+            if !remaining.is_empty() {
+                let piece = self.pieces.get(id).map(Vec::as_slice).unwrap_or_default();
+                if !consistent_with_prefix(piece, remaining) || vocab.is_eog(LlamaToken(id as i32))
+                {
+                    continue;
+                }
+            }
+            if best.is_none_or(|(_, b)| *logit > b) {
+                best = Some((id, *logit));
+            }
+        }
+        best.map(|(id, logit)| (LlamaToken(id as i32), logit - lse))
+    }
+}
+
+struct Slot<'a> {
+    ctx: LlamaContext<'a>,
+    cached: Vec<LlamaToken>,
+}
+
+impl Slot<'_> {
+    fn evaluate(
         &mut self,
+        batch: &mut LlamaBatch<'static>,
         tokens: &[LlamaToken],
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Option<usize>, String> {
-        let mut keep = common_prefix_len(&self.cached, tokens);
-        if keep == tokens.len() {
-            keep -= 1;
-        }
+        let mut keep = reusable_prefix(&self.cached, tokens);
         let trimmed = self
             .ctx
             .clear_kv_cache_seq(Some(0), Some(keep as u32), None)
@@ -112,48 +143,37 @@ impl LlamaSession<'_> {
                 return Ok(None);
             }
             let chunk_end = (chunk_start + BATCH).min(tokens.len());
-            self.batch.clear();
+            batch.clear();
             for (position, token) in tokens.iter().enumerate().take(chunk_end).skip(chunk_start) {
                 let last = position + 1 == tokens.len();
-                self.batch
+                batch
                     .add(*token, position as i32, &[0], last)
                     .map_err(|e| e.to_string())?;
             }
-            self.ctx
-                .decode(&mut self.batch)
-                .map_err(|e| e.to_string())?;
+            self.ctx.decode(batch).map_err(|e| e.to_string())?;
             self.cached
                 .extend_from_slice(&tokens[chunk_start..chunk_end]);
         }
         Ok(Some(evaluated))
     }
 
-    fn pick(&self, logits: &[f32], remaining: &[u8]) -> Option<(LlamaToken, f32)> {
-        let lse = log_sum_exp(logits);
-        let vocab = self.handle.model.vocab();
-        let mut best: Option<(usize, f32)> = None;
-        for (id, logit) in logits.iter().enumerate() {
-            if self.handle.blocked.get(id).copied().unwrap_or(true) {
-                continue;
-            }
-            if !remaining.is_empty() {
-                let piece = self
-                    .handle
-                    .pieces
-                    .get(id)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
-                if !consistent_with_prefix(piece, remaining) || vocab.is_eog(LlamaToken(id as i32))
-                {
-                    continue;
-                }
-            }
-            if best.is_none_or(|(_, b)| *logit > b) {
-                best = Some((id, *logit));
-            }
-        }
-        best.map(|(id, logit)| (LlamaToken(id as i32), logit - lse))
+    fn append(&mut self, batch: &mut LlamaBatch<'static>, token: LlamaToken) -> Result<(), String> {
+        batch.clear();
+        batch
+            .add(token, self.cached.len() as i32, &[0], true)
+            .map_err(|e| e.to_string())?;
+        self.ctx.decode(batch).map_err(|e| e.to_string())?;
+        self.cached.push(token);
+        Ok(())
     }
+}
+
+pub struct LlamaSession<'a> {
+    handle: &'a LlamaModelHandle,
+    threads: usize,
+    context_tokens: u32,
+    slots: Slots<Slot<'a>>,
+    batch: LlamaBatch<'static>,
 }
 
 impl Completer for LlamaSession<'_> {
@@ -162,8 +182,16 @@ impl Completer for LlamaSession<'_> {
         request: &CompletionRequest,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Completion, String> {
-        let mut tokens = self.tokenize(&request.prompt);
-        let budget = (self.ctx.n_ctx() as usize)
+        let Self {
+            handle,
+            threads,
+            context_tokens,
+            slots,
+            batch,
+        } = self;
+        let slot = slots.acquire(request.field_id, || handle.slot(*threads, *context_tokens))?;
+        let mut tokens = handle.tokenize(&request.prompt);
+        let budget = (slot.ctx.n_ctx() as usize)
             .saturating_sub(request.max_tokens + 16)
             .max(1);
         if tokens.len() > budget {
@@ -171,7 +199,7 @@ impl Completer for LlamaSession<'_> {
             let excess = tokens.len() - budget;
             tokens.drain(..excess.div_ceil(step) * step);
         }
-        let Some(evaluated) = self.evaluate_prompt(&tokens, cancelled)? else {
+        let Some(evaluated) = slot.evaluate(batch, &tokens, cancelled)? else {
             return Ok(Completion::cancelled(0));
         };
         let mut remaining: Vec<u8> = request.forced_prefix.as_bytes().to_vec();
@@ -179,7 +207,7 @@ impl Completer for LlamaSession<'_> {
         let mut logprob_sum = 0.0f32;
         let mut scored = 0usize;
         let mut produced = 0usize;
-        let mut logits_index = self.batch.n_tokens() - 1;
+        let mut logits_index = batch.n_tokens() - 1;
         let mut awaiting_space = false;
         let stop = loop {
             if cancelled() {
@@ -192,14 +220,14 @@ impl Completer for LlamaSession<'_> {
                     StopReason::MaxTokens
                 };
             }
-            let logits = self.ctx.get_logits_ith(logits_index);
-            let Some((token, logprob)) = self.pick(logits, &remaining) else {
+            let logits = slot.ctx.get_logits_ith(logits_index);
+            let Some((token, logprob)) = handle.pick(logits, &remaining) else {
                 break StopReason::EndOfText;
             };
-            if self.handle.model.vocab().is_eog(token) {
+            if handle.model.vocab().is_eog(token) {
                 break StopReason::EndOfText;
             }
-            let piece = self.handle.pieces[token.0 as usize].clone();
+            let piece = handle.pieces[token.0 as usize].clone();
             if awaiting_space && piece.first().is_some_and(u8::is_ascii_whitespace) {
                 break StopReason::Sentence;
             }
@@ -236,14 +264,7 @@ impl Completer for LlamaSession<'_> {
             if exceeds_words(text, request.max_words) {
                 break StopReason::WordLimit;
             }
-            self.batch.clear();
-            self.batch
-                .add(token, self.cached.len() as i32, &[0], true)
-                .map_err(|e| e.to_string())?;
-            self.ctx
-                .decode(&mut self.batch)
-                .map_err(|e| e.to_string())?;
-            self.cached.push(token);
+            slot.append(batch, token)?;
             logits_index = 0;
         };
         let text = valid_utf8_prefix(&output).to_string();
