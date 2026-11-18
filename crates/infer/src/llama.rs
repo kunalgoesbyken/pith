@@ -9,7 +9,8 @@ use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
 use pith_core::{
-    Completer, Completion, CompletionRequest, SentenceEnd, StopReason, exceeds_words, sentence_end,
+    Completer, Completion, CompletionRequest, LINE_BREAKS, SentenceEnd, StopReason, exceeds_words,
+    sentence_end,
 };
 
 use crate::sampling::{consistent_with_prefix, log_sum_exp, reusable_prefix, valid_utf8_prefix};
@@ -252,7 +253,7 @@ impl Completer for LlamaSession<'_> {
             }
             produced += 1;
             let text = valid_utf8_prefix(&output);
-            if let Some(newline) = text.find(['\n', '\r']) {
+            if let Some(newline) = text.find(LINE_BREAKS) {
                 output.truncate(newline);
                 break StopReason::Newline;
             }

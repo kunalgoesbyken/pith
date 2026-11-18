@@ -2,7 +2,7 @@ mod common;
 
 use common::{Rng, is_boundary, text};
 use pith_core::{
-    SentenceEnd, clean_completion, next_word, sentence_end, split_partial, tail_chars,
+    LINE_BREAKS, SentenceEnd, clean_completion, next_word, sentence_end, split_partial, tail_chars,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -51,11 +51,11 @@ fn split_partial_reassembles_on_clean_boundaries() {
         assert_eq!(format!("{head}{partial}"), input);
         assert!(is_boundary(&input, head.len()), "{input:?} {head:?}");
         assert!(
-            !head.ends_with(|c: char| c.is_whitespace() && c != '\n' && c != '\r'),
+            !head.ends_with(|c: char| c.is_whitespace() && !LINE_BREAKS.contains(&c)),
             "{input:?} {head:?}"
         );
         let word =
-            partial.trim_start_matches(|c: char| c.is_whitespace() && c != '\n' && c != '\r');
+            partial.trim_start_matches(|c: char| c.is_whitespace() && !LINE_BREAKS.contains(&c));
         assert!(
             word.split_word_bounds().count() <= 1,
             "{input:?} {partial:?}"
@@ -101,7 +101,7 @@ fn clean_completion_returns_a_clean_single_line_prefix() {
         };
         assert!(raw.starts_with(&cleaned), "{raw:?} {cleaned:?}");
         assert!(is_boundary(&raw, cleaned.len()), "{raw:?} {cleaned:?}");
-        assert!(!cleaned.contains(['\n', '\r']), "{raw:?} {cleaned:?}");
+        assert!(!cleaned.contains(LINE_BREAKS), "{raw:?} {cleaned:?}");
         assert_eq!(cleaned.trim_end(), cleaned, "{raw:?}");
         assert!(
             word_count(&cleaned) >= 1 && word_count(&cleaned) <= max_words,

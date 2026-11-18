@@ -4,8 +4,12 @@ fn is_word_like(segment: &str) -> bool {
     segment.chars().any(char::is_alphanumeric)
 }
 
+pub const LINE_BREAKS: [char; 7] = [
+    '\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}',
+];
+
 fn is_inline_space(c: char) -> bool {
-    c.is_whitespace() && c != '\n' && c != '\r'
+    c.is_whitespace() && !LINE_BREAKS.contains(&c)
 }
 
 const CLOSED_SENTENCE_ENDS: [char; 3] = ['。', '！', '？'];
@@ -128,7 +132,7 @@ pub fn next_word(suggestion: &str) -> &str {
 }
 
 pub fn ends_spaced_word(text: &str) -> bool {
-    let line = text.rsplit(['\n', '\r']).next().unwrap_or_default();
+    let line = text.rsplit(LINE_BREAKS).next().unwrap_or_default();
     let mut segments = line.split_word_bounds().rev();
     segments.next().is_some_and(is_word_like) && segments.next().is_some_and(is_inline_blank)
 }
@@ -145,7 +149,7 @@ pub fn exceeds_words(text: &str, max_words: usize) -> bool {
 }
 
 pub fn clean_completion(raw: &str, max_words: usize, truncated: bool) -> Option<String> {
-    let line = raw.split(['\n', '\r']).next().unwrap_or_default();
+    let line = raw.split(LINE_BREAKS).next().unwrap_or_default();
     let mut words = 0;
     let mut end = 0;
     let mut last_word_start = None;

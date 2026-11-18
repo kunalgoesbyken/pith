@@ -2,7 +2,8 @@ mod common;
 
 use common::{Rng, fragment, is_boundary, text};
 use pith_core::{
-    Action, Completion, Config, Engine, Event, FieldSnapshot, Placement, Rect, StopReason, check,
+    Action, Completion, Config, Engine, Event, FieldSnapshot, LINE_BREAKS, Placement, Rect,
+    StopReason, check,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -253,7 +254,7 @@ impl Harness {
                 }
                 Action::Show { text, .. } => {
                     self.expect(!text.trim().is_empty(), "blank suggestion shown");
-                    self.expect(!text.contains(['\n', '\r']), "multiline suggestion shown");
+                    self.expect(!text.contains(LINE_BREAKS), "multiline suggestion shown");
                     self.expect(
                         self.sent.as_ref().is_some_and(|f| {
                             f.placement.is_some() && check(f, &self.config).is_ok()
