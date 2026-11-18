@@ -119,6 +119,8 @@ impl Engine {
     }
 
     fn on_field(&mut self, field: FieldSnapshot, out: &mut Vec<Action>) {
+        self.dismissed
+            .take_if(|(id, before)| *id == field.field_id && *before != field.before);
         if let Some(previous) = &self.field {
             let same_field = previous.field_id == field.field_id
                 && previous.app == field.app
@@ -170,7 +172,7 @@ impl Engine {
             .dismissed
             .as_ref()
             .is_some_and(|(id, before)| *id == field.field_id && *before == field.before);
-        if dismissed || check(field, &self.config).is_err() {
+        if dismissed || field.caret.is_none() || check(field, &self.config).is_err() {
             return;
         }
         out.push(Action::ScheduleDebounce {
@@ -184,7 +186,7 @@ impl Engine {
             return;
         }
         let Some(field) = &self.field else { return };
-        if check(field, &self.config).is_err() {
+        if field.caret.is_none() || check(field, &self.config).is_err() {
             return;
         }
         self.in_flight = true;
@@ -200,12 +202,13 @@ impl Engine {
         result: Result<Completion, String>,
         out: &mut Vec<Action>,
     ) {
-        if generation != self.generation {
+        if generation != self.generation || !self.in_flight {
             return;
         }
         self.in_flight = false;
         let Ok(completion) = result else { return };
         if completion.stop == StopReason::Cancelled
+            || completion.mean_logprob.is_nan()
             || completion.mean_logprob < self.config.min_mean_logprob
         {
             return;
@@ -444,22 +447,33 @@ mod tests {
         assert!(matches!(&out[0], Action::Show { text, .. } if text == "contract"));
     }
 
+    fn blind(before: &str) -> FieldSnapshot {
+        FieldSnapshot {
+            caret: None,
+            ..field(before)
+        }
+    }
+
     #[test]
-    fn never_arms_keys_without_a_visible_caret() {
+    fn never_infers_without_a_visible_caret() {
         let mut engine = Engine::new(Config::default());
-        let mut blind = field("Please sign the");
-        blind.caret = None;
-        let out = engine.handle(Event::Field(Some(blind)));
-        let Action::ScheduleDebounce { generation, .. } = out[0] else {
-            panic!()
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        let out = engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" contract")),
-        });
-        assert!(out.is_empty(), "{out:?}");
+        for _ in 0..3 {
+            let out = engine.handle(Event::Field(Some(blind("Please sign the"))));
+            assert!(out.is_empty(), "{out:?}");
+        }
+        assert!(engine.handle(Event::DebounceElapsed(0)).is_empty());
         assert!(engine.suggestion().is_none());
+    }
+
+    #[test]
+    fn caret_lost_before_the_debounce_fires_starts_nothing() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        assert!(engine.handle(Event::Field(Some(blind("Please sign the")))).is_empty());
+        assert!(engine.handle(Event::DebounceElapsed(generation)).is_empty());
     }
 
     #[test]
@@ -568,22 +582,11 @@ mod tests {
     }
 
     #[test]
-    fn caret_returning_reschedules() {
+    fn caret_returning_reschedules_once() {
         let mut engine = Engine::new(Config::default());
-        let mut blind = field("Please sign the");
-        blind.caret = None;
-        let out = engine.handle(Event::Field(Some(blind)));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        let out = engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" contract")),
-        });
-        assert!(out.is_empty(), "{out:?}");
+        assert!(engine.handle(Event::Field(Some(blind("Please sign the")))).is_empty());
         let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        assert!(matches!(out.last(), Some(Action::ScheduleDebounce { .. })), "{out:?}");
+        assert!(matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]), "{out:?}");
     }
 
     #[test]
@@ -594,5 +597,67 @@ mod tests {
         other.app = "wordpad".into();
         let out = engine.handle(Event::Field(Some(other)));
         assert_eq!(out[0], Action::Hide);
+    }
+
+    #[test]
+    fn dismiss_ends_once_the_text_changes() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        engine.handle(Event::Field(Some(field("Please sign the d"))));
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        assert!(matches!(out.last(), Some(Action::ScheduleDebounce { .. })), "{out:?}");
+    }
+
+    #[test]
+    fn dismiss_in_one_field_survives_another_field_with_other_text() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::Dismiss);
+        let mut other = field("Dear John");
+        other.field_id = 2;
+        engine.handle(Event::Field(Some(other)));
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn nan_confidence_is_never_shown() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        let unknown = Completion {
+            mean_logprob: f32::NAN,
+            ..completion(" contract")
+        };
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(unknown),
+        });
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn duplicate_completion_for_one_request_is_ignored() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        let first = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        assert_eq!(first.len(), 2);
+        let again = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" other")),
+        });
+        assert!(again.is_empty(), "{again:?}");
+        assert_eq!(engine.suggestion(), Some(" contract"));
     }
 }
