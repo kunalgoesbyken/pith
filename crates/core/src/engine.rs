@@ -203,7 +203,7 @@ impl Engine {
         } else {
             text
         };
-        if text.is_empty() {
+        if text.is_empty() || field.caret.is_none() {
             return;
         }
         self.suggestion = Some(text);
@@ -236,18 +236,24 @@ impl Engine {
         }
     }
 
-    fn show_current(&self, out: &mut Vec<Action>) {
+    fn show_current(&mut self, out: &mut Vec<Action>) {
         let (Some(text), Some(field)) = (&self.suggestion, &self.field) else {
             return;
         };
-        let Some(caret) = field.caret else { return };
-        out.push(Action::Show {
-            text: text.clone(),
-            caret,
-            font_family: field.font_family.clone(),
-            font_px: field.font_px,
-            color: field.text_color,
-        });
+        match field.caret {
+            Some(caret) => out.push(Action::Show {
+                text: text.clone(),
+                caret,
+                font_family: field.font_family.clone(),
+                font_px: field.font_px,
+                color: field.text_color,
+            }),
+            None => {
+                self.suggestion = None;
+                out.push(Action::Hide);
+                out.push(Action::DisarmKeys);
+            }
+        }
     }
 }
 
@@ -415,6 +421,35 @@ mod tests {
         let mut engine = Engine::new(Config::default());
         let out = suggest(&mut engine, "Please sign the ", " contract");
         assert!(matches!(&out[0], Action::Show { text, .. } if text == "contract"));
+    }
+
+    #[test]
+    fn never_arms_keys_without_a_visible_caret() {
+        let mut engine = Engine::new(Config::default());
+        let mut blind = field("Please sign the");
+        blind.caret = None;
+        let out = engine.handle(Event::Field(Some(blind)));
+        let Action::ScheduleDebounce { generation, .. } = out[0] else {
+            panic!()
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(completion(" contract")),
+        });
+        assert!(out.is_empty(), "{out:?}");
+        assert!(engine.suggestion().is_none());
+    }
+
+    #[test]
+    fn caret_lost_while_visible_hides_and_disarms() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        let mut blind = field("Please sign the");
+        blind.caret = None;
+        let out = engine.handle(Event::Field(Some(blind)));
+        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
+        assert!(engine.suggestion().is_none());
     }
 
     #[test]

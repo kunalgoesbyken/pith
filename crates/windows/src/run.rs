@@ -235,7 +235,9 @@ impl App {
         match signal {
             Signal::Wake => return self.drain(),
             Signal::Timer(TIMER_POLL) => {
-                self.reader.poke();
+                if self.engine.config().enabled {
+                    self.reader.poke();
+                }
                 return self.drain();
             }
             Signal::Timer(TIMER_DEBOUNCE) => {
