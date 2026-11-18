@@ -1,0 +1,15 @@
+[package]
+name = "pith-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pith-core.workspace = true
+atspi.workspace = true
+zbus.workspace = true
+futures-lite.workspace = true
+async-channel.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+serde_json.workspace = true
