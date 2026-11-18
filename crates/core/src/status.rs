@@ -1,46 +1,10 @@
-use crate::SkipReason;
-
-const MINUTES_PER_DAY: u32 = 24 * 60;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PauseSpan {
-    Minutes(u32),
-    UntilResumed,
-}
-
-impl PauseSpan {
-    pub const CHOICES: [Self; 3] = [Self::Minutes(15), Self::Minutes(60), Self::UntilResumed];
-
-    pub fn label(self) -> String {
-        match self {
-            Self::Minutes(minutes) if minutes % 60 == 0 => match minutes / 60 {
-                1 => "Pause for 1 hour".to_string(),
-                hours => format!("Pause for {hours} hours"),
-            },
-            Self::Minutes(minutes) => format!("Pause for {minutes} min"),
-            Self::UntilResumed => "Pause until I resume".to_string(),
-        }
-    }
-}
-
-pub fn clock_after(hour: u32, minute: u32, minutes: u32) -> String {
-    let start = (hour % 24) * 60 + minute % 60;
-    let end = (start + minutes % MINUTES_PER_DAY) % MINUTES_PER_DAY;
-    format!("{:02}:{:02}", end / 60, end % 60)
-}
+use crate::{Pause, SkipReason};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Model {
     Loading(String),
     Ready,
     Failed(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Pause {
-    Until(String),
-    UntilResumed,
-    BatterySaver,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,33 +73,6 @@ mod tests {
             skip,
             notice: None,
         }
-    }
-
-    #[test]
-    fn clock_wraps_past_midnight_and_ignores_whole_days() {
-        assert_eq!(clock_after(14, 20, 15), "14:35");
-        assert_eq!(clock_after(14, 50, 60), "15:50");
-        assert_eq!(clock_after(23, 50, 15), "00:05");
-        assert_eq!(clock_after(0, 0, 0), "00:00");
-        assert_eq!(clock_after(9, 5, 24 * 60), "09:05");
-        assert_eq!(clock_after(99, 99, 7), "03:46");
-    }
-
-    #[test]
-    fn pause_choices_have_distinct_labels() {
-        let labels: Vec<String> = PauseSpan::CHOICES
-            .into_iter()
-            .map(PauseSpan::label)
-            .collect();
-        assert_eq!(
-            labels,
-            [
-                "Pause for 15 min",
-                "Pause for 1 hour",
-                "Pause until I resume"
-            ]
-        );
-        assert_eq!(PauseSpan::Minutes(120).label(), "Pause for 2 hours");
     }
 
     #[test]

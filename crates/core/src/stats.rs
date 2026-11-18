@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -113,6 +114,81 @@ impl Stats {
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let text = toml_edit::ser::to_string_pretty(self).map_err(|error| error.to_string())?;
         write_atomically(path, &text).map_err(|error| error.to_string())
+    }
+}
+
+enum Backing {
+    Memory,
+    Unread(PathBuf),
+    File(PathBuf),
+}
+
+pub struct Ledger {
+    stats: Stats,
+    backing: Backing,
+    dirty: bool,
+    saved_at: Instant,
+}
+
+impl Ledger {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            stats: Stats::default(),
+            backing: path.map_or(Backing::Memory, Backing::Unread),
+            dirty: false,
+            saved_at: Instant::now(),
+        }
+    }
+
+    pub fn load(&mut self) -> Result<(), String> {
+        let Backing::Unread(path) = &self.backing else {
+            return Ok(());
+        };
+        self.stats = Stats::load(path)?;
+        self.backing = Backing::File(path.clone());
+        Ok(())
+    }
+
+    pub fn stats(&self) -> &Stats {
+        &self.stats
+    }
+
+    pub fn record(&mut self, counts: Counts, day: Day) -> bool {
+        if counts.is_empty() {
+            return false;
+        }
+        self.stats.record(counts, day);
+        self.dirty = true;
+        true
+    }
+
+    pub fn flush_every(&mut self, interval: Duration) -> Result<(), String> {
+        if self.saved_at.elapsed() < interval {
+            return Ok(());
+        }
+        self.flush()
+    }
+
+    pub fn flush(&mut self) -> Result<(), String> {
+        let Backing::File(path) = &self.backing else {
+            return Ok(());
+        };
+        if !self.dirty {
+            return Ok(());
+        }
+        self.saved_at = Instant::now();
+        self.stats.save(path)?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    pub fn reset(&mut self) -> Result<(), String> {
+        self.stats = Stats::default();
+        if let Backing::Unread(path) = &self.backing {
+            self.backing = Backing::File(path.clone());
+        }
+        self.dirty = true;
+        self.flush()
     }
 }
 

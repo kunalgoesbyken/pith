@@ -4,6 +4,7 @@ mod engine;
 mod ghost;
 mod ignore;
 mod log;
+mod pause;
 mod placement;
 mod policy;
 mod prompt;
@@ -24,12 +25,13 @@ pub use ghost::{
     median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
 };
 pub use log::{init_log, log};
+pub use pause::{Pause, PauseSpan, Pauses, clock_after};
 pub use placement::{Placement, anchor_pill, place};
 pub use policy::{SkipReason, check, check_forced};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use setting::{Length, Setting, Suggestions, clamp_opacity};
-pub use stats::{Counts, Day, Stats};
-pub use status::{Model, Pause, PauseSpan, Status, clock_after, skip_label};
+pub use stats::{Counts, Day, Ledger, Stats};
+pub use status::{Model, Status, skip_label};
 pub use text::{
     SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words, next_word,
     sentence_end, split_partial, tail_chars,

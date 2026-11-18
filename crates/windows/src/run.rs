@@ -3,8 +3,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime};
 
 use pith_core::{
-    Action, Chord, Completion, Config, Day, Engine, Event, FieldSnapshot, Key, Model, Pause,
-    PauseSpan, Setting, SkipReason, Stats, Status, check, clock_after, log,
+    Action, Chord, Completion, Config, Day, Engine, Event, FieldSnapshot, Key, Ledger, Model,
+    Pause, PauseSpan, Pauses, Setting, SkipReason, Status, check, log,
 };
 use pith_infer::Worker;
 use windows::Win32::Foundation::HWND;
@@ -80,32 +80,32 @@ impl Press {
     }
 }
 
+fn battery_saver_on() -> bool {
+    Power::read() == Power::BatterySaver
+}
+
+fn log_unsaved_stats(result: Result<(), String>) {
+    if let Err(error) = result {
+        log(&format!("stats not saved: {error}"));
+    }
+}
+
 fn today() -> Day {
     let now = unsafe { GetLocalTime() };
     Day::from_ymd(now.wYear, now.wMonth as u8, now.wDay as u8)
-}
-
-struct ActivePause {
-    shown: Pause,
-    ends: Option<SystemTime>,
 }
 
 struct App {
     control: HWND,
     engine: Engine,
     saved: Config,
-    pause: Option<ActivePause>,
-    power: Power,
+    pauses: Pauses,
     model: Model,
     skip: Option<SkipReason>,
     foreground: Foreground,
     settings: Option<SettingsWindow>,
     delete_data: bool,
-    stats: Stats,
-    stats_file: Option<PathBuf>,
-    stats_dirty: bool,
-    stats_saved: Instant,
-    unloaded_for_power: bool,
+    ledger: Ledger,
     worker: Worker,
     overlay: Overlay,
     keys: Keys<HWND>,
@@ -335,9 +335,7 @@ impl App {
             }
             Signal::Timer(_) => {}
             Signal::Power => {
-                let power = Power::read();
-                if power != self.power {
-                    self.power = power;
+                if self.pauses.set_battery_saver(battery_saver_on()) {
                     self.sync();
                 }
             }
@@ -359,20 +357,9 @@ impl App {
         self.apply(actions);
     }
 
-    fn power_paused(&self) -> bool {
-        self.saved.enabled && self.saved.pause_on_battery_saver && self.power == Power::BatterySaver
-    }
-
-    fn shown_pause(&self) -> Option<Pause> {
-        self.pause
-            .as_ref()
-            .map(|pause| pause.shown.clone())
-            .or_else(|| self.power_paused().then_some(Pause::BatterySaver))
-    }
-
     fn effective(&self) -> Config {
         Config {
-            enabled: self.saved.enabled && self.pause.is_none() && !self.power_paused(),
+            enabled: self.saved.enabled && !self.pauses.active(&self.saved),
             ..self.saved.clone()
         }
     }
@@ -386,11 +373,9 @@ impl App {
         let actions = self.engine.handle(Event::SetConfig(config));
         self.apply(actions);
         self.sync_trigger(enabled);
-        let power_paused = self.power_paused();
-        if power_paused && !self.unloaded_for_power {
+        if self.pauses.release_model(&self.saved) {
             self.worker.unload();
         }
-        self.unloaded_for_power = power_paused;
         self.refresh_tray();
     }
 
@@ -413,7 +398,7 @@ impl App {
     fn status_line(&self) -> String {
         Status {
             model: self.model.clone(),
-            pause: self.shown_pause(),
+            pause: self.pauses.shown(&self.saved),
             enabled: self.saved.enabled,
             skip: self.skip,
             notice: self.options.notice.clone(),
@@ -428,49 +413,29 @@ impl App {
         tray.show(TrayView {
             status: self.status_line(),
             active: self.engine.config().enabled,
-            paused: self.pause.is_some(),
-            power_paused: self.shown_pause() == Some(Pause::BatterySaver),
+            paused: self.pauses.by_user(),
+            power_paused: self.pauses.shown(&self.saved) == Some(Pause::BatterySaver),
             foreground: app.map(str::to_string),
             foreground_blocked: app.is_some_and(|name| self.saved.is_blocked(name)),
         });
     }
 
     fn pause(&mut self, span: PauseSpan) {
-        self.pause = Some(match span {
-            PauseSpan::UntilResumed => ActivePause {
-                shown: Pause::UntilResumed,
-                ends: None,
-            },
-            PauseSpan::Minutes(minutes) => {
-                let now = unsafe { GetLocalTime() };
-                ActivePause {
-                    shown: Pause::Until(clock_after(
-                        u32::from(now.wHour),
-                        u32::from(now.wMinute),
-                        minutes,
-                    )),
-                    ends: SystemTime::now()
-                        .checked_add(Duration::from_secs(u64::from(minutes) * 60)),
-                }
-            }
-        });
+        let now = unsafe { GetLocalTime() };
+        let clock = (u32::from(now.wHour), u32::from(now.wMinute));
+        self.pauses.start(span, clock, SystemTime::now());
         self.sync();
     }
 
     fn resume(&mut self) {
-        if self.pause.take().is_some() {
+        if self.pauses.resume() {
             self.sync();
         }
     }
 
     fn expire_pause(&mut self) {
-        let due = self
-            .pause
-            .as_ref()
-            .and_then(|pause| pause.ends)
-            .is_some_and(|ends| SystemTime::now() >= ends);
-        if due {
-            self.resume();
+        if self.pauses.expire(SystemTime::now()) {
+            self.sync();
         }
     }
 
@@ -494,64 +459,24 @@ impl App {
         }
     }
 
-    fn stats_path(&self) -> Option<PathBuf> {
-        self.options
-            .data_dir
-            .as_ref()
-            .map(|dir| dir.join(STATS_FILE))
-    }
-
-    fn load_stats(&mut self) {
-        let Some(path) = self.stats_path() else {
-            return;
-        };
-        match Stats::load(&path) {
-            Ok(stats) => {
-                self.stats = stats;
-                self.stats_file = Some(path);
-            }
-            Err(error) => log(&format!(
-                "stats not loaded, not saving them this session: {error}"
-            )),
-        }
-    }
-
     fn stats_view(&self) -> StatsView {
+        let stats = self.ledger.stats();
         StatsView {
-            today: self.stats.today(today()),
-            total: self.stats.total(),
+            today: stats.today(today()),
+            total: stats.total(),
         }
     }
 
     fn collect_stats(&mut self) {
-        let counts = self.engine.take_counts();
-        if !counts.is_empty() {
-            self.stats.record(counts, today());
-            self.stats_dirty = true;
+        if self.ledger.record(self.engine.take_counts(), today()) {
             self.refresh_settings();
         }
-        if self.stats_dirty && self.stats_saved.elapsed() >= STATS_FLUSH {
-            self.flush_stats();
-        }
-    }
-
-    fn flush_stats(&mut self) {
-        let Some(path) = self.stats_file.clone() else {
-            return;
-        };
-        match self.stats.save(&path) {
-            Ok(()) => self.stats_dirty = false,
-            Err(error) => log(&format!("stats not saved: {error}")),
-        }
-        self.stats_saved = Instant::now();
+        log_unsaved_stats(self.ledger.flush_every(STATS_FLUSH));
     }
 
     fn reset_stats(&mut self) {
         self.engine.take_counts();
-        self.stats = Stats::default();
-        self.stats_file = self.stats_path();
-        self.stats_dirty = true;
-        self.flush_stats();
+        log_unsaved_stats(self.ledger.reset());
         self.refresh_settings();
     }
 
@@ -691,24 +616,27 @@ pub fn run(
             .map_err(|error| log(&format!("welcome window failed: {error}")))
             .ok()
     });
+    let mut ledger = Ledger::new(options.data_dir.as_ref().map(|dir| dir.join(STATS_FILE)));
+    if let Err(error) = ledger.load() {
+        log(&format!(
+            "stats not loaded, not saving them this session: {error}"
+        ));
+    }
+    let mut pauses = Pauses::default();
+    pauses.set_battery_saver(battery_saver_on());
     let keymap = config.keymap();
     let enabled = config.enabled;
     let mut app = App {
         control,
         overlay: Overlay::create(config.ghost_opacity)?,
         saved: config.clone(),
-        pause: None,
-        power: Power::read(),
+        pauses,
         model: Model::Loading(String::new()),
         skip: None,
         foreground: Foreground::default(),
         settings: None,
         delete_data: false,
-        stats: Stats::default(),
-        stats_file: None,
-        unloaded_for_power: false,
-        stats_dirty: false,
-        stats_saved: Instant::now(),
+        ledger,
         engine: Engine::new(config),
         worker,
         keys: Keys::new(&keymap, control),
@@ -722,9 +650,8 @@ pub fn run(
         keys_awaiting_read: Vec::new(),
         key_read: 0,
     };
-    app.load_stats();
     app.sync_trigger(enabled);
-    if app.power_paused() {
+    if app.pauses.active(&app.saved) {
         app.sync();
     }
     app.reader.poke();
@@ -754,8 +681,8 @@ pub fn run(
         }
     }
     app.collect_stats();
-    if app.stats_dirty && !app.delete_data {
-        app.flush_stats();
+    if !app.delete_data {
+        log_unsaved_stats(app.ledger.flush());
     }
     app.overlay.hide();
     app.keys.disarm();
