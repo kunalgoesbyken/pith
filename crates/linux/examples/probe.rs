@@ -24,9 +24,10 @@ mod probe {
                 ALLOW_ACCESSIBILITY => {
                     accessibility = Accessibility::EnableWithConsent(Consent::granted());
                 }
-                BLOCK_APP => config
-                    .blocked_apps
-                    .push(args.next().ok_or(format!("{BLOCK_APP} needs an app name"))?),
+                BLOCK_APP => config.blocked_apps.push(
+                    args.next()
+                        .ok_or(format!("{BLOCK_APP} needs an app name"))?,
+                ),
                 other => return Err(format!("unknown argument {other}")),
             }
         }
