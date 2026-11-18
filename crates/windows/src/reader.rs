@@ -17,6 +17,7 @@ use windows::core::{Interface, Result};
 use crate::caret::{
     caret_range, caret_rect, composing, font, has_selection, runtime_id, text_around,
 };
+use crate::onboarding::is_practice;
 use crate::util::{is_elevated, process_name, window_pid, window_title};
 
 #[derive(Clone, Copy, Debug)]
@@ -152,7 +153,10 @@ fn read(
             }
         };
         let pid = element.CurrentProcessId()? as u32;
-        if matches!(source, Source::Focused) && pid == own_pid {
+        if matches!(source, Source::Focused)
+            && pid == own_pid
+            && !element.CurrentNativeWindowHandle().is_ok_and(is_practice)
+        {
             return Ok(None);
         }
         let owner = window_pid(root).unwrap_or(pid);

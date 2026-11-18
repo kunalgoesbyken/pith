@@ -19,6 +19,7 @@ use windows::core::w;
 use crate::clipboard::{paste, replace_selection, replace_selection_after};
 use crate::events::Hooks;
 use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, replay};
+use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::overlay::Overlay;
 use crate::reader::{Reader, Source};
 use crate::tray::{Tray, TrayCommand};
@@ -41,6 +42,7 @@ pub struct Options {
     pub config_path: Option<PathBuf>,
     pub observer: Option<Sender<Action>>,
     pub global_keys: bool,
+    pub onboarding: Option<PathBuf>,
 }
 
 pub enum Inbound {
@@ -48,6 +50,7 @@ pub enum Inbound {
     Done(u64, Result<Completion, String>),
     Ready(Result<String, String>),
     Status(String),
+    Progress(u64, u64),
     Key(i32),
     SetEnabled(bool),
     Quit,
@@ -132,6 +135,7 @@ struct App {
     keys: Keys,
     reader: Reader,
     tray: Option<Tray>,
+    onboarding: Option<Onboarding>,
     options: Options,
     inbound: Receiver<Inbound>,
     pending_debounce: u64,
@@ -227,12 +231,20 @@ impl App {
                     if let Some(tray) = &self.tray {
                         tray.set_status(&text);
                     }
+                    self.onboard(match status {
+                        Ok(_) => OnboardingEvent::Ready,
+                        Err(error) => OnboardingEvent::Failed(error),
+                    });
                 }
                 Inbound::Status(text) => {
                     log(&text);
                     if let Some(tray) = &self.tray {
                         tray.set_status(&text);
                     }
+                    self.onboard(OnboardingEvent::Loading);
+                }
+                Inbound::Progress(done, total) => {
+                    self.onboard(OnboardingEvent::Progress(done, total))
                 }
                 Inbound::Key(id) => self.hotkey(id),
                 Inbound::SetEnabled(enabled) => self.set_enabled(enabled),
@@ -240,6 +252,25 @@ impl App {
             }
         }
         quit
+    }
+
+    fn onboard(&mut self, event: OnboardingEvent) {
+        if let Some(onboarding) = &mut self.onboarding {
+            onboarding.event(event);
+        }
+    }
+
+    fn onboarding_outcome(&mut self) {
+        let Some(onboarding) = &mut self.onboarding else {
+            return;
+        };
+        if onboarding.poll() == Outcome::Pending {
+            return;
+        }
+        self.onboarding = None;
+        if let Some(tray) = &self.tray {
+            tray.balloon("Pith", "Pith is running in the tray");
+        }
     }
 
     fn hotkey(&mut self, id: i32) {
@@ -362,6 +393,11 @@ pub fn run(
     } else {
         None
     };
+    let onboarding = options.onboarding.clone().and_then(|marker| {
+        Onboarding::create(marker, true)
+            .map_err(|error| log(&format!("welcome window failed: {error}")))
+            .ok()
+    });
     let mut app = App {
         control,
         overlay: Overlay::create(config.ghost_opacity)?,
@@ -370,6 +406,7 @@ pub fn run(
         keys: Keys::new(),
         reader,
         tray,
+        onboarding,
         options,
         inbound: receiver,
         pending_debounce: 0,
@@ -389,6 +426,7 @@ pub fn run(
                 break 'outer;
             }
         }
+        app.onboarding_outcome();
         if app.tray_command() {
             break;
         }
