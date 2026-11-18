@@ -4,8 +4,21 @@ pub fn log_sum_exp(logits: &[f32]) -> f32 {
     max + sum.ln()
 }
 
+fn is_utf8_continuation(byte: u8) -> bool {
+    byte & 0xC0 == 0x80
+}
+
 pub fn consistent_with_prefix(piece: &[u8], remaining: &[u8]) -> bool {
-    !piece.is_empty() && (piece.starts_with(remaining) || remaining.starts_with(piece))
+    if piece.is_empty() {
+        return false;
+    }
+    if piece.starts_with(remaining) {
+        return true;
+    }
+    remaining.starts_with(piece)
+        && remaining
+            .get(piece.len())
+            .is_some_and(|byte| !is_utf8_continuation(*byte))
 }
 
 pub fn valid_utf8_prefix(bytes: &[u8]) -> &str {
@@ -30,6 +43,18 @@ mod tests {
         assert!(!consistent_with_prefix(b" cat", b" contr"));
         assert!(!consistent_with_prefix(b"", b" contr"));
         assert!(consistent_with_prefix(b"x", b""));
+    }
+
+    #[test]
+    fn prefix_never_splits_a_character() {
+        let tsu = "つい".as_bytes();
+        assert!(consistent_with_prefix(&tsu[..3], tsu));
+        assert!(consistent_with_prefix(tsu, &tsu[..3]));
+        assert!(!consistent_with_prefix(&tsu[..1], tsu));
+        assert!(!consistent_with_prefix(&tsu[..2], tsu));
+        assert!(!consistent_with_prefix(&tsu[..4], tsu));
+        assert!(consistent_with_prefix("ñ".as_bytes(), "ña".as_bytes()));
+        assert!(!consistent_with_prefix(&"ñ".as_bytes()[..1], "ña".as_bytes()));
     }
 
     #[test]
