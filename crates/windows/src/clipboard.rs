@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND, LPARAM, WPARAM};
 use windows::Win32::System::DataExchange::*;
@@ -172,5 +172,22 @@ pub fn replace_selection(hwnd: isize, text: &str) {
             Some(WPARAM(1)),
             Some(LPARAM(text.as_ptr() as isize)),
         );
+    }
+}
+
+pub fn replace_selection_after(hwnd: isize, text: String, lag: Duration) {
+    static QUEUE: OnceLock<Mutex<Sender<(isize, String, Instant)>>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = channel::<(isize, String, Instant)>();
+        std::thread::spawn(move || {
+            while let Ok((hwnd, text, due)) = receiver.recv() {
+                std::thread::sleep(due.saturating_duration_since(Instant::now()));
+                replace_selection(hwnd, &text);
+            }
+        });
+        Mutex::new(sender)
+    });
+    if let Ok(sender) = queue.lock() {
+        let _ = sender.send((hwnd, text, Instant::now() + lag));
     }
 }
