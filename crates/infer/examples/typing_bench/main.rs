@@ -11,6 +11,11 @@ use samples::Sample;
 
 const JUNK: [&str; 2] = ["zq", " mistaken"];
 const CORRECTION_EVERY: usize = 4;
+const SAMPLE_FIELD: u64 = 0;
+const DISTRACTION_FIELD: u64 = 1;
+const DISTRACTION_SPAN: usize = 40;
+const DISTRACTION_TITLE: &str = "Notes";
+const DISTRACTION_TEXT: &str = "Remember to book the venue for the offsite and send the agenda to the whole team before Friday. Also ask finance whether the budget for travel has been approved yet so we can";
 
 struct Options {
     model: PathBuf,
@@ -18,6 +23,7 @@ struct Options {
     config: Config,
     only: Option<String>,
     stride: Option<usize>,
+    distract_every: usize,
     sweep: bool,
     verbose: bool,
 }
@@ -36,6 +42,7 @@ fn options() -> Options {
         config: Config::default(),
         only: None,
         stride: None,
+        distract_every: 0,
         sweep: false,
         verbose: false,
     };
@@ -55,6 +62,7 @@ fn options() -> Options {
             "context_tokens" => config.context_tokens = parse(key, value),
             "only" => options.only = Some(value.to_string()),
             "stride" => options.stride = Some(parse(key, value)),
+            "distract" => options.distract_every = parse(key, value),
             "sweep" => options.sweep = parse(key, value),
             "verbose" => options.verbose = parse(key, value),
             _ => panic!("unknown option {key}"),
@@ -66,10 +74,12 @@ fn options() -> Options {
 fn ask(
     session: &mut LlamaSession,
     config: &Config,
+    field_id: u64,
     title: &str,
     before: String,
 ) -> (Completion, f64) {
     let field = FieldSnapshot {
+        field_id,
         app: "bench".into(),
         window_title: title.into(),
         before,
@@ -108,7 +118,7 @@ fn replay(
         let prefix: String = chars[..position].iter().collect();
         if sample.corrections && step % CORRECTION_EVERY == 2 {
             let junk = format!("{prefix}{}", JUNK[step / CORRECTION_EVERY % JUNK.len()]);
-            let (completion, ms) = ask(session, config, sample.title, junk.clone());
+            let (completion, ms) = ask(session, config, SAMPLE_FIELD, sample.title, junk.clone());
             stats.latency_only(&Record {
                 position,
                 before: junk,
@@ -119,7 +129,28 @@ fn replay(
             });
             after_junk = true;
         }
-        let (completion, ms) = ask(session, config, sample.title, prefix.clone());
+        if options.distract_every > 0 && step % options.distract_every == options.distract_every - 1
+        {
+            let typed = DISTRACTION_TEXT.len() - DISTRACTION_SPAN
+                + (step / options.distract_every) % DISTRACTION_SPAN;
+            let text = &DISTRACTION_TEXT[..typed];
+            let (completion, ms) = ask(
+                session,
+                config,
+                DISTRACTION_FIELD,
+                DISTRACTION_TITLE,
+                text.to_string(),
+            );
+            stats.latency_only(&Record {
+                position,
+                before: String::new(),
+                rest: String::new(),
+                evaluated: completion.prompt_tokens_evaluated,
+                completion,
+                ms,
+            });
+        }
+        let (completion, ms) = ask(session, config, SAMPLE_FIELD, sample.title, prefix.clone());
         let record = Record {
             position,
             before: prefix,
