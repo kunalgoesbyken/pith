@@ -86,6 +86,9 @@ mod tests {
             "Code.exe",
             "1Password.exe",
             "KEEPASS",
+            "Code.EXE",
+            "",
+            r"C:\Program Files\KeePass\KeePass.exe",
         ] {
             let mut f = field("Hello the", "");
             f.app = app.into();

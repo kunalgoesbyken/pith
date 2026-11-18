@@ -1,4 +1,14 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
+
+pub fn app_name(path_or_name: &str) -> String {
+    let leaf = path_or_name.rsplit(['\\', '/']).next().unwrap_or_default();
+    Path::new(leaf)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -87,9 +97,12 @@ impl Config {
     }
 
     pub fn is_blocked(&self, app: &str) -> bool {
-        let app = app.trim_end_matches(".exe");
+        let app = app_name(app);
+        if app.is_empty() {
+            return true;
+        }
         self.blocked_apps
             .iter()
-            .any(|b| b.eq_ignore_ascii_case(app))
+            .any(|blocked| app_name(blocked).eq_ignore_ascii_case(&app))
     }
 }

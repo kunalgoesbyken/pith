@@ -1,6 +1,4 @@
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
 
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HWND};
 use windows::Win32::System::Threading::{
@@ -21,21 +19,7 @@ pub fn window_title(hwnd: HWND) -> String {
     String::from_utf16_lossy(&buffer[..length.max(0) as usize])
 }
 
-static NAMES: Mutex<Option<HashMap<u32, String>>> = Mutex::new(None);
-
 pub fn process_name(pid: u32) -> String {
-    if let Ok(mut guard) = NAMES.lock() {
-        let cache = guard.get_or_insert_with(HashMap::new);
-        if let Some(name) = cache.get(&pid) {
-            return name.clone();
-        }
-        let name = query_process_name(pid);
-        if cache.len() > 512 {
-            cache.clear();
-        }
-        cache.insert(pid, name.clone());
-        return name;
-    }
     query_process_name(pid)
 }
 
@@ -57,12 +41,7 @@ fn query_process_name(pid: u32) -> String {
             return String::new();
         }
         let path = String::from_utf16_lossy(&buffer[..length as usize]);
-        path.rsplit('\\')
-            .next()
-            .unwrap_or_default()
-            .trim_end_matches(".exe")
-            .trim_end_matches(".EXE")
-            .to_string()
+        nib_core::app_name(&path)
     }
 }
 

@@ -6,7 +6,7 @@ mod prompt;
 mod text;
 mod types;
 
-pub use config::Config;
+pub use config::{Config, app_name};
 pub use engine::{Action, Engine, Event};
 pub use log::{init_log, log};
 pub use policy::{SkipReason, check};
