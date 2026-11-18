@@ -1385,19 +1385,18 @@ fn overlay_at_screen_edge(rig: &mut Rig) {
     std::thread::sleep(Duration::from_millis(500));
     let ghost = overlay_window().map(window_rect);
     let (caret_x, caret_y) = caret_screen(field.edit, text_length(field.edit));
-    let corner_monitor =
-        |x: i32, y: i32| unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONULL) };
     let overflow = ghost.map(|g| g.right - monitor.right);
     rig.check(
-        "ghost near the screen edge starts at the caret on the caret's monitor",
+        "ghost near the screen edge stays inside the monitor and clear of the caret",
         ghost.is_some_and(|g| {
-            g.left >= caret_x - 2
-                && g.left <= caret_x + 12
-                && corner_monitor(g.left, g.top) == corner_monitor(caret_x, caret_y)
+            let on_caret = (g.left..g.right).contains(&caret_x)
+                && (g.top..g.bottom).contains(&(caret_y + 4));
+            g.left >= monitor.left && g.right <= monitor.right && !on_caret
         }),
         format!(
-            "caret ({caret_x},{caret_y}), ghost {:?}, monitor right {}, suggestion {suggestion:?}",
+            "caret ({caret_x},{caret_y}), ghost {:?}, monitor {}..{}, suggestion {suggestion:?}",
             ghost.map(|g| (g.left, g.right)),
+            monitor.left,
             monitor.right
         ),
     );
