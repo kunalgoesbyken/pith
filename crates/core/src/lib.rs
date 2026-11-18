@@ -1,3 +1,4 @@
+mod chord;
 mod config;
 mod engine;
 mod log;
@@ -6,10 +7,11 @@ mod prompt;
 mod text;
 mod types;
 
-pub use config::{Config, ModelPreset, app_name};
+pub use chord::{Chord, Key};
+pub use config::{Config, Keymap, ModelPreset, TriggerMode, app_name};
 pub use engine::{Action, Engine, Event};
 pub use log::{init_log, log};
-pub use policy::{SkipReason, check};
+pub use policy::{SkipReason, check, check_forced};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use text::{
     SentenceEnd, clean_completion, exceeds_words, next_word, sentence_end, split_partial, tail_chars,

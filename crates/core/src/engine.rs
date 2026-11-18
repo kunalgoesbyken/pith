@@ -1,7 +1,10 @@
+use std::time::{Duration, Instant};
+
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    Completion, CompletionRequest, Config, FieldSnapshot, Rect, build, check, next_word, suggestion,
+    Completion, CompletionRequest, Config, FieldSnapshot, Rect, SkipReason, TriggerMode, build,
+    check, check_forced, next_word, suggestion,
 };
 
 fn is_grapheme_boundary(text: &str, index: usize) -> bool {
@@ -19,6 +22,7 @@ pub enum Event {
     AcceptAll,
     AcceptWord,
     Dismiss,
+    Trigger,
     SetEnabled(bool),
 }
 
@@ -53,6 +57,8 @@ pub struct Engine {
     in_flight: bool,
     suggestion: Option<String>,
     dismissed: Option<(u64, String)>,
+    forced: Option<(u64, String)>,
+    shown_at: Option<Instant>,
 }
 
 impl Engine {
@@ -64,6 +70,8 @@ impl Engine {
             in_flight: false,
             suggestion: None,
             dismissed: None,
+            forced: None,
+            shown_at: None,
         }
     }
 
@@ -73,6 +81,18 @@ impl Engine {
 
     pub fn suggestion(&self) -> Option<&str> {
         self.suggestion.as_deref()
+    }
+
+    pub fn can_accept(&self, now: Instant, moves_caret: bool) -> bool {
+        let Some(field) = &self.field else {
+            return false;
+        };
+        let racing = self.shown_at.is_some_and(|shown| {
+            now.saturating_duration_since(shown) < Duration::from_millis(self.config.accept_race_ms)
+        });
+        self.suggestion.is_some()
+            && !racing
+            && (!moves_caret || field.after.trim().is_empty())
     }
 
     pub fn handle(&mut self, event: Event) -> Vec<Action> {
@@ -96,6 +116,7 @@ impl Engine {
                     .as_ref()
                     .map(|field| (field.field_id, field.before.clone()));
             }
+            Event::Trigger => self.on_trigger(&mut out),
             Event::SetEnabled(enabled) => {
                 self.config.enabled = enabled;
                 self.reset(&mut out);
@@ -114,7 +135,43 @@ impl Engine {
             out.push(Action::Hide);
             out.push(Action::DisarmKeys);
         }
+        self.forced = None;
+        self.shown_at = None;
         self.generation += 1;
+    }
+
+    fn eligible(&self, field: &FieldSnapshot) -> Result<(), SkipReason> {
+        let forced = self
+            .forced
+            .as_ref()
+            .is_some_and(|(id, app)| *id == field.field_id && *app == field.app);
+        if forced {
+            check_forced(field, &self.config)
+        } else {
+            check(field, &self.config)
+        }
+    }
+
+    fn on_trigger(&mut self, out: &mut Vec<Action>) {
+        let Some(field) = &self.field else { return };
+        if self.suggestion.is_some()
+            || self.in_flight
+            || field.caret.is_none()
+            || check_forced(field, &self.config).is_err()
+        {
+            return;
+        }
+        let forced = (field.field_id, field.app.clone());
+        self.dismissed = None;
+        self.reset(out);
+        self.forced = Some(forced);
+        self.in_flight = true;
+        if let Some(field) = &self.field {
+            out.push(Action::StartCompletion {
+                generation: self.generation,
+                request: build(field, &self.config),
+            });
+        }
     }
 
     fn on_field(&mut self, field: FieldSnapshot, out: &mut Vec<Action>) {
@@ -123,10 +180,10 @@ impl Engine {
         if let Some(previous) = &self.field {
             let same_field = previous.field_id == field.field_id
                 && previous.app == field.app
-                && check(&field, &self.config).is_ok();
+                && self.eligible(&field).is_ok();
             if same_field && previous.before == field.before && previous.after == field.after {
                 let moved = previous.caret != field.caret;
-                let unblocked = check(previous, &self.config).is_err()
+                let unblocked = self.eligible(previous).is_err()
                     || (previous.caret.is_none() && self.suggestion.is_none() && !self.in_flight);
                 self.field = Some(field);
                 if unblocked {
@@ -140,6 +197,7 @@ impl Engine {
                 self.field = Some(field);
                 if rest.trim().is_empty() {
                     self.suggestion = None;
+                    self.forced = None;
                     out.push(Action::Hide);
                     out.push(Action::DisarmKeys);
                     self.schedule(out);
@@ -171,7 +229,11 @@ impl Engine {
             .dismissed
             .as_ref()
             .is_some_and(|(id, before)| *id == field.field_id && *before == field.before);
-        if dismissed || field.caret.is_none() || check(field, &self.config).is_err() {
+        if dismissed
+            || self.config.trigger_mode == TriggerMode::Manual
+            || field.caret.is_none()
+            || check(field, &self.config).is_err()
+        {
             return;
         }
         out.push(Action::ScheduleDebounce {
@@ -185,7 +247,7 @@ impl Engine {
             return;
         }
         let Some(field) = &self.field else { return };
-        if field.caret.is_none() || check(field, &self.config).is_err() {
+        if field.caret.is_none() || self.eligible(field).is_err() {
             return;
         }
         self.in_flight = true;
@@ -214,6 +276,7 @@ impl Engine {
             return;
         }
         self.suggestion = Some(text);
+        self.shown_at = Some(Instant::now());
         self.show_current(out);
         out.push(Action::ArmKeys);
     }
@@ -228,11 +291,13 @@ impl Engine {
             suggestion.clone()
         };
         let rest = suggestion[accepted.len()..].to_string();
+        self.shown_at = None;
         out.push(Action::Insert(accepted.clone()));
         if let Some(field) = &mut self.field {
             field.before.push_str(&accepted);
         }
         if rest.trim().is_empty() {
+            self.forced = None;
             out.push(Action::Hide);
             out.push(Action::DisarmKeys);
             self.generation += 1;
