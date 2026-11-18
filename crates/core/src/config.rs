@@ -221,7 +221,9 @@ pub struct Config {
     pub debounce_ms: u64,
     pub max_tokens: usize,
     pub max_words: usize,
+    #[serde(serialize_with = "shortest_decimal")]
     pub min_token_logprob: f32,
+    #[serde(serialize_with = "shortest_decimal")]
     pub min_mean_logprob: f32,
     pub context_chars: usize,
     pub min_chars_before: usize,
@@ -271,6 +273,13 @@ impl Default for Config {
     }
 }
 
+fn shortest_decimal<S: serde::Serializer>(value: &f32, serializer: S) -> Result<S::Ok, S::Error> {
+    match value.to_string().parse::<f64>() {
+        Ok(decimal) => serializer.serialize_f64(decimal),
+        Err(_) => serializer.serialize_f32(*value),
+    }
+}
+
 fn is_private_remote(url: &str) -> bool {
     if url.starts_with("https://") {
         return true;
@@ -292,13 +301,13 @@ fn is_private_remote(url: &str) -> bool {
 
 impl Config {
     pub fn from_toml(source: &str) -> Result<Self, String> {
-        toml::from_str::<Self>(source)
+        toml_edit::de::from_str::<Self>(source)
             .map_err(|e| e.to_string())?
             .validate()
     }
 
     pub fn to_toml(&self) -> String {
-        toml::to_string_pretty(self).unwrap_or_default()
+        toml_edit::ser::to_string_pretty(self).unwrap_or_default()
     }
 
     pub fn keymap(&self) -> Result<Keymap, String> {

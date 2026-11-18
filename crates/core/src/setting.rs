@@ -1,6 +1,7 @@
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use crate::stored::{patch, write_atomically};
 use crate::{Config, app_name};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,13 +60,19 @@ impl Setting {
     }
 
     pub fn persist(&self, path: &Path) -> Result<(), String> {
-        let mut stored = match std::fs::read_to_string(path) {
-            Ok(source) => Config::from_toml(&source)?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Config::default(),
+        let source = match std::fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(error.to_string()),
         };
-        self.apply(&mut stored);
-        stored.save(path).map_err(|error| error.to_string())
+        let before = Config::from_toml(&source)?;
+        let mut after = before.clone();
+        self.apply(&mut after);
+        let text = patch(&source, &before, &after)?;
+        if text == source {
+            return Ok(());
+        }
+        write_atomically(path, &text).map_err(|error| error.to_string())
     }
 }
 
@@ -85,24 +92,12 @@ impl Config {
             .retain(|blocked| !app_name(blocked).eq_ignore_ascii_case(&name));
         self.blocked_apps.len() != before
     }
-
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        let text = toml::to_string_pretty(self).map_err(io::Error::other)?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut temporary = path.as_os_str().to_owned();
-        temporary.push(".tmp");
-        let temporary = PathBuf::from(temporary);
-        std::fs::write(&temporary, text)?;
-        std::fs::rename(&temporary, path).inspect_err(|_| {
-            let _ = std::fs::remove_file(&temporary);
-        })
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
@@ -214,8 +209,8 @@ mod tests {
             blocked_apps: vec!["Zoom".into(), "名前".into()],
             ..Config::default()
         };
-        config.save(&path).unwrap();
-        config.save(&path).unwrap();
+        write_atomically(&path, &config.to_toml()).unwrap();
+        write_atomically(&path, &config.to_toml()).unwrap();
         let loaded = Config::from_toml(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(loaded, config);
         let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
@@ -275,8 +270,92 @@ blocked_apps = [\"Zoom\"]
         std::fs::create_dir_all(dir.join("config.toml.tmp")).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(&path, "enabled = false").unwrap();
-        assert!(Config::default().save(&path).is_err());
+        assert!(write_atomically(&path, &Config::default().to_toml()).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "enabled = false");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    const COMMENTED: &str = r#"# Pith settings, edited by hand
+max_words = 9 # keep suggestions short
+
+# apps where Pith stays quiet
+blocked_apps = [
+  "Zoom", # video calls
+  'Teams',
+]
+
+[unknown_table]
+note = "kept"
+"#;
+
+    fn stored(path: &Path) -> String {
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    #[test]
+    fn persisting_keeps_comments_layout_and_unknown_keys() {
+        let dir = scratch("comments");
+        let path = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, COMMENTED).unwrap();
+        Setting::Enabled(false).persist(&path).unwrap();
+        Setting::Suggestions(Suggestions::More)
+            .persist(&path)
+            .unwrap();
+        Setting::Block("Slack".into()).persist(&path).unwrap();
+        Setting::Unblock("zoom".into()).persist(&path).unwrap();
+        let text = stored(&path);
+        for kept in [
+            "# Pith settings, edited by hand",
+            "max_words = 9 # keep suggestions short",
+            "# apps where Pith stays quiet",
+            "'Teams',",
+            "[unknown_table]",
+            r#"note = "kept""#,
+        ] {
+            assert!(
+                text.contains(kept),
+                "{kept}
+{text}"
+            );
+        }
+        assert!(!text.contains("Zoom"), "{text}");
+        assert!(
+            text.contains(
+                "min_mean_logprob = -2.2
+"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("# video calls"), "{text}");
+        let config = Config::from_toml(&text).unwrap();
+        assert_eq!(config.blocked_apps, ["Teams", "Slack"]);
+        assert_eq!(config.max_words, 9);
+        assert!(!config.enabled);
+        assert_eq!(Suggestions::of(&config), Some(Suggestions::More));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persisting_a_no_op_leaves_the_file_byte_identical() {
+        let dir = scratch("noop");
+        let path = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = COMMENTED;
+        std::fs::write(&path, &source).unwrap();
+        Setting::Block("teams.exe".into()).persist(&path).unwrap();
+        Setting::Unblock("nothing".into()).persist(&path).unwrap();
+        Setting::Enabled(true).persist(&path).unwrap();
+        assert_eq!(stored(&path), source);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persisting_only_writes_the_keys_it_changes() {
+        let dir = scratch("sparse");
+        let path = dir.join("config.toml");
+        Setting::Enabled(false).persist(&path).unwrap();
+        assert_eq!(stored(&path).trim(), "enabled = false");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
