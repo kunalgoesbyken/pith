@@ -20,6 +20,7 @@ pub enum Event {
     AcceptWord,
     Dismiss,
     SetEnabled(bool),
+    SetConfig(Config),
 }
 
 #[derive(Clone, Debug, PartialEq)]
