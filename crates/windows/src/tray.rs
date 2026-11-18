@@ -89,7 +89,8 @@ impl Tray {
             let _ = self.menu.remove(&item);
         }
         for (position, app) in apps.iter().enumerate() {
-            let label = format!("Paused in {app} (ignored) \u{2014} Resume");
+            let name = app.replace('&', "&&");
+            let label = format!("Paused in {name} (ignored) \u{2014} Resume");
             let item = MenuItem::new(label, true, None);
             if self.menu.insert(&item, 1 + position).is_ok() {
                 resumes.push((item, app.clone()));
