@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use pith_core::{Config, FieldSnapshot};
@@ -18,29 +20,36 @@ use crate::caret::{
 use crate::onboarding::is_practice;
 use crate::util::{is_elevated, process_name, window_pid, window_title};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub enum Source {
     Focused,
-    Window(isize),
+    Window(&'static AtomicIsize),
 }
 
-const LOOKBACK_WINDOWS: usize = 16;
 const MAX_READ_ERRORS: u32 = 3;
 
 pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, u64) + Send>;
 
 pub struct Reader {
     pokes: Sender<u64>,
+    enabled: Arc<AtomicBool>,
 }
 
 impl Reader {
     pub fn spawn(source: Source, config: Config, on_snapshot: SnapshotCallback) -> Self {
         let (pokes, rx) = channel();
+        let enabled = Arc::new(AtomicBool::new(config.enabled));
+        let gate = enabled.clone();
         std::thread::Builder::new()
             .name("pith-uia".into())
-            .spawn(move || serve(source, &config, rx, on_snapshot))
+            .spawn(move || serve(source, &config, rx, &gate, on_snapshot))
             .expect("spawn uia thread");
-        Self { pokes }
+        Self { pokes, enabled }
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::SeqCst);
+        self.poke();
     }
 
     pub fn poke(&self) {
@@ -69,7 +78,13 @@ fn automation() -> Result<IUIAutomation> {
     }
 }
 
-fn serve(source: Source, config: &Config, rx: Receiver<u64>, on_snapshot: SnapshotCallback) {
+fn serve(
+    source: Source,
+    config: &Config,
+    rx: Receiver<u64>,
+    enabled: &AtomicBool,
+    on_snapshot: SnapshotCallback,
+) {
     let automation = match automation() {
         Ok(automation) => automation,
         Err(error) => return pith_core::log(&format!("uia unavailable: {error}")),
@@ -80,7 +95,12 @@ fn serve(source: Source, config: &Config, rx: Receiver<u64>, on_snapshot: Snapsh
     let mut errors = 0;
     while let Ok(request) = rx.recv() {
         let served = rx.try_iter().fold(request, u64::max);
-        let snapshot = match read(&automation, source, config, own_pid) {
+        let outcome = if enabled.load(Ordering::SeqCst) {
+            read(&automation, source, config, own_pid)
+        } else {
+            Ok(None)
+        };
+        let snapshot = match outcome {
             Ok(snapshot) => {
                 errors = 0;
                 snapshot
@@ -124,7 +144,7 @@ fn read(
                 )
             }
             Source::Window(handle) => {
-                let hwnd = HWND(handle as _);
+                let hwnd = HWND(handle.load(Ordering::SeqCst) as _);
                 (
                     automation.ElementFromHandle(hwnd)?,
                     GetAncestor(hwnd, GA_ROOT),
@@ -133,7 +153,7 @@ fn read(
             }
         };
         let pid = element.CurrentProcessId()? as u32;
-        if source == Source::Focused
+        if matches!(source, Source::Focused)
             && pid == own_pid
             && !element.CurrentNativeWindowHandle().is_ok_and(is_practice)
         {
@@ -154,7 +174,7 @@ fn read(
         let (before, after) = if is_password || config.is_blocked(&app) {
             (String::new(), String::new())
         } else {
-            let lookback = config.context_chars.saturating_mul(LOOKBACK_WINDOWS);
+            let lookback = config.lookback_chars();
             text_around(&caret, i32::try_from(lookback).unwrap_or(i32::MAX), 200)?
         };
         let (font_family, font_points, text_color) = font(&caret);

@@ -162,7 +162,8 @@ fn run(
                 let handle = crate::LlamaModelHandle::load(&model_path)?;
                 let mut session = handle.session(threads, context_tokens)?;
                 on_ready(Ok(name.clone()));
-                if let Exit::Closed = serve(&mut session, rx, latest, on_done, idle, pending.take()) {
+                if let Exit::Closed = serve(&mut session, rx, latest, on_done, idle, pending.take())
+                {
                     return Ok(());
                 }
                 drop(session);

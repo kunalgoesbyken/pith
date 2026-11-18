@@ -1,7 +1,9 @@
 mod common;
 
 use common::{Rng, fragment, is_boundary, text};
-use pith_core::{Action, Completion, Config, Engine, Event, FieldSnapshot, Rect, StopReason, check};
+use pith_core::{
+    Action, Completion, Config, Engine, Event, FieldSnapshot, Rect, StopReason, check,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 const SEEDS: u64 = 300;

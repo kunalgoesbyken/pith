@@ -16,6 +16,6 @@ pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
     View as OnboardingView,
 };
-pub use reader::Source;
+pub use reader::{Reader, SnapshotCallback, Source};
 pub use run::{Inbound, InsertMode, Options, Waker, run};
 pub use util::{open_path, single_instance};

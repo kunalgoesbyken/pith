@@ -62,7 +62,11 @@ fn resolve_backend(
         format!("this CPU lacks {missing}, which the built-in model needs; set remote_url in settings to use a server instead")
     })?;
     let spec = preset(config.model);
-    let model_path = match config.model_path.clone().or_else(|| find_local(models, spec)) {
+    let model_path = match config
+        .model_path
+        .clone()
+        .or_else(|| find_local(models, spec))
+    {
         Some(path) => path,
         None => {
             progress(0, spec.bytes);
