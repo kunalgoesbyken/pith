@@ -1,3 +1,5 @@
+use std::sync::mpsc::{Sender, channel};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND, LPARAM, WPARAM};
@@ -15,6 +17,7 @@ use crate::keys::{send_chord, wait_for_modifiers_released};
 use crate::util::wide;
 
 const GDI_FORMATS: [u32; 7] = [2, 3, 9, 14, 0x80, 0x82, 0x8E];
+const HANDLE_FORMATS: std::ops::RangeInclusive<u32> = 0x200..=0x3FF;
 const PRIVACY_FORMATS: [&str; 3] = [
     "ExcludeClipboardContentFromMonitorProcessing",
     "CanIncludeInClipboardHistory",
@@ -31,10 +34,10 @@ fn open() -> bool {
     false
 }
 
-fn save() -> Vec<(u32, Vec<u8>)> {
+fn save() -> Option<Vec<(u32, Vec<u8>)>> {
     let mut saved = Vec::new();
     if !open() {
-        return saved;
+        return None;
     }
     unsafe {
         let mut format = 0u32;
@@ -43,7 +46,7 @@ fn save() -> Vec<(u32, Vec<u8>)> {
             if format == 0 {
                 break;
             }
-            if GDI_FORMATS.contains(&format) {
+            if GDI_FORMATS.contains(&format) || HANDLE_FORMATS.contains(&format) {
                 continue;
             }
             if let Ok(handle) = GetClipboardData(format) {
@@ -61,7 +64,7 @@ fn save() -> Vec<(u32, Vec<u8>)> {
         }
         let _ = CloseClipboard();
     }
-    saved
+    Some(saved)
 }
 
 fn put(format: u32, data: &[u8]) {
@@ -117,17 +120,36 @@ fn restore(saved: &[(u32, Vec<u8>)]) {
     }
 }
 
-pub fn paste(text: String) {
-    std::thread::spawn(move || {
-        let saved = save();
-        if !set_text(&text) {
-            return;
-        }
-        wait_for_modifiers_released(Duration::from_millis(400));
-        send_chord(&[VK_CONTROL], VK_V);
-        std::thread::sleep(Duration::from_millis(300));
+fn insert(text: &str) {
+    if !wait_for_modifiers_released(Duration::from_secs(2)) {
+        return;
+    }
+    let Some(saved) = save() else { return };
+    if !set_text(text) {
+        return;
+    }
+    let ours = unsafe { GetClipboardSequenceNumber() };
+    send_chord(&[VK_CONTROL], VK_V);
+    std::thread::sleep(Duration::from_millis(300));
+    if unsafe { GetClipboardSequenceNumber() } == ours {
         restore(&saved);
+    }
+}
+
+pub fn paste(text: String) {
+    static QUEUE: OnceLock<Mutex<Sender<String>>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = channel::<String>();
+        std::thread::spawn(move || {
+            for text in receiver {
+                insert(&text);
+            }
+        });
+        Mutex::new(sender)
     });
+    if let Ok(sender) = queue.lock() {
+        let _ = sender.send(text);
+    }
 }
 
 pub fn replace_selection(hwnd: isize, text: &str) {

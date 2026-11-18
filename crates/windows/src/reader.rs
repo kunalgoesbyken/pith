@@ -68,12 +68,19 @@ fn serve(source: Source, context_chars: usize, rx: Receiver<()>, on_snapshot: Sn
     };
     let own_pid = std::process::id();
     let mut last: Option<FieldSnapshot> = None;
+    let mut last_foreground = None;
     let mut first = true;
     while rx.recv().is_ok() {
         while rx.try_recv().is_ok() {}
-        let snapshot = read(&automation, source, context_chars, own_pid)
-            .ok()
-            .flatten();
+        let foreground = unsafe { GetForegroundWindow() };
+        let snapshot = match read(&automation, source, context_chars, own_pid) {
+            Ok(snapshot) => {
+                last_foreground = Some(foreground);
+                snapshot
+            }
+            Err(_) if last_foreground == Some(foreground) || source != Source::Focused => continue,
+            Err(_) => None,
+        };
         if first || snapshot != last {
             first = false;
             last = snapshot.clone();

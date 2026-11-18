@@ -17,10 +17,10 @@ use crate::sampling::{
 const BATCH: usize = 64;
 
 pub struct LlamaModelHandle {
-    backend: LlamaBackend,
     model: LlamaModel,
     pieces: Vec<Vec<u8>>,
     blocked: Vec<bool>,
+    backend: LlamaBackend,
 }
 
 impl LlamaModelHandle {

@@ -89,14 +89,19 @@ pub fn replay(id: i32) {
     }
 }
 
-pub fn wait_for_modifiers_released(limit: Duration) {
+pub fn wait_for_modifiers_released(limit: Duration) -> bool {
     let started = Instant::now();
     let held = |vk: VIRTUAL_KEY| unsafe { GetAsyncKeyState(vk.0 as i32) } < 0;
-    while started.elapsed() < limit
-        && [VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]
+    loop {
+        if ![VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]
             .into_iter()
             .any(held)
-    {
+        {
+            return true;
+        }
+        if started.elapsed() >= limit {
+            return false;
+        }
         std::thread::sleep(Duration::from_millis(5));
     }
 }

@@ -18,13 +18,20 @@ const EVENTS: [u32; 5] = [
 unsafe extern "system" fn on_event(
     _hook: HWINEVENTHOOK,
     event: u32,
-    _hwnd: HWND,
+    hwnd: HWND,
     object: i32,
     _child: i32,
     _thread: u32,
     _time: u32,
 ) {
     if event == EVENT_OBJECT_LOCATIONCHANGE && object != OBJID_CARET.0 {
+        return;
+    }
+    let follows_focus = event == EVENT_OBJECT_FOCUS || event == EVENT_SYSTEM_FOREGROUND;
+    if !follows_focus
+        && !hwnd.is_invalid()
+        && unsafe { GetAncestor(hwnd, GA_ROOT) != GetForegroundWindow() }
+    {
         return;
     }
     if let Ok(guard) = TARGET.lock()

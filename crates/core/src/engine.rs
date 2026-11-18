@@ -90,9 +90,8 @@ impl Engine {
             }
             Event::SetEnabled(enabled) => {
                 self.config.enabled = enabled;
-                if !enabled {
-                    self.reset(&mut out);
-                }
+                self.reset(&mut out);
+                self.schedule(&mut out);
             }
         }
         out
@@ -112,11 +111,15 @@ impl Engine {
 
     fn on_field(&mut self, field: FieldSnapshot, out: &mut Vec<Action>) {
         if let Some(previous) = &self.field {
-            let same_field = previous.field_id == field.field_id;
+            let same_field =
+                previous.field_id == field.field_id && check(&field, &self.config).is_ok();
             if same_field && previous.before == field.before && previous.after == field.after {
                 let moved = previous.caret != field.caret;
+                let unblocked = check(previous, &self.config).is_err();
                 self.field = Some(field);
-                if moved {
+                if unblocked {
+                    self.schedule(out);
+                } else if moved {
                     self.show_current(out);
                 }
                 return;
@@ -192,7 +195,10 @@ impl Engine {
         {
             return;
         }
-        let truncated = completion.stop == StopReason::MaxTokens;
+        let truncated = matches!(
+            completion.stop,
+            StopReason::MaxTokens | StopReason::LowConfidence
+        );
         let Some(text) = clean_completion(&completion.text, self.config.max_words, truncated)
         else {
             return;
@@ -469,5 +475,60 @@ mod tests {
         let out = engine.handle(Event::Field(Some(other)));
         assert_eq!(out[0], Action::Hide);
         assert!(matches!(out.last(), Some(Action::ScheduleDebounce { .. })));
+    }
+
+    #[test]
+    fn selecting_while_visible_hides_and_disarms() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        for change in [
+            (|f: &mut FieldSnapshot| f.has_selection = true) as fn(&mut FieldSnapshot),
+            |f| f.composing = true,
+            |f| f.is_password = true,
+        ] {
+            let mut changed = field("Please sign the");
+            change(&mut changed);
+            let out = engine.handle(Event::Field(Some(changed)));
+            assert!(engine.suggestion().is_none());
+            assert!(!out.iter().any(|a| matches!(a, Action::ScheduleDebounce { .. })), "{out:?}");
+            suggest(&mut engine, "Please sign the", " contract");
+        }
+    }
+
+    #[test]
+    fn clearing_selection_reschedules() {
+        let mut engine = Engine::new(Config::default());
+        let mut selected = field("Please sign the");
+        selected.has_selection = true;
+        engine.handle(Event::Field(Some(selected)));
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        assert!(matches!(out.last(), Some(Action::ScheduleDebounce { .. })), "{out:?}");
+    }
+
+    #[test]
+    fn resume_reschedules_same_field() {
+        let mut engine = Engine::new(Config::default());
+        suggest(&mut engine, "Please sign the", " contract");
+        let out = engine.handle(Event::SetEnabled(false));
+        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
+        let out = engine.handle(Event::SetEnabled(true));
+        assert!(matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]), "{out:?}");
+    }
+
+    #[test]
+    fn low_confidence_drops_cut_word() {
+        let mut engine = Engine::new(Config::default());
+        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
+        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
+            panic!("{out:?}")
+        };
+        engine.handle(Event::DebounceElapsed(generation));
+        let mut cut = completion(" contract by Fri");
+        cut.stop = StopReason::LowConfidence;
+        let out = engine.handle(Event::Completed {
+            generation,
+            result: Ok(cut),
+        });
+        assert!(matches!(&out[0], Action::Show { text, .. } if text == " contract by"), "{out:?}");
     }
 }
