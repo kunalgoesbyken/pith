@@ -380,7 +380,8 @@ mod tests {
             192 | (192 << 16),
             &suggested as *const RECT as isize,
         );
-        assert!(frame_width(&window) > before * 3 / 2);
+        let largest_allowed = unsafe { GetSystemMetrics(SM_CXMAXTRACK) };
+        assert!(frame_width(&window) > (before * 3 / 2).min(largest_allowed - 1));
     }
 
     #[test]
