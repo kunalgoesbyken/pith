@@ -39,11 +39,11 @@ impl Effects {
     pub fn log_result(&mut self, result: &Result<Completion, String>) {
         match (self.started.take(), result) {
             (Some(started), Ok(completion)) => log(&format!(
-                "completion {} ms, {} tokens, {} prompt tokens, logprob {:.2}, {:?}",
+                "completion {} ms, {} tokens, {} prompt tokens, logprob {}, {:?}",
                 started.elapsed().as_millis(),
                 completion.tokens,
                 completion.prompt_tokens_evaluated,
-                completion.mean_logprob,
+                completion.logprob_label(),
                 completion.stop
             )),
             (_, Err(error)) => log(&format!("completion error: {error}")),

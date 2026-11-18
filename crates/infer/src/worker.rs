@@ -344,7 +344,7 @@ mod tests {
         ) -> Result<Completion, String> {
             Ok(Completion {
                 text: request.prompt.clone(),
-                mean_logprob: 0.0,
+                mean_logprob: None,
                 tokens: 1,
                 prompt_tokens_evaluated: 0,
                 stop: pith_core::StopReason::EndOfText,

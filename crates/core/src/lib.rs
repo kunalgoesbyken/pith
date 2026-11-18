@@ -40,7 +40,7 @@ pub use text::{
     LINE_BREAKS, SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words,
     next_word, sentence_end, split_partial, tail_chars,
 };
-pub use types::{Completion, FieldSnapshot, Rect, StopReason, TextStyle};
+pub use types::{Completion, FieldSnapshot, Rect, StopReason, TextStyle, average_logprob};
 
 pub trait Completer {
     fn complete(

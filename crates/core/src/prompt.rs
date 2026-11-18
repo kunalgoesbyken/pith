@@ -31,10 +31,16 @@ pub fn build(field: &FieldSnapshot, config: &Config) -> CompletionRequest {
     }
 }
 
+fn confident_enough(mean_logprob: Option<f32>, config: &Config) -> bool {
+    let Some(mean) = mean_logprob else {
+        return true;
+    };
+    mean >= config.min_mean_logprob
+}
+
 pub fn suggestion(completion: &Completion, before: &str, config: &Config) -> Option<String> {
     if completion.stop == StopReason::Cancelled
-        || completion.mean_logprob.is_nan()
-        || completion.mean_logprob < config.min_mean_logprob
+        || !confident_enough(completion.mean_logprob, config)
     {
         return None;
     }

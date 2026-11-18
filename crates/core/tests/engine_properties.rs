@@ -44,7 +44,15 @@ const COMPLETIONS: &[&str] = &[
     "",
 ];
 
-const LOGPROBS: &[f32] = &[-0.5, 0.0, -5.0, f32::NEG_INFINITY, f32::NAN, -1.6];
+const LOGPROBS: &[Option<f32>] = &[
+    Some(-0.5),
+    Some(0.0),
+    Some(-5.0),
+    Some(f32::NEG_INFINITY),
+    Some(f32::NAN),
+    Some(-1.6),
+    None,
+];
 
 const STOPS: &[StopReason] = &[
     StopReason::Newline,
@@ -544,7 +552,7 @@ impl Harness {
         let result = if sane {
             Ok(Completion {
                 text: self.rng.pick(COMPLETIONS).to_string(),
-                mean_logprob: -0.5,
+                mean_logprob: Some(-0.5),
                 tokens: 4,
                 prompt_tokens_evaluated: 4,
                 stop: *self.rng.pick(&STOPS[..5]),
@@ -580,7 +588,8 @@ impl Harness {
             "cancelled result was shown",
         );
         self.expect(
-            done.mean_logprob >= self.config.min_mean_logprob,
+            done.mean_logprob
+                .is_none_or(|mean| mean >= self.config.min_mean_logprob),
             "weak result was shown",
         );
         self.expect(

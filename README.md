@@ -106,7 +106,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 | `debounce_ms` | 120 | pause before asking the model |
 | `max_words` | 6 | longest suggestion; set by Suggestion length |
 | `max_tokens` | 16 | token budget for one suggestion; set by Suggestion length |
-| `min_mean_logprob` | -1.6 | confidence gate; raise it for fewer, safer suggestions |
+| `min_mean_logprob` | -1.6 | confidence gate; raise it for fewer, safer suggestions. A remote server that returns no logprobs has unknown confidence, so this gate lets its suggestions through |
 | `min_token_logprob` | -3.5 | a suggestion stops at the first token below this |
 | `ghost_opacity` | 50 | ghost text strength, 10 to 100 percent; raised automatically to keep 3:1 contrast |
 | `trigger_mode` | auto | `auto` suggests as you pause; `manual` only on the force-trigger key |

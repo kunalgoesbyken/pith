@@ -518,7 +518,7 @@ mod tests {
     fn completion(text: &str) -> Completion {
         Completion {
             text: text.into(),
-            mean_logprob: -0.5,
+            mean_logprob: Some(-0.5),
             tokens: 4,
             prompt_tokens_evaluated: 3,
             stop: StopReason::Sentence,

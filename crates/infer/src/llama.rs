@@ -9,8 +9,8 @@ use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
 use pith_core::{
-    Completer, Completion, CompletionRequest, LINE_BREAKS, SentenceEnd, StopReason, exceeds_words,
-    sentence_end,
+    Completer, Completion, CompletionRequest, LINE_BREAKS, SentenceEnd, StopReason,
+    average_logprob, exceeds_words, sentence_end,
 };
 
 use crate::sampling::{consistent_with_prefix, log_sum_exp, reusable_prefix, valid_utf8_prefix};
@@ -269,14 +269,9 @@ impl Completer for LlamaSession<'_> {
             logits_index = 0;
         };
         let text = valid_utf8_prefix(&output).to_string();
-        let mean_logprob = if scored == 0 {
-            f32::NEG_INFINITY
-        } else {
-            logprob_sum / scored as f32
-        };
         Ok(Completion {
             text,
-            mean_logprob,
+            mean_logprob: average_logprob(logprob_sum, scored),
             tokens: produced,
             prompt_tokens_evaluated: evaluated,
             stop,

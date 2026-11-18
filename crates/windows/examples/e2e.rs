@@ -2034,8 +2034,11 @@ fn main() {
         Box::new(move |generation, result| {
             if let Ok(c) = &result {
                 println!(
-                    "[DONE] g{generation} {:?} logprob {:.2} {:?} eval {}",
-                    c.text, c.mean_logprob, c.stop, c.prompt_tokens_evaluated
+                    "[DONE] g{generation} {:?} logprob {} {:?} eval {}",
+                    c.text,
+                    c.logprob_label(),
+                    c.stop,
+                    c.prompt_tokens_evaluated
                 );
             }
             recorded.lock().unwrap().push(result.clone());

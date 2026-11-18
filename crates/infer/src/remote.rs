@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use pith_core::{Completer, Completion, CompletionRequest, StopReason};
+use pith_core::{Completer, Completion, CompletionRequest, StopReason, average_logprob};
 use serde::Deserialize;
 
 pub struct RemoteCompleter {
@@ -79,11 +79,7 @@ impl Completer for RemoteCompleter {
             .into_iter()
             .flatten()
             .collect();
-        let mean_logprob = if logprobs.is_empty() {
-            0.0
-        } else {
-            logprobs.iter().sum::<f32>() / logprobs.len() as f32
-        };
+        let mean_logprob = average_logprob(logprobs.iter().sum(), logprobs.len());
         let stop = match choice.finish_reason.as_deref() {
             Some("length") => StopReason::MaxTokens,
             Some("stop") => StopReason::Newline,
