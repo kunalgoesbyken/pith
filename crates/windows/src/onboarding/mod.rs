@@ -1,127 +1,41 @@
-use std::cell::Cell;
+mod layout;
+mod model;
+mod step;
+mod view;
+mod window;
+
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use pith_core::log;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{
-    COLOR_WINDOW, CreateFontIndirectW, DeleteObject, HBRUSH, HFONT,
-};
-use windows::Win32::System::LibraryLoader::{GetModuleHandleW, LoadLibraryW};
-use windows::Win32::UI::Controls::{
-    EM_SETSEL, ICC_PROGRESS_CLASS, INITCOMMONCONTROLSEX, InitCommonControlsEx, PBM_SETPOS,
-    PBM_SETRANGE32, PROGRESS_CLASSW,
-};
-use windows::Win32::UI::HiDpi::{
-    AdjustWindowRectExForDpi, GetDpiForSystem, SystemParametersInfoForDpi,
-};
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::Controls::EM_SETSEL;
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
-use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{PCWSTR, w};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyWindow, SW_HIDE, SW_SHOWNORMAL, SendMessageW, SetWindowTextW, ShowWindow, WM_SETTEXT,
+};
+use windows::core::PCWSTR;
 
 use crate::util::wide;
 
+pub use step::{Event, Step, View};
+
 const PRACTICE_START: &str =
     "Thank you for getting back to me so quickly. I have read the proposal and";
-const KEYS: &str = "Tab keeps the suggestion.\r\nShift+Tab keeps one word.\r\nEsc hides it.\r\nWith no suggestion showing, Tab is a normal Tab.";
-const PRACTICE_HINT: &str = "Try it. Click at the end of the sentence below and pause for a second. The rest of the sentence appears in grey.";
 const MARKER_CONTENT: &str = "done";
 
 const DONE_ID: usize = 1001;
-const WIDTH: i32 = 500;
-const HEIGHT: i32 = 376;
-const MARGIN: i32 = 20;
-const MEGABYTE: u64 = 1_000_000;
-const STATUS_HEIGHT: i32 = 20;
-const NO_PREFIX: u32 = 0x80;
-const FAILURE_HEIGHT: i32 = 80;
+const STATUS_ID: usize = 1002;
+const PROGRESS_ID: usize = 1003;
+const HINT_ID: usize = 1004;
+const PRACTICE_ID: usize = 1005;
+const KEYS_ID: usize = 1006;
 
 static PRACTICE: AtomicIsize = AtomicIsize::new(0);
 
 pub fn is_practice(hwnd: HWND) -> bool {
     hwnd.0 as isize == PRACTICE.load(Ordering::SeqCst) && !hwnd.0.is_null()
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Step {
-    Preparing,
-    Downloading { done: u64, total: u64 },
-    Loading,
-    Practice,
-    Failed(String),
-    Finished,
-    Closed,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Event {
-    Progress(u64, u64),
-    Loading,
-    Ready,
-    Failed(String),
-    Done,
-    Close,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct View {
-    pub status: String,
-    pub permille: Option<u32>,
-    pub practice_enabled: bool,
-    pub done_enabled: bool,
-}
-
-fn megabytes(bytes: u64) -> u64 {
-    bytes.saturating_add(MEGABYTE / 2) / MEGABYTE
-}
-
-impl Step {
-    pub fn next(self, event: Event) -> Step {
-        match (self, event) {
-            (step @ (Step::Finished | Step::Closed), _) => step,
-            (_, Event::Close) => Step::Closed,
-            (Step::Practice, Event::Done) => Step::Finished,
-            (Step::Failed(_), Event::Done) => Step::Closed,
-            (step @ Step::Practice, _) | (step @ Step::Failed(_), _) => step,
-            (_, Event::Ready) => Step::Practice,
-            (_, Event::Failed(error)) => Step::Failed(error),
-            (_, Event::Progress(done, total)) if done >= total && total > 0 => Step::Loading,
-            (_, Event::Progress(done, total)) => Step::Downloading {
-                done: done.min(total),
-                total,
-            },
-            (Step::Preparing, Event::Loading) => Step::Loading,
-            (step, _) => step,
-        }
-    }
-
-    pub fn is_over(&self) -> bool {
-        matches!(self, Step::Finished | Step::Closed)
-    }
-
-    pub fn view(&self) -> View {
-        let (status, permille) = match self {
-            Step::Preparing => ("Starting Pith".to_string(), None),
-            Step::Downloading { done, total } => (
-                format!(
-                    "Downloading the model: {} MB of {} MB",
-                    megabytes(*done),
-                    megabytes(*total)
-                ),
-                Some(((*done as u128 * 1000) / (*total).max(1) as u128) as u32),
-            ),
-            Step::Loading => ("Loading the model".to_string(), None),
-            Step::Practice | Step::Finished | Step::Closed => ("Ready".to_string(), None),
-            Step::Failed(error) => (format!("Pith could not start: {error}"), None),
-        };
-        View {
-            status,
-            permille,
-            practice_enabled: matches!(self, Step::Practice),
-            done_enabled: matches!(self, Step::Practice | Step::Failed(_)),
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -142,232 +56,29 @@ pub enum Outcome {
     Closed,
 }
 
-thread_local! {
-    static COMMAND: Cell<Option<Event>> = const { Cell::new(None) };
-}
-
-unsafe extern "system" fn procedure(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    let command = match message {
-        WM_COMMAND if wparam.0 & 0xFFFF == DONE_ID => Some(Event::Done),
-        WM_CLOSE => Some(Event::Close),
-        _ => None,
-    };
-    if let Some(command) = command {
-        COMMAND.with(|cell| cell.set(Some(command)));
-        return LRESULT(0);
-    }
-    unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
-}
-
-fn scaled(pixels: i32, dpi: u32) -> i32 {
-    pixels * dpi as i32 / 96
-}
-
-fn message_font(dpi: u32) -> Option<HFONT> {
-    unsafe {
-        let mut metrics = NONCLIENTMETRICSW {
-            cbSize: size_of::<NONCLIENTMETRICSW>() as u32,
-            ..Default::default()
-        };
-        SystemParametersInfoForDpi(
-            SPI_GETNONCLIENTMETRICS.0,
-            metrics.cbSize,
-            Some(&mut metrics as *mut _ as *mut _),
-            0,
-            dpi,
-        )
-        .ok()?;
-        let font = CreateFontIndirectW(&metrics.lfMessageFont);
-        (!font.is_invalid()).then_some(font)
-    }
-}
-
-struct Child<'a> {
-    class: PCWSTR,
-    text: &'a str,
-    bounds: (i32, i32, i32, i32),
-    style: u32,
-    extended: WINDOW_EX_STYLE,
-    id: usize,
-}
-
-impl<'a> Child<'a> {
-    fn new(class: PCWSTR, text: &'a str, bounds: (i32, i32, i32, i32)) -> Self {
-        Self {
-            class,
-            text,
-            bounds,
-            style: 0,
-            extended: WINDOW_EX_STYLE(0),
-            id: 0,
-        }
-    }
-}
-
-struct Layout {
-    dpi: u32,
-}
-
-impl Layout {
-    fn add(&self, parent: HWND, child: Child) -> windows::core::Result<HWND> {
-        let text = wide(child.text);
-        let bounds = child.bounds;
-        unsafe {
-            let instance = GetModuleHandleW(None)?;
-            CreateWindowExW(
-                child.extended,
-                child.class,
-                PCWSTR(text.as_ptr()),
-                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(child.style),
-                scaled(bounds.0, self.dpi),
-                scaled(bounds.1, self.dpi),
-                scaled(bounds.2, self.dpi),
-                scaled(bounds.3, self.dpi),
-                Some(parent),
-                Some(HMENU(child.id as _)),
-                Some(instance.into()),
-                None,
-            )
-        }
-    }
-}
-
 pub struct Onboarding {
     controls: Controls,
-    font: Option<HFONT>,
     step: Step,
     marker: PathBuf,
     visible: bool,
-    dpi: u32,
 }
 
 impl Onboarding {
     pub fn create(marker: PathBuf, visible: bool) -> windows::core::Result<Self> {
-        unsafe {
-            let _ = LoadLibraryW(w!("Msftedit.dll"));
-            let _ = InitCommonControlsEx(&INITCOMMONCONTROLSEX {
-                dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_PROGRESS_CLASS,
-            });
-            let instance = GetModuleHandleW(None)?;
-            let class = w!("PithOnboarding");
-            let wc = WNDCLASSW {
-                lpfnWndProc: Some(procedure),
-                hInstance: instance.into(),
-                lpszClassName: class,
-                hCursor: LoadCursorW(None, IDC_ARROW)?,
-                hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as _),
-                ..Default::default()
-            };
-            RegisterClassW(&wc);
-            let dpi = GetDpiForSystem();
-            let style = WS_CAPTION | WS_SYSMENU;
-            let mut frame = RECT {
-                left: 0,
-                top: 0,
-                right: scaled(WIDTH, dpi),
-                bottom: scaled(HEIGHT, dpi),
-            };
-            AdjustWindowRectExForDpi(&mut frame, style, false, WINDOW_EX_STYLE(0), dpi)?;
-            let width = frame.right - frame.left;
-            let height = frame.bottom - frame.top;
-            let window = CreateWindowExW(
-                WINDOW_EX_STYLE(0),
-                class,
-                w!("Welcome to Pith"),
-                style,
-                (GetSystemMetrics(SM_CXSCREEN) - width) / 2,
-                (GetSystemMetrics(SM_CYSCREEN) - height) / 3,
-                width,
-                height,
-                None,
-                None,
-                Some(instance.into()),
-                None,
-            )?;
-            let layout = Layout { dpi };
-            let inner = WIDTH - 2 * MARGIN;
-            let label = w!("STATIC");
-            let status = layout.add(
-                window,
-                Child {
-                    style: NO_PREFIX,
-                    ..Child::new(label, "", (MARGIN, 16, inner, STATUS_HEIGHT))
-                },
-            )?;
-            let progress = layout.add(
-                window,
-                Child::new(PROGRESS_CLASSW, "", (MARGIN, 42, inner, 16)),
-            )?;
-            let hint = layout.add(
-                window,
-                Child::new(label, PRACTICE_HINT, (MARGIN, 76, inner, 36)),
-            )?;
-            let practice = layout.add(
-                window,
-                Child {
-                    style: (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32 | WS_VSCROLL.0,
-                    extended: WS_EX_CLIENTEDGE,
-                    ..Child::new(w!("RICHEDIT50W"), "", (MARGIN, 116, inner, 110))
-                },
-            )?;
-            let keys = layout.add(window, Child::new(label, KEYS, (MARGIN, 240, inner, 80)))?;
-            let done = layout.add(
-                window,
-                Child {
-                    style: (BS_DEFPUSHBUTTON as u32) | WS_TABSTOP.0,
-                    id: DONE_ID,
-                    ..Child::new(
-                        w!("BUTTON"),
-                        "Done",
-                        (WIDTH - MARGIN - 96, HEIGHT - 16 - 30, 96, 30),
-                    )
-                },
-            )?;
-            SendMessageW(
-                progress,
-                PBM_SETRANGE32,
-                Some(WPARAM(0)),
-                Some(LPARAM(1000)),
-            );
-            let font = message_font(dpi);
-            if let Some(font) = font {
-                for control in [status, hint, practice, keys, done] {
-                    SendMessageW(
-                        control,
-                        WM_SETFONT,
-                        Some(WPARAM(font.0 as usize)),
-                        Some(LPARAM(1)),
-                    );
-                }
+        let controls = window::create(&Step::Preparing.view())?;
+        if visible {
+            unsafe {
+                let _ = ShowWindow(controls.window, SW_SHOWNORMAL);
             }
-            if visible {
-                let _ = ShowWindow(window, SW_SHOWNORMAL);
-            }
-            let mut onboarding = Self {
-                controls: Controls {
-                    window,
-                    status,
-                    progress,
-                    hint,
-                    practice,
-                    keys,
-                    done,
-                },
-                font,
-                step: Step::Preparing,
-                marker,
-                visible,
-                dpi,
-            };
-            onboarding.render(&Step::Preparing);
-            Ok(onboarding)
         }
+        let mut onboarding = Self {
+            controls,
+            step: Step::Preparing,
+            marker,
+            visible,
+        };
+        onboarding.render(&Step::Preparing);
+        Ok(onboarding)
     }
 
     pub fn controls(&self) -> Controls {
@@ -385,7 +96,7 @@ impl Onboarding {
     }
 
     pub fn poll(&mut self) -> Outcome {
-        if let Some(command) = COMMAND.with(Cell::take) {
+        if let Some(command) = window::take_command() {
             self.event(command);
         }
         match self.step {
@@ -411,44 +122,10 @@ impl Onboarding {
         let view = self.step.view();
         let controls = self.controls;
         let status = wide(&view.status);
+        model::update(|model| model.view = view.clone());
+        window::relayout(controls.window);
         unsafe {
             let _ = SetWindowTextW(controls.status, PCWSTR(status.as_ptr()));
-            let status_height = if matches!(self.step, Step::Failed(_)) {
-                FAILURE_HEIGHT
-            } else {
-                STATUS_HEIGHT
-            };
-            let _ = SetWindowPos(
-                controls.status,
-                None,
-                0,
-                0,
-                scaled(WIDTH - 2 * MARGIN, self.dpi),
-                scaled(status_height, self.dpi),
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-            let progress_visible = if view.permille.is_some() {
-                SW_SHOW
-            } else {
-                SW_HIDE
-            };
-            let _ = ShowWindow(controls.progress, progress_visible);
-            if let Some(permille) = view.permille {
-                SendMessageW(
-                    controls.progress,
-                    PBM_SETPOS,
-                    Some(WPARAM(permille as usize)),
-                    Some(LPARAM(0)),
-                );
-            }
-            let practice_visible = if view.practice_enabled {
-                SW_SHOW
-            } else {
-                SW_HIDE
-            };
-            for control in [controls.hint, controls.practice, controls.keys] {
-                let _ = ShowWindow(control, practice_visible);
-            }
             let _ = EnableWindow(controls.practice, view.practice_enabled);
             let _ = EnableWindow(controls.done, view.done_enabled);
             if self.step == Step::Practice && *previous != Step::Practice {
@@ -490,133 +167,134 @@ impl Drop for Onboarding {
         PRACTICE.store(0, Ordering::SeqCst);
         unsafe {
             let _ = DestroyWindow(self.controls.window);
-            if let Some(font) = self.font {
-                let _ = DeleteObject(font.into());
-            }
         }
+        window::release_font();
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::layout::build;
+    use super::model::Model;
     use super::*;
+    use crate::ui::{self, Scale, Theme, force_dark_theme};
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        BM_CLICK, GWL_STYLE, GetWindowLongPtrW, GetWindowRect, GetWindowTextW, WM_DPICHANGED,
+        WM_SETTINGCHANGE, WS_VISIBLE,
+    };
+    use windows::core::w;
 
-    fn downloading(done: u64, total: u64) -> Step {
-        Step::Downloading { done, total }
+    fn marker(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pith-onboarding-{name}-{}", std::process::id()))
     }
 
-    #[test]
-    fn walks_download_loading_ready_done() {
-        let mut step = Step::Preparing;
-        for (event, expected) in [
-            (Event::Progress(0, 397), downloading(0, 397)),
-            (Event::Progress(100, 397), downloading(100, 397)),
-            (Event::Loading, downloading(100, 397)),
-            (Event::Progress(397, 397), Step::Loading),
-            (Event::Loading, Step::Loading),
-            (Event::Ready, Step::Practice),
-            (Event::Done, Step::Finished),
-        ] {
-            step = step.next(event);
-            assert_eq!(step, expected);
+    fn text(hwnd: HWND) -> String {
+        let mut buffer = [0u16; 256];
+        let length = unsafe { GetWindowTextW(hwnd, &mut buffer) };
+        String::from_utf16_lossy(&buffer[..length as usize])
+    }
+
+    fn shown(hwnd: HWND) -> bool {
+        unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE.0 != 0 }
+    }
+
+    fn frame_width(hwnd: HWND) -> i32 {
+        let mut frame = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(hwnd, &mut frame);
         }
+        ui::width(frame)
     }
 
     #[test]
-    fn cached_model_skips_the_download() {
-        let step = Step::Preparing.next(Event::Loading).next(Event::Ready);
-        assert_eq!(step, Step::Practice);
-    }
-
-    #[test]
-    fn remote_backend_goes_straight_to_practice() {
-        assert_eq!(Step::Preparing.next(Event::Ready), Step::Practice);
-    }
-
-    #[test]
-    fn done_is_ignored_until_practice() {
-        for step in [Step::Preparing, downloading(1, 2), Step::Loading] {
-            assert_eq!(step.clone().next(Event::Done), step);
+    fn the_window_follows_the_steps_from_download_to_done() {
+        let marker = marker("flow");
+        let _ = fs::remove_file(&marker);
+        let mut window = Onboarding::create(marker.clone(), false).unwrap();
+        let controls = window.controls();
+        assert_eq!(text(controls.status), "Starting Pith");
+        assert!(!shown(controls.progress) && !shown(controls.practice));
+        window.event(Event::Progress(150, 400));
+        assert!(shown(controls.progress));
+        assert!(text(controls.status).starts_with("Downloading model"));
+        window.event(Event::Ready);
+        assert!(shown(controls.practice) && !shown(controls.progress));
+        assert!(unsafe { IsWindowEnabled(controls.practice).as_bool() });
+        for key in ["Tab", "Shift+Tab", "Ctrl+Right", "Esc"] {
+            assert!(text(controls.keys).contains(key), "{key}");
         }
-        assert_eq!(Step::Failed("x".into()).next(Event::Done), Step::Closed);
-    }
-
-    #[test]
-    fn practice_ignores_late_download_events() {
-        let step = Step::Practice;
-        for event in [
-            Event::Progress(1, 2),
-            Event::Loading,
-            Event::Failed("late".into()),
-        ] {
-            assert_eq!(step.clone().next(event), Step::Practice);
+        unsafe {
+            SendMessageW(controls.done, BM_CLICK, None, None);
         }
+        assert_eq!(window.poll(), Outcome::Finished);
+        assert!(marker.exists() && !shown(controls.window));
+        let _ = fs::remove_file(&marker);
     }
 
     #[test]
-    fn failure_is_final_until_closed() {
-        let failed = Step::Preparing.next(Event::Failed("offline".into()));
-        assert_eq!(failed, Step::Failed("offline".into()));
-        assert_eq!(failed.clone().next(Event::Ready), failed);
-        assert_eq!(failed.next(Event::Close), Step::Closed);
+    fn a_failure_shows_the_message_and_keeps_the_practice_box_hidden() {
+        let mut window = Onboarding::create(marker("failed"), false).unwrap();
+        let controls = window.controls();
+        window.event(Event::Failed("offline & retry".into()));
+        assert!(text(controls.status).contains("offline & retry"));
+        assert!(!shown(controls.practice));
+        assert!(unsafe { IsWindowEnabled(controls.done).as_bool() });
     }
 
     #[test]
-    fn closing_works_from_every_live_step() {
-        for step in [
-            Step::Preparing,
-            downloading(1, 2),
-            Step::Loading,
-            Step::Practice,
-            Step::Failed("x".into()),
-        ] {
-            assert_eq!(step.next(Event::Close), Step::Closed);
+    fn dpi_and_theme_changes_are_applied_live() {
+        let window = Onboarding::create(marker("live"), false).unwrap();
+        let hwnd = window.controls().window;
+        let before = frame_width(hwnd);
+        let suggested = RECT::default();
+        unsafe {
+            SendMessageW(
+                hwnd,
+                WM_DPICHANGED,
+                Some(WPARAM(192 | (192 << 16))),
+                Some(LPARAM(&suggested as *const RECT as isize)),
+            );
         }
+        assert!(frame_width(hwnd) > before * 3 / 2);
+        force_dark_theme(Some(true));
+        unsafe {
+            SendMessageW(
+                hwnd,
+                WM_SETTINGCHANGE,
+                Some(WPARAM(0)),
+                Some(LPARAM(w!("ImmersiveColorSet").as_ptr() as isize)),
+            );
+        }
+        assert_eq!(model::current().unwrap().theme, Theme::detect());
+        force_dark_theme(None);
     }
 
     #[test]
-    fn finished_and_closed_are_terminal() {
-        for end in [Step::Finished, Step::Closed] {
-            for event in [
-                Event::Ready,
-                Event::Done,
-                Event::Loading,
-                Event::Close,
-                Event::Progress(1, 2),
-                Event::Failed("x".into()),
-            ] {
-                assert_eq!(end.clone().next(event), end);
+    fn the_layout_stacks_without_overlap_at_every_scale() {
+        for dpi in [96, 120, 144, 192] {
+            let model = Model {
+                theme: Theme::detect(),
+                mica: false,
+                scale: Scale(dpi),
+                view: Step::Failed("a long failure message ".repeat(8)).view(),
+            };
+            let layout = build(&model);
+            let stack = [
+                layout.title,
+                layout.promise,
+                layout.status_card,
+                layout.keys_card,
+                layout.note,
+                layout.practice_card,
+                layout.footer,
+            ];
+            for pair in stack.windows(2) {
+                assert!(pair[0].bottom <= pair[1].top, "{dpi}");
             }
+            assert_eq!(layout.client.bottom, layout.footer.bottom);
+            assert!(layout.practice.bottom <= layout.practice_card.bottom);
         }
-    }
-
-    #[test]
-    fn progress_is_clamped_and_zero_total_never_completes() {
-        assert_eq!(
-            Step::Preparing.next(Event::Progress(0, 0)),
-            downloading(0, 0)
-        );
-        assert_eq!(downloading(0, 0).view().permille, Some(0));
-        assert_eq!(Step::Preparing.next(Event::Progress(9, 5)), Step::Loading);
-    }
-
-    #[test]
-    fn view_reports_size_and_gates_controls() {
-        let view = downloading(396_704_960 / 2, 396_704_960).view();
-        assert_eq!(view.status, "Downloading the model: 198 MB of 397 MB");
-        assert_eq!(view.permille, Some(500));
-        assert!(!view.practice_enabled && !view.done_enabled);
-        let practice = Step::Practice.view();
-        assert_eq!(practice.status, "Ready");
-        assert!(practice.practice_enabled && practice.done_enabled);
-        let failed = Step::Failed("offline".into()).view();
-        assert_eq!(failed.status, "Pith could not start: offline");
-        assert!(!failed.practice_enabled && failed.done_enabled);
-    }
-
-    #[test]
-    fn view_never_overflows_on_huge_sizes() {
-        let view = downloading(u64::MAX - 1, u64::MAX).view();
-        assert_eq!(view.permille, Some(999));
     }
 }
