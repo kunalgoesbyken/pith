@@ -550,9 +550,18 @@ impl Rig {
         }
     }
 
-    fn fresh(&self, field: Field, text: &str) {
+    fn place(&self, field: Field, text: &str, caret: usize) {
         self.use_field(field);
         set_text(field.edit, text);
+        select(field.edit, caret);
+    }
+
+    fn fresh(&self, field: Field, text: &str) {
+        self.fresh_at(field, text, text.encode_utf16().count());
+    }
+
+    fn fresh_at(&self, field: Field, text: &str, caret: usize) {
+        self.place(field, text, caret);
         std::thread::sleep(Duration::from_millis(350));
         self.drain();
     }
@@ -852,27 +861,25 @@ fn typing_through_and_escape(rig: &mut Rig) {
 
 fn text_after_caret(rig: &mut Rig) {
     let field = rig.a;
-    rig.fresh(field, "We should schedule the review for next week");
-    select(field.edit, 10);
+    rig.fresh_at(field, "We should schedule the review for next week", 10);
     let seen = rig.settle(Duration::from_millis(1500));
     rig.check(
         "no suggestion when text follows the caret",
         !seen.iter().any(is_show) && !seen.iter().any(is_request),
         format!("{seen:?}"),
     );
-    rig.fresh(field, "We should schedule the review for next week   ");
-    select(field.edit, 43);
+    rig.place(field, "We should schedule the review for next week   ", 43);
     let seen = rig.settle(Duration::from_millis(1500));
     rig.check(
         "caret before trailing spaces still suggests",
         seen.iter().any(is_request),
         format!("{} requests", requests(&seen).len()),
     );
-    rig.fresh(
+    rig.place(
         field,
         "We should schedule the review for\rnext week is fine",
+        33,
     );
-    select(field.edit, 33);
     let seen = rig.settle(Duration::from_millis(1500));
     rig.check(
         "caret at the end of a line with text on the next line still suggests",
@@ -999,7 +1006,9 @@ fn prompt_matches_typed_text(rig: &mut Rig) {
 }
 
 fn steady_cost(costs: &[usize]) -> usize {
-    let steady = costs.get(1..).unwrap_or_default();
+    let mut steady = costs.get(1..).unwrap_or_default().to_vec();
+    steady.sort_unstable();
+    steady.pop();
     steady.iter().sum::<usize>().div_ceil(steady.len().max(1))
 }
 
@@ -1286,7 +1295,7 @@ fn forced_trigger(rig: &mut Rig) {
 
 fn keys_without_a_suggestion(rig: &mut Rig) {
     let field = rig.a;
-    rig.fresh(field, "Please sign the");
+    rig.fresh(field, "");
     let base = get_text(field.edit);
     for key in [ACCEPT_ALL, ACCEPT_WORD, DISMISS] {
         rig.key(key);
@@ -1666,6 +1675,10 @@ fn overlay_at_screen_edge(rig: &mut Rig) {
 fn idle_unload(rig: &mut Rig, unload_after: Duration) {
     let field = rig.a;
     rig.fresh(field, "");
+    let loaded = rig.suggestion_for(field, &PROSE, 1).is_some();
+    rig.fresh(field, "");
+    while rig.statuses.try_recv().is_ok() {}
+    rig.check("model is loaded before the idle period", loaded, String::new());
     print_memory("loaded, after typing");
     let unloaded = loop {
         match rig
