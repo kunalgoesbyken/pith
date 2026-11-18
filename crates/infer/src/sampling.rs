@@ -54,7 +54,10 @@ mod tests {
         assert!(!consistent_with_prefix(&tsu[..2], tsu));
         assert!(!consistent_with_prefix(&tsu[..4], tsu));
         assert!(consistent_with_prefix("ñ".as_bytes(), "ña".as_bytes()));
-        assert!(!consistent_with_prefix(&"ñ".as_bytes()[..1], "ña".as_bytes()));
+        assert!(!consistent_with_prefix(
+            &"ñ".as_bytes()[..1],
+            "ña".as_bytes()
+        ));
     }
 
     #[test]

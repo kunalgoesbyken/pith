@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use pith_core::{Action, Completion, Config, Engine, Event, FieldSnapshot, log};
 use pith_infer::Worker;
@@ -16,7 +16,7 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
-use crate::clipboard::{paste, replace_selection};
+use crate::clipboard::{paste, replace_selection, replace_selection_after};
 use crate::events::Hooks;
 use crate::keys::{ACCEPT_ALL, ACCEPT_WORD, DISMISS, Keys, replay};
 use crate::overlay::Overlay;
@@ -29,7 +29,8 @@ const TIMER_DEBOUNCE: usize = 2;
 
 pub enum InsertMode {
     Paste,
-    Window(isize),
+    Window(&'static AtomicIsize),
+    Lagging(&'static AtomicIsize, Duration),
 }
 
 pub struct Options {
@@ -48,6 +49,7 @@ pub enum Inbound {
     Ready(Result<String, String>),
     Status(String),
     Key(i32),
+    SetEnabled(bool),
     Quit,
 }
 
@@ -174,7 +176,12 @@ impl App {
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => match self.options.insert {
                     InsertMode::Paste => paste(text),
-                    InsertMode::Window(hwnd) => replace_selection(hwnd, &text),
+                    InsertMode::Window(hwnd) => {
+                        replace_selection(hwnd.load(Ordering::SeqCst), &text)
+                    }
+                    InsertMode::Lagging(hwnd, lag) => {
+                        replace_selection_after(hwnd.load(Ordering::SeqCst), text, lag)
+                    }
                 },
                 Action::ArmKeys if self.options.global_keys => self.keys.arm(self.control),
                 Action::ArmKeys => {}
@@ -228,6 +235,7 @@ impl App {
                     }
                 }
                 Inbound::Key(id) => self.hotkey(id),
+                Inbound::SetEnabled(enabled) => self.set_enabled(enabled),
                 Inbound::Quit => quit = true,
             }
         }
@@ -296,19 +304,21 @@ impl App {
         self.apply(actions);
     }
 
+    fn set_enabled(&mut self, enabled: bool) {
+        self.reader.set_enabled(enabled);
+        let actions = self.engine.handle(Event::SetEnabled(enabled));
+        self.apply(actions);
+        if let Some(tray) = &self.tray {
+            tray.set_enabled(enabled);
+        }
+    }
+
     fn tray_command(&mut self) -> bool {
         let Some(command) = self.tray.as_ref().and_then(Tray::poll) else {
             return false;
         };
         match command {
-            TrayCommand::Toggle => {
-                let enabled = !self.engine.config().enabled;
-                let actions = self.engine.handle(Event::SetEnabled(enabled));
-                self.apply(actions);
-                if let Some(tray) = &self.tray {
-                    tray.set_enabled(enabled);
-                }
-            }
+            TrayCommand::Toggle => self.set_enabled(!self.engine.config().enabled),
             TrayCommand::OpenConfig => {
                 if let Some(path) = &self.options.config_path {
                     crate::util::open_path(path);
