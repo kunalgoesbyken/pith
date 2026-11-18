@@ -4,8 +4,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime};
 
 use pith_core::{
-    Action, Chord, Completion, Config, Engine, Event, FieldSnapshot, Key, Keymap, Model, Pause,
-    PauseSpan, Setting, SkipReason, Status, check, clock_after, log,
+    Action, Chord, Completion, Config, Engine, Event, FieldSnapshot, Key, Model, Pause, PauseSpan,
+    Setting, SkipReason, Status, check, clock_after, log,
 };
 use pith_infer::Worker;
 use windows::Win32::Foundation::HWND;
@@ -77,13 +77,6 @@ impl Press {
     fn moves_caret(&self) -> bool {
         self.chord.is_some_and(|chord| chord.key == Key::Right)
     }
-}
-
-fn keymap_of(config: &Config) -> Keymap {
-    config
-        .keymap()
-        .or_else(|_| Config::default().keymap())
-        .unwrap_or_default()
 }
 
 struct ActivePause {
@@ -373,7 +366,7 @@ impl App {
 
     fn sync(&mut self) {
         let config = self.effective();
-        self.keys.rebind(&keymap_of(&config));
+        self.keys.rebind(&config.keymap());
         self.reader.set_config(&config);
         let enabled = config.enabled;
         let actions = self.engine.handle(Event::SetConfig(config));
@@ -603,7 +596,7 @@ pub fn run(
             .map_err(|error| log(&format!("welcome window failed: {error}")))
             .ok()
     });
-    let keymap = keymap_of(&config);
+    let keymap = config.keymap();
     let enabled = config.enabled;
     let mut app = App {
         control,

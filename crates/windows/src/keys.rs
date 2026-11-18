@@ -271,19 +271,18 @@ mod tests {
     }
 
     fn keymap() -> Keymap {
-        pith_core::Config::default().keymap().unwrap()
+        pith_core::Config::default().keymap()
     }
 
     fn keymap_of(accept: &[&str], word: &[&str], trigger: Option<&str>) -> Keymap {
         pith_core::Config {
-            accept_keys: accept.iter().map(|k| k.to_string()).collect(),
-            accept_word_keys: word.iter().map(|k| k.to_string()).collect(),
+            accept_keys: accept.iter().map(|k| chord(k)).collect(),
+            accept_word_keys: word.iter().map(|k| chord(k)).collect(),
             force_trigger: trigger.is_some(),
-            force_trigger_key: trigger.unwrap_or("Ctrl+Shift+Space").into(),
+            force_trigger_key: chord(trigger.unwrap_or("Ctrl+Shift+Space")),
             ..Default::default()
         }
         .keymap()
-        .unwrap()
     }
 
     fn chord(source: &str) -> Chord {
@@ -320,7 +319,7 @@ mod tests {
             force_trigger: false,
             ..Default::default()
         };
-        let all = bindings(&config.keymap().unwrap());
+        let all = bindings(&config.keymap());
         assert!(all.iter().all(|b| b.action != TRIGGER));
     }
 

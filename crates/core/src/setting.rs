@@ -94,6 +94,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::Chord;
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pith-core-{name}-{}", std::process::id()));
@@ -341,6 +342,34 @@ note = "kept"
         Setting::Unblock("nothing".into()).persist(&path).unwrap();
         Setting::Enabled(true).persist(&path).unwrap();
         assert_eq!(stored(&path), COMMENTED);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persisting_keeps_the_key_names_as_the_user_wrote_them() {
+        let dir = scratch("keys");
+        let path = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = "accept_keys = [\"ctrl + j\"] # mine\nforce_trigger_key = \"f9\"\n";
+        std::fs::write(&path, source).unwrap();
+        Setting::Enabled(false).persist(&path).unwrap();
+        let text = stored(&path);
+        assert!(text.contains(source), "{text}");
+        let config = Config::from_toml(&text).unwrap();
+        assert_eq!(config.accept_keys, [Chord::parse("Ctrl+J").unwrap()]);
+        assert_eq!(config.force_trigger_key, Chord::parse("F9").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persisting_never_overwrites_a_file_with_an_invalid_key() {
+        let dir = scratch("bad-key");
+        let path = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        let broken = "accept_keys = [\"Hyper+Tab\"]\n";
+        std::fs::write(&path, broken).unwrap();
+        assert!(Setting::Enabled(false).persist(&path).is_err());
+        assert_eq!(stored(&path), broken);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

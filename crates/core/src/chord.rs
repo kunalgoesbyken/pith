@@ -1,3 +1,7 @@
+use std::fmt;
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     Tab,
@@ -18,25 +22,23 @@ pub struct Chord {
 }
 
 impl Chord {
-    pub const ESCAPE: Self = Self {
-        ctrl: false,
-        shift: false,
-        alt: false,
-        win: false,
-        key: Key::Escape,
-    };
+    pub const ESCAPE: Self = Self::plain(Key::Escape);
 
-    pub fn parse(source: &str) -> Result<Self, String> {
-        let mut parts: Vec<&str> = source.split('+').map(str::trim).collect();
-        let name = parts.pop().unwrap_or_default();
-        let key = parse_key(name).ok_or_else(|| format!("unknown key \"{source}\""))?;
-        let mut chord = Self {
+    pub const fn plain(key: Key) -> Self {
+        Self {
             ctrl: false,
             shift: false,
             alt: false,
             win: false,
             key,
-        };
+        }
+    }
+
+    pub fn parse(source: &str) -> Result<Self, String> {
+        let mut parts: Vec<&str> = source.split('+').map(str::trim).collect();
+        let name = parts.pop().unwrap_or_default();
+        let key = parse_key(name).ok_or_else(|| format!("unknown key \"{source}\""))?;
+        let mut chord = Self::plain(key);
         for part in parts {
             let flag = match part.to_ascii_lowercase().as_str() {
                 "ctrl" | "control" => &mut chord.ctrl,
@@ -67,6 +69,49 @@ impl Chord {
             ));
         }
         Ok(())
+    }
+}
+
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Key::Tab => f.write_str("Tab"),
+            Key::Right => f.write_str("Right"),
+            Key::Escape => f.write_str("Esc"),
+            Key::Space => f.write_str("Space"),
+            Key::Char(c) => write!(f, "{c}"),
+            Key::Function(n) => write!(f, "F{n}"),
+        }
+    }
+}
+
+impl fmt::Display for Chord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let modifiers = [
+            (self.ctrl, "Ctrl"),
+            (self.shift, "Shift"),
+            (self.alt, "Alt"),
+            (self.win, "Win"),
+        ];
+        for (held, name) in modifiers {
+            if held {
+                write!(f, "{name}+")?;
+            }
+        }
+        write!(f, "{}", self.key)
+    }
+}
+
+impl Serialize for Chord {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for Chord {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let source = String::deserialize(deserializer)?;
+        Self::parse(&source).map_err(de::Error::custom)
     }
 }
 
@@ -125,6 +170,25 @@ mod tests {
         assert_eq!(chord("F1").key, Key::Function(1));
         assert_eq!(chord("Ctrl+f24").key, Key::Function(24));
         assert_eq!(chord("Esc").key, Key::Escape);
+    }
+
+    #[test]
+    fn displays_what_it_parses() {
+        for source in [
+            "Tab",
+            "Shift+Tab",
+            "Ctrl+Right",
+            "Ctrl+Shift+Space",
+            "Ctrl+Alt+Win+F24",
+            "Esc",
+            "Ctrl+J",
+            "Alt+7",
+        ] {
+            let parsed = chord(source);
+            assert_eq!(parsed.to_string(), source);
+            assert_eq!(chord(&parsed.to_string()), parsed);
+        }
+        assert_eq!(chord("shift+ctrl+escape").to_string(), "Ctrl+Shift+Esc");
     }
 
     #[test]

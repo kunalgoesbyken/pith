@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::chord::Chord;
+use crate::chord::{Chord, Key};
 use crate::stored::{read, write_atomically};
 
 pub fn app_name(path_or_name: &str) -> String {
@@ -122,14 +122,128 @@ mod tests {
     }
 
     #[test]
+    fn key_names_are_parsed_once_when_the_config_loads() {
+        let config = Config::from_toml(
+            "accept_keys = [\" ctrl + J \", \"F9\"]
+accept_word_keys = [\"alt+right\"]
+force_trigger_key = \"WIN+shift+Space\"",
+        )
+        .unwrap();
+        assert_eq!(
+            config.accept_keys,
+            [Chord::parse("Ctrl+J").unwrap(), Chord::parse("F9").unwrap()]
+        );
+        assert_eq!(
+            config.accept_word_keys,
+            [Chord::parse("Alt+Right").unwrap()]
+        );
+        assert_eq!(
+            config.force_trigger_key,
+            Chord::parse("Shift+Win+Space").unwrap()
+        );
+    }
+
+    #[test]
+    fn invalid_key_names_are_config_errors() {
+        for key in [
+            "\"\"",
+            "\" \"",
+            "\"+\"",
+            "\"Ctrl+\"",
+            "\"Hyper+Tab\"",
+            "\"Ctrl+Enter\"",
+            "\"F25\"",
+            "\"Ctrl+\u{e9}\"",
+            "\"Ctrl+\u{ff34}\"",
+            "\"Ctrl+\u{440}\"",
+            "\"\u{540d}\u{524d}\"",
+            "\"Ctrl+\u{1f600}\"",
+            "\"Tab\u{200b}\"",
+            "\"Ctrl+Alt+j\"",
+            "\"j\"",
+        ] {
+            for toml in [
+                format!("accept_keys = [{key}]"),
+                format!("accept_keys = [\"Ctrl+k\", {key}]"),
+                format!("accept_word_keys = [{key}]"),
+                format!("force_trigger_key = {key}"),
+            ] {
+                assert!(Config::from_toml(&toml).is_err(), "{toml}");
+            }
+        }
+    }
+
+    #[test]
+    fn key_names_must_be_strings() {
+        for toml in [
+            "accept_keys = [1]",
+            "accept_keys = \"Tab\"",
+            "accept_word_keys = [[\"Tab\"]]",
+            "force_trigger_key = 9",
+            "force_trigger_key = [\"Ctrl+Space\"]",
+        ] {
+            assert!(Config::from_toml(toml).is_err(), "{toml}");
+        }
+    }
+
+    #[test]
+    fn empty_key_lists_are_allowed_and_bind_nothing() {
+        let config =
+            Config::from_toml("accept_keys = []\naccept_word_keys = []\nforce_trigger = false")
+                .unwrap();
+        assert_eq!(config.keymap(), Keymap::default());
+    }
+
+    #[test]
+    fn the_error_names_the_bad_key() {
+        let error = Config::from_toml("accept_keys = [\"Hyper+Tab\"]").unwrap_err();
+        assert!(error.contains("Hyper+Tab"), "{error}");
+        assert!(error.contains("accept_keys"), "{error}");
+        let error = Config::from_toml("force_trigger_key = \"Ctrl+\u{e9}\"").unwrap_err();
+        assert!(error.contains("force_trigger_key"), "{error}");
+    }
+
+    #[test]
+    fn default_keys_are_the_documented_chords() {
+        let keymap = Config::default().keymap();
+        assert_eq!(keymap.accept_all, [Chord::parse("Tab").unwrap()]);
+        assert_eq!(
+            keymap.accept_word,
+            [
+                Chord::parse("Shift+Tab").unwrap(),
+                Chord::parse("Ctrl+Right").unwrap()
+            ]
+        );
+        assert_eq!(
+            keymap.trigger,
+            Some(Chord::parse("Ctrl+Shift+Space").unwrap())
+        );
+    }
+
+    #[test]
+    fn keys_serialize_to_the_toml_users_write() {
+        let text = Config::default().to_toml();
+        for line in [
+            "accept_keys = [\"Tab\"]",
+            "\"Shift+Tab\",",
+            "\"Ctrl+Right\",",
+            "force_trigger_key = \"Ctrl+Shift+Space\"",
+        ] {
+            assert!(text.contains(line), "{line}\n{text}");
+        }
+        let custom = Config::from_toml("accept_keys = [\"ctrl+j\"]").unwrap();
+        assert_eq!(Config::from_toml(&custom.to_toml()).unwrap(), custom);
+    }
+
+    #[test]
     fn old_config_files_get_the_default_keys() {
         let old = Config::from_toml(
             "debounce_ms = 200
 max_words = 4",
         )
         .unwrap();
-        let keymap = old.keymap().unwrap();
-        let defaults = Config::default().keymap().unwrap();
+        let keymap = old.keymap();
+        let defaults = Config::default().keymap();
         assert_eq!(keymap, defaults);
         assert_eq!(old.trigger_mode, TriggerMode::Auto);
         assert_eq!(old.accept_race_ms, 150);
@@ -146,12 +260,12 @@ accept_word_keys = [\"Alt+Right\"]
 force_trigger_key = \"F9\"",
         )
         .unwrap();
-        let keymap = config.keymap().unwrap();
+        let keymap = config.keymap();
         assert_eq!(keymap.accept_all.len(), 2);
         assert_eq!(keymap.accept_word.len(), 1);
         assert_eq!(keymap.trigger, Some(Chord::parse("F9").unwrap()));
         let off = Config::from_toml("force_trigger = false").unwrap();
-        assert_eq!(off.keymap().unwrap().trigger, None);
+        assert_eq!(off.keymap().trigger, None);
     }
 
     #[test]
@@ -244,11 +358,11 @@ pub struct Config {
     pub auto_pause_after: u32,
     pub smart_space: bool,
     pub trigger_mode: TriggerMode,
-    pub accept_keys: Vec<String>,
-    pub accept_word_keys: Vec<String>,
+    pub accept_keys: Vec<Chord>,
+    pub accept_word_keys: Vec<Chord>,
     pub accept_race_ms: u64,
     pub force_trigger: bool,
-    pub force_trigger_key: String,
+    pub force_trigger_key: Chord,
     pub blocked_apps: Vec<String>,
     pub ghost_opacity: u8,
     pub remote_url: Option<String>,
@@ -274,11 +388,24 @@ impl Default for Config {
             auto_pause_after: 12,
             smart_space: false,
             trigger_mode: TriggerMode::Auto,
-            accept_keys: vec!["Tab".into()],
-            accept_word_keys: vec!["Shift+Tab".into(), "Ctrl+Right".into()],
+            accept_keys: vec![Chord::plain(Key::Tab)],
+            accept_word_keys: vec![
+                Chord {
+                    shift: true,
+                    ..Chord::plain(Key::Tab)
+                },
+                Chord {
+                    ctrl: true,
+                    ..Chord::plain(Key::Right)
+                },
+            ],
             accept_race_ms: 150,
             force_trigger: true,
-            force_trigger_key: "Ctrl+Shift+Space".into(),
+            force_trigger_key: Chord {
+                ctrl: true,
+                shift: true,
+                ..Chord::plain(Key::Space)
+            },
             blocked_apps: Vec::new(),
             ghost_opacity: 50,
             remote_url: None,
@@ -342,20 +469,16 @@ impl Config {
         toml_edit::ser::to_string_pretty(self).unwrap_or_default()
     }
 
-    pub fn keymap(&self) -> Result<Keymap, String> {
-        let parse_all = |keys: &[String]| {
-            keys.iter()
-                .map(|k| Chord::parse(k))
-                .collect::<Result<Vec<_>, _>>()
-        };
-        let keymap = Keymap {
-            accept_all: parse_all(&self.accept_keys)?,
-            accept_word: parse_all(&self.accept_word_keys)?,
-            trigger: self
-                .force_trigger
-                .then(|| Chord::parse(&self.force_trigger_key))
-                .transpose()?,
-        };
+    pub fn keymap(&self) -> Keymap {
+        Keymap {
+            accept_all: self.accept_keys.clone(),
+            accept_word: self.accept_word_keys.clone(),
+            trigger: self.force_trigger.then_some(self.force_trigger_key),
+        }
+    }
+
+    fn keys_are_distinct(&self) -> bool {
+        let keymap = self.keymap();
         let mut taken = vec![Chord::ESCAPE];
         for chord in keymap
             .accept_all
@@ -364,15 +487,17 @@ impl Config {
             .chain(&keymap.trigger)
         {
             if taken.contains(chord) {
-                return Err("each key can be bound to only one action, and Esc hides".into());
+                return false;
             }
             taken.push(*chord);
         }
-        Ok(keymap)
+        true
     }
 
     pub fn validate(mut self) -> Result<Self, String> {
-        self.keymap()?;
+        if !self.keys_are_distinct() {
+            return Err("each key can be bound to only one action, and Esc hides".into());
+        }
         self.model_path = self.model_path.filter(|p| !p.as_os_str().is_empty());
         self.remote_url = self
             .remote_url
