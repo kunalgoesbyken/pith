@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use pith_core::{Pause, PauseSpan, Reach};
+use pith_core::{Access, Pause, PauseSpan, Reach};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::HWND;
@@ -29,7 +29,7 @@ fn menu_text(text: &str) -> String {
 pub enum TrayCommand {
     Pause(PauseSpan),
     Resume,
-    BlockForeground,
+    ChangeApp,
     Settings,
     Quit,
     ResumeApp(String),
@@ -38,7 +38,7 @@ pub enum TrayCommand {
 #[derive(Clone, PartialEq, Eq)]
 pub struct ForegroundApp {
     pub name: String,
-    pub blocked: bool,
+    pub access: Access,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -50,22 +50,23 @@ pub struct TrayView {
 }
 
 impl TrayView {
-    fn block_label(&self) -> String {
+    fn app_label(&self) -> String {
         match &self.foreground {
             Some(ForegroundApp {
                 name,
-                blocked: true,
+                access: Access::Off,
             }) => format!("Turned off in {name}"),
             Some(ForegroundApp {
                 name,
-                blocked: false,
-            }) => format!("Turn off in {name}"),
+                access: Access::OffByDefault,
+            }) => format!("Allow Pith in {name} (prose only)"),
+            Some(ForegroundApp { name, .. }) => format!("Turn off in {name}"),
             None => "Turn off in this app".to_string(),
         }
     }
 
-    fn can_block(&self) -> bool {
-        matches!(self.foreground, Some(ForegroundApp { blocked: false, .. }))
+    fn can_change_app(&self) -> bool {
+        matches!(&self.foreground, Some(app) if app.access != Access::Off)
     }
 
     fn resumable(&self) -> bool {
@@ -107,7 +108,7 @@ pub struct Tray {
     status: MenuItem,
     pauses: Vec<(MenuItem, PauseSpan)>,
     resume: MenuItem,
-    block: MenuItem,
+    app: MenuItem,
     settings: MenuItem,
     quit: MenuItem,
     resting_tooltip: String,
@@ -141,7 +142,7 @@ impl Tray {
             .map(|span| (MenuItem::new(span.label(), true, None), span))
             .collect();
         let resume = MenuItem::new("Resume", false, None);
-        let block = MenuItem::new(TrayView::default().block_label(), false, None);
+        let app = MenuItem::new(TrayView::default().app_label(), false, None);
         let settings = MenuItem::new("Settings\u{2026}", true, None);
         let quit = MenuItem::new("Quit", true, None);
         menu.append(&status).ok()?;
@@ -151,7 +152,7 @@ impl Tray {
         }
         menu.append(&resume).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
-        menu.append(&block).ok()?;
+        menu.append(&app).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
         menu.append(&settings).ok()?;
         menu.append(&quit).ok()?;
@@ -169,7 +170,7 @@ impl Tray {
             status,
             pauses,
             resume,
-            block,
+            app,
             settings,
             quit,
             resting_tooltip,
@@ -212,8 +213,8 @@ impl Tray {
             self.resume.set_enabled(view.resumable());
         }
         if before.is_none_or(|old| old.foreground != view.foreground) {
-            self.block.set_text(menu_text(&view.block_label()));
-            self.block.set_enabled(view.can_block());
+            self.app.set_text(menu_text(&view.app_label()));
+            self.app.set_enabled(view.can_change_app());
         }
         *shown = Some(view);
     }
@@ -250,8 +251,8 @@ impl Tray {
             Some(TrayCommand::Pause(*span))
         } else if event.id == *self.resume.id() {
             Some(TrayCommand::Resume)
-        } else if event.id == *self.block.id() {
-            Some(TrayCommand::BlockForeground)
+        } else if event.id == *self.app.id() {
+            Some(TrayCommand::ChangeApp)
         } else if event.id == *self.settings.id() {
             Some(TrayCommand::Settings)
         } else if event.id == *self.quit.id() {
@@ -267,22 +268,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn block_item_names_the_app_and_only_arms_for_one_not_yet_off() {
+    fn app_item_names_the_app_and_arms_for_any_app_the_user_can_change() {
         let mut view = TrayView::default();
-        assert_eq!(view.block_label(), "Turn off in this app");
-        assert!(!view.can_block());
-        view.foreground = Some(ForegroundApp {
-            name: "Slack".into(),
-            blocked: false,
-        });
-        assert_eq!(view.block_label(), "Turn off in Slack");
-        assert!(view.can_block());
-        view.foreground = Some(ForegroundApp {
-            name: "Slack".into(),
-            blocked: true,
-        });
-        assert_eq!(view.block_label(), "Turned off in Slack");
-        assert!(!view.can_block());
+        assert_eq!(view.app_label(), "Turn off in this app");
+        assert!(!view.can_change_app());
+        for (access, label, armed) in [
+            (Access::On, "Turn off in Slack", true),
+            (Access::OptedIn, "Turn off in Slack", true),
+            (
+                Access::OffByDefault,
+                "Allow Pith in Slack (prose only)",
+                true,
+            ),
+            (Access::Off, "Turned off in Slack", false),
+        ] {
+            view.foreground = Some(ForegroundApp {
+                name: "Slack".into(),
+                access,
+            });
+            assert_eq!(view.app_label(), label);
+            assert_eq!(view.can_change_app(), armed);
+        }
     }
 
     #[test]

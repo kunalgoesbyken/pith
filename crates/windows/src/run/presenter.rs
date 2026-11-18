@@ -147,7 +147,7 @@ impl Presenter {
             pause: prefs.shown_pause(),
             foreground: self.foreground.app().map(|name| ForegroundApp {
                 name: name.to_string(),
-                blocked: prefs.saved().is_blocked(name),
+                access: prefs.saved().access(name),
             }),
         });
     }

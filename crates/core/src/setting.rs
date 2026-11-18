@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::apps::{Access, editor, same_app};
 use crate::config::{MAX_GHOST_OPACITY, MIN_GHOST_OPACITY};
 use crate::stored::{patch, read, write_atomically};
 use crate::{Config, ModelPreset, app_name};
@@ -85,6 +86,8 @@ pub enum Setting {
     Model(ModelPreset),
     Block(String),
     Unblock(String),
+    Allow(String),
+    Disallow(String),
 }
 
 impl Setting {
@@ -100,6 +103,12 @@ impl Setting {
             }
             Self::Unblock(app) => {
                 config.unblock_app(app);
+            }
+            Self::Allow(app) => {
+                config.allow_app(app);
+            }
+            Self::Disallow(app) => {
+                config.disallow_app(app);
             }
         }
     }
@@ -119,19 +128,34 @@ impl Setting {
 
 impl Config {
     pub fn block_app(&mut self, app: &str) -> bool {
-        if self.is_blocked(app) {
-            return false;
+        match self.access(app) {
+            Access::On => {
+                self.blocked_apps.push(app_name(app));
+                true
+            }
+            Access::OptedIn => self.disallow_app(app),
+            Access::OffByDefault | Access::Off => false,
         }
-        self.blocked_apps.push(app_name(app));
-        true
     }
 
     pub fn unblock_app(&mut self, app: &str) -> bool {
-        let name = app_name(app);
         let before = self.blocked_apps.len();
-        self.blocked_apps
-            .retain(|blocked| !app_name(blocked).eq_ignore_ascii_case(&name));
+        self.blocked_apps.retain(|blocked| !same_app(blocked, app));
         self.blocked_apps.len() != before
+    }
+
+    pub fn allow_app(&mut self, app: &str) -> bool {
+        let Some(editor) = editor(app).filter(|_| self.access(app) == Access::OffByDefault) else {
+            return false;
+        };
+        self.allowed_apps.push(editor.to_string());
+        true
+    }
+
+    pub fn disallow_app(&mut self, app: &str) -> bool {
+        let before = self.allowed_apps.len();
+        self.allowed_apps.retain(|allowed| !same_app(allowed, app));
+        self.allowed_apps.len() != before
     }
 }
 

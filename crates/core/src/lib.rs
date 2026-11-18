@@ -1,3 +1,4 @@
+mod apps;
 mod chord;
 mod color;
 mod config;
@@ -17,6 +18,7 @@ mod stored;
 mod text;
 mod types;
 
+pub use apps::Access;
 pub use chord::{Chord, Key};
 pub use color::{Rgb, argb};
 pub use config::{

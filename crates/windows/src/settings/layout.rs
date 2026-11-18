@@ -63,9 +63,9 @@ pub const RIVAL_OS_ROW: (&str, &str) = (
 );
 pub const RIVAL_APP_CAPTION: &str = "Two tools suggesting in one field can clash.";
 pub const RIVAL_OPEN_NAME: &str = "Open Windows typing settings";
-pub const APPS_LABEL: &str = "Turned off in these apps";
+pub const APPS_LABEL: &str = "Apps with their own setting";
 pub const APPS_EMPTY: &str =
-    "Nothing is turned off. Choose Turn off in this app from the tray menu.";
+    "No app has its own setting. Choose Turn off in this app from the tray menu.";
 pub const DATA_LABEL: &str = "Your data";
 pub const DATA_ROWS: [(&str, &str); 2] = [
     ("Open data folder", "The model and log live on this PC."),
@@ -351,20 +351,20 @@ fn app_specs(model: &Model) -> Vec<Spec> {
     let mut specs: Vec<Spec> = apps
         .iter()
         .enumerate()
-        .map(|(slot, name)| Spec {
-            text: RowText::Title(name.clone()),
+        .map(|(slot, rule)| Spec {
+            text: RowText::Title(rule.title()),
             height: SLIM_ROW,
             control: Control::Button(ID_REMOVE_FIRST + slot as i32),
         })
         .collect();
-    if model.snapshot.blocked.len() > MAX_APP_ROWS {
+    if model.snapshot.apps.len() > MAX_APP_ROWS {
         let end = model.first_app + apps.len();
         specs.push(Spec {
             text: RowText::Note(format!(
                 "{}\u{2013}{} of {}. Scroll to see more.",
                 model.first_app + 1,
                 end,
-                model.snapshot.blocked.len()
+                model.snapshot.apps.len()
             )),
             height: NOTE_ROW,
             control: Control::None,

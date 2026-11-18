@@ -71,7 +71,7 @@ Pith recommends a model from the memory and logical cores it finds: `large` with
 
 Pith needs a CPU with AVX2 (most PCs since 2015). On older CPUs the tray says so instead of crashing, and `remote_url` lets you use a server instead.
 
-The tray shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model). It pauses Pith for 15 minutes, an hour or until you resume, and turns it off in the app you were just using.
+The tray shows what Pith is doing (Ready, Paused until 14:35, Skipped: password field, Loading model). It pauses Pith for 15 minutes, an hour or until you resume, and turns it off in the app you were just using. In a code editor, which Pith skips by default, the same item reads Allow Pith in that app.
 
 Settings changes apply at once:
 
@@ -80,7 +80,7 @@ Settings changes apply at once:
 - The model (Small, Standard or Large, with the recommended one marked). Choosing one downloads it if needed and switches without a restart; downloaded models are kept
 - Ghost text opacity
 - Your stats: suggestions seen and accepted today and in total, and the time they saved you
-- The apps Pith is turned off in
+- The apps with their own setting: where Pith is turned off, and the code editors where you turned it on
 - Start with Windows (off by default)
 - Open data folder, Delete model and data
 
@@ -119,7 +119,8 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 | `pause_on_battery_saver` | true | pause and free the model while battery saver is on; PCs without a battery are unaffected |
 | `auto_pause_after` | 12 | stop suggesting in an app after this many ignored suggestions in a row (0 = never); the tray offers Resume |
 | `smart_space` | false | add a space after accepting the last word of a suggestion |
-| `blocked_apps` | [] | extra process names to ignore; terminals, code editors, password managers and sign-in screens are always ignored |
+| `blocked_apps` | [] | extra process names to ignore. Terminals, password managers and sign-in screens are always ignored, and so are code editors unless listed in `allowed_apps` |
+| `allowed_apps` | [] | code editors to turn Pith on in: `Code`, `Cursor`, `devenv`, `idea64`, `pycharm64`, `rider64`, `zed`. Any other name, including a terminal or password manager, is ignored. Pith completes prose, not code: it skips only lines that are mostly symbols or numbers, so expect suggestions in comments and some in code |
 | `typing_wpm` | 40 | your typing speed, used for the time-saved estimate (1 to 500) |
 | `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; `https`, or `http` to this computer |
 | `remote_model` | none | the `model` name sent to that server |
@@ -131,7 +132,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 - **Captures the accept keys and Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after. Right at a caret that is not at the end of the text goes to the app untouched.
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
 - **Predicts** with llama.cpp in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so the suggestion finishes the word. Low-confidence suggestions are dropped.
-- **Skips** password fields, IME composition, selections, text after the caret on the same line, terminals, code editors and password managers.
+- **Skips** password fields, IME composition, selections, text after the caret on the same line, terminals, password managers, sign-in screens and, until you allow them, code editors.
 - **Re-reads the field** when you press an accept key or Esc, and acts only if the suggestion still fits what is on screen.
 
 ```

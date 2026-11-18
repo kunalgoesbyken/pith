@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::apps::{Access, Surface, editors_among, same_app, surface};
 use crate::chord::{Chord, Key};
 use crate::preset::ModelPreset;
 use crate::stored::{read, write_atomically};
@@ -234,32 +235,6 @@ max_words = 4",
     }
 }
 
-const ALWAYS_BLOCKED: [&str; 23] = [
-    "WindowsTerminal",
-    "cmd",
-    "powershell",
-    "pwsh",
-    "conhost",
-    "wt",
-    "Code",
-    "Cursor",
-    "devenv",
-    "idea64",
-    "pycharm64",
-    "rider64",
-    "zed",
-    "1Password",
-    "KeePass",
-    "KeePassXC",
-    "Bitwarden",
-    "Dashlane",
-    "LastPass",
-    "LockApp",
-    "LogonUI",
-    "consent",
-    "CredentialUIBroker",
-];
-
 const MIN_CONTEXT_HEADROOM: u32 = 64;
 const LOOKBACK_WINDOWS: usize = 16;
 const MAX_DEBOUNCE_MS: u64 = 5_000;
@@ -313,6 +288,7 @@ pub struct Config {
     pub force_trigger: bool,
     pub force_trigger_key: Chord,
     pub blocked_apps: Vec<String>,
+    pub allowed_apps: Vec<String>,
     pub ghost_opacity: u8,
     pub remote_url: Option<String>,
     pub remote_model: Option<String>,
@@ -358,6 +334,7 @@ impl Default for Config {
                 ..Chord::plain(Key::Space)
             },
             blocked_apps: Vec::new(),
+            allowed_apps: Vec::new(),
             ghost_opacity: 50,
             remote_url: None,
             remote_model: None,
@@ -475,6 +452,7 @@ impl Config {
         if !self.keys_are_distinct() {
             return Err("each key can be bound to only one action, and Esc hides".into());
         }
+        self.allowed_apps = editors_among(&self.allowed_apps);
         self.model_path = self.model_path.filter(|p| !p.as_os_str().is_empty());
         self.remote_url = self
             .remote_url
@@ -552,15 +530,21 @@ impl Config {
         self.context_chars.saturating_mul(LOOKBACK_WINDOWS)
     }
 
-    pub fn is_blocked(&self, app: &str) -> bool {
-        let app = app_name(app);
-        if app.is_empty() {
-            return true;
+    pub fn access(&self, app: &str) -> Access {
+        if app_name(app).is_empty() {
+            return Access::Off;
         }
-        ALWAYS_BLOCKED
-            .iter()
-            .copied()
-            .chain(self.blocked_apps.iter().map(String::as_str))
-            .any(|blocked| app_name(blocked).eq_ignore_ascii_case(&app))
+        let listed = |apps: &[String]| apps.iter().any(|listed| same_app(listed, app));
+        match surface(app).map(|(surface, _)| surface) {
+            Some(Surface::Secure | Surface::Terminal) => Access::Off,
+            _ if listed(&self.blocked_apps) => Access::Off,
+            Some(Surface::Editor) if listed(&self.allowed_apps) => Access::OptedIn,
+            Some(Surface::Editor) => Access::OffByDefault,
+            None => Access::On,
+        }
+    }
+
+    pub fn is_blocked(&self, app: &str) -> bool {
+        self.access(app).is_blocked()
     }
 }

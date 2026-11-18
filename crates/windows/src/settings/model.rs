@@ -1,11 +1,39 @@
 use pith_core::{
-    Config, Counts, Length, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, ModelPreset, Suggestions,
+    Config, Counts, Length, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, ModelPreset, Setting, Suggestions,
 };
 
 use super::{Choice, MAX_APP_ROWS, OPACITY_STEP, StatsView};
 use crate::reach;
 use crate::rival::Rival;
 use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AppRule {
+    Off(String),
+    On(String),
+}
+
+impl AppRule {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Off(name) | Self::On(name) => name,
+        }
+    }
+
+    pub fn title(&self) -> String {
+        match self {
+            Self::Off(name) => format!("{name} \u{b7} off"),
+            Self::On(name) => format!("{name} \u{b7} on, prose only"),
+        }
+    }
+
+    pub fn removal(&self) -> Setting {
+        match self {
+            Self::Off(name) => Setting::Unblock(name.clone()),
+            Self::On(name) => Setting::Disallow(name.clone()),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct Snapshot {
@@ -18,7 +46,7 @@ pub struct Snapshot {
     pub total: Counts,
     pub typing_wpm: u32,
     pub start_with_windows: bool,
-    pub blocked: Vec<String>,
+    pub apps: Vec<AppRule>,
     pub status: String,
     pub footer: String,
 }
@@ -82,7 +110,13 @@ impl Snapshot {
             total: stats.total,
             typing_wpm: config.typing_wpm,
             start_with_windows,
-            blocked: config.blocked_apps.clone(),
+            apps: config
+                .blocked_apps
+                .iter()
+                .cloned()
+                .map(AppRule::Off)
+                .chain(config.allowed_apps.iter().cloned().map(AppRule::On))
+                .collect(),
             status: format!("{status} \u{b7} {}", model_label(config, recommended)),
             footer: reach::footer(&config.reach()),
         }
@@ -155,7 +189,7 @@ impl Model {
     }
 
     fn last_first_app(&self) -> usize {
-        self.snapshot.blocked.len().saturating_sub(MAX_APP_ROWS)
+        self.snapshot.apps.len().saturating_sub(MAX_APP_ROWS)
     }
 
     pub fn scroll(&mut self, rows: isize) -> bool {
@@ -180,10 +214,10 @@ impl Model {
         self.scroll_page(0);
     }
 
-    pub fn visible_apps(&self) -> &[String] {
-        let blocked = &self.snapshot.blocked;
-        let end = (self.first_app + MAX_APP_ROWS).min(blocked.len());
-        &blocked[self.first_app.min(end)..end]
+    pub fn visible_apps(&self) -> &[AppRule] {
+        let apps = &self.snapshot.apps;
+        let end = (self.first_app + MAX_APP_ROWS).min(apps.len());
+        &apps[self.first_app.min(end)..end]
     }
 
     pub fn surface(&self) -> Surface {
@@ -218,14 +252,18 @@ mod tests {
         )
     }
 
+    fn names(model: &Model) -> Vec<&str> {
+        model.visible_apps().iter().map(AppRule::name).collect()
+    }
+
     #[test]
     fn the_visible_window_of_apps_clamps_to_the_list_and_follows_a_shrinking_list() {
         let mut model = with_apps(5);
         assert_eq!(model.visible_apps().len(), MAX_APP_ROWS);
         model.scroll(100);
-        assert_eq!(model.visible_apps(), ["app2", "app3", "app4"]);
+        assert_eq!(names(&model), ["app2", "app3", "app4"]);
         model.scroll(-100);
-        assert_eq!(model.visible_apps(), ["app0", "app1", "app2"]);
+        assert_eq!(names(&model), ["app0", "app1", "app2"]);
         assert_eq!(with_apps(0).visible_apps().len(), 0);
         let mut model = with_apps(5);
         model.scroll(2);
@@ -235,7 +273,7 @@ mod tests {
         };
         assert!(model.refresh(&config, true, "Paused", &StatsView::default()));
         assert_eq!(model.first_app, 0);
-        assert_eq!(model.visible_apps(), ["only"]);
+        assert_eq!(names(&model), ["only"]);
         assert!(model.snapshot.start_with_windows);
         assert!(!model.refresh(&config, true, "Paused", &StatsView::default()));
     }

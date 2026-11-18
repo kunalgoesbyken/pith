@@ -1,4 +1,4 @@
-use pith_core::{Event, Setting, log};
+use pith_core::{Access, Event, Setting, log};
 
 use super::App;
 use crate::registry;
@@ -56,14 +56,23 @@ impl App {
             TrayCommand::Pause(span) => self.pause(span),
             TrayCommand::Resume => self.resume(),
             TrayCommand::ResumeApp(app) => self.dispatch(Event::Resume(app)),
-            TrayCommand::BlockForeground => {
-                if let Some(app) = self.presenter.foreground_app() {
-                    self.change(Setting::Block(app));
-                }
-            }
+            TrayCommand::ChangeApp => self.change_foreground_app(),
             TrayCommand::Settings => self.presenter.open_settings(&self.prefs),
             TrayCommand::Quit => return true,
         }
         false
+    }
+}
+
+impl App {
+    fn change_foreground_app(&mut self) {
+        let Some(app) = self.presenter.foreground_app() else {
+            return;
+        };
+        match self.prefs.saved().access(&app) {
+            Access::On | Access::OptedIn => self.change(Setting::Block(app)),
+            Access::OffByDefault => self.change(Setting::Allow(app)),
+            Access::Off => {}
+        }
     }
 }

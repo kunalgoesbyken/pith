@@ -216,11 +216,11 @@ fn segment_or_remove(window: HWND, id: i32) {
         });
         return;
     }
-    let app = usize::try_from(id - ID_REMOVE_FIRST)
+    let rule = usize::try_from(id - ID_REMOVE_FIRST)
         .ok()
         .and_then(|slot| read(|model| model.visible_apps().get(slot).cloned()).flatten());
-    if let Some(app) = app {
-        emit(UiEvent::Apply(Setting::Unblock(app)));
+    if let Some(rule) = rule {
+        emit(UiEvent::Apply(rule.removal()));
     }
 }
 

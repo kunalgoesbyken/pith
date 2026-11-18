@@ -76,8 +76,8 @@ pub fn name(model: &Model, id: i32) -> String {
                 }
             })
             .or_else(|| {
-                let app = model.visible_apps().get(remove_slot(id)?)?;
-                Some(format!("Remove {app}"))
+                let rule = model.visible_apps().get(remove_slot(id)?)?;
+                Some(format!("Remove {}", rule.name()))
             })
             .unwrap_or_default(),
     }
