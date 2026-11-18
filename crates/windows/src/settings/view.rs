@@ -207,4 +207,7 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
         &model.footer,
         Text::new(Role::Caption, palette.text_secondary),
     );
+    if let Some(thumb) = layout.scroll_thumb {
+        canvas.fill_round(thumb, width(thumb) / 2, palette.strong_stroke);
+    }
 }

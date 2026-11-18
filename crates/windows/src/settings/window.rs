@@ -1,10 +1,12 @@
 use pith_core::Setting;
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, HDC, PAINTSTRUCT, RDW_ALLCHILDREN, RDW_INVALIDATE, RedrawWindow,
+    BeginPaint, EndPaint, GetMonitorInfoW, HDC, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    MapWindowPoints, MonitorFromWindow, PAINTSTRUCT, PtInRect, RDW_ALLCHILDREN, RDW_INVALIDATE,
+    RedrawWindow, ScreenToClient,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
+use windows::Win32::UI::Controls::{DRAWITEMSTRUCT, ODA_FOCUS, ODS_FOCUS};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
@@ -23,6 +25,9 @@ pub const WINDOW: WINDOW_STYLE = WINDOW_STYLE(
     WS_CAPTION.0 | WS_SYSMENU.0 | WS_MINIMIZEBOX.0 | WS_CLIPCHILDREN.0 | WS_CLIPSIBLINGS.0,
 );
 const WHEEL_STEP: i32 = 120;
+const PAGE_STEP: i32 = 96;
+const REVEAL_MARGIN: i32 = 16;
+const WM_REVEAL: u32 = WM_APP + 1;
 const CLASS: PCWSTR = w!("PithSettings");
 
 fn item(window: HWND, id: i32) -> HWND {
@@ -63,7 +68,59 @@ fn sync_names(window: HWND, model: &Model) {
     }
 }
 
-fn arrange(window: HWND, model: &Model, layout: &Layout) {
+fn work_area(window: HWND) -> Option<RECT> {
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) };
+    unsafe { GetMonitorInfoW(monitor, &mut info) }
+        .as_bool()
+        .then_some(info.rcWork)
+}
+
+fn fit_to_work_area(window: HWND, scale: Scale, content: RECT) -> i32 {
+    let (frame_width, full_height) = ui::frame_size(content, WINDOW, scale.0);
+    let chrome = full_height - ui::height(content);
+    let mut frame = RECT::default();
+    unsafe {
+        let _ = GetWindowRect(window, &mut frame);
+    }
+    let (frame_height, top) = match work_area(window) {
+        Some(work) => {
+            let frame_height = full_height.min(ui::height(work));
+            let top = frame.top.min(work.bottom - frame_height).max(work.top);
+            (frame_height, top)
+        }
+        None => (full_height, frame.top),
+    };
+    unsafe {
+        let _ = SetWindowPos(
+            window,
+            None,
+            frame.left,
+            top,
+            frame_width,
+            frame_height,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    frame_height - chrome
+}
+
+fn arrange(window: HWND) {
+    let Some(model) = current() else { return };
+    let content = build(&model).client;
+    let visible = fit_to_work_area(window, model.scale, content);
+    update(|model| model.set_page_room(ui::height(content) - visible));
+    let Some(model) = current() else { return };
+    place_controls(window, &build(&model));
+    unsafe {
+        let _ = RedrawWindow(Some(window), None, None, RDW_INVALIDATE | RDW_ALLCHILDREN);
+    }
+}
+
+fn place_controls(window: HWND, layout: &Layout) {
     for placed in &layout.controls {
         let control = item(window, placed.id);
         let flags = if placed.visible {
@@ -83,25 +140,12 @@ fn arrange(window: HWND, model: &Model, layout: &Layout) {
             );
         }
     }
-    let (frame_width, frame_height) = ui::frame_size(layout.client, WINDOW, model.scale.0);
-    unsafe {
-        let _ = SetWindowPos(
-            window,
-            None,
-            0,
-            0,
-            frame_width,
-            frame_height,
-            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-        );
-        let _ = RedrawWindow(Some(window), None, None, RDW_INVALIDATE | RDW_ALLCHILDREN);
-    }
 }
 
 pub fn relayout(window: HWND) {
     let Some(model) = current() else { return };
     sync_names(window, &model);
-    arrange(window, &model, &build(&model));
+    arrange(window);
 }
 
 fn repaint_all(window: HWND) {
@@ -181,9 +225,48 @@ fn segment_or_remove(window: HWND, id: i32) {
     }
 }
 
-fn scroll(window: HWND, wheel: i32) {
+fn over_app_list(window: HWND, model: &Model, lparam: LPARAM) -> bool {
+    let mut cursor = POINT {
+        x: (lparam.0 & 0xFFFF) as i16 as i32,
+        y: ((lparam.0 >> 16) & 0xFFFF) as i16 as i32,
+    };
+    unsafe {
+        let _ = ScreenToClient(window, &mut cursor);
+        PtInRect(&build(model).app_list, cursor).as_bool()
+    }
+}
+
+fn scroll(window: HWND, wheel: i32, lparam: LPARAM) {
+    let Some(model) = current() else { return };
     let rows = -(wheel / WHEEL_STEP) as isize;
-    if update(|model| model.scroll(rows)).is_some() {
+    let list_moved = over_app_list(window, &model, lparam)
+        && update(|model| model.scroll(rows)).unwrap_or(false);
+    let page_by = -wheel * model.scale.px(PAGE_STEP) / WHEEL_STEP;
+    if list_moved || update(|model| model.scroll_page(page_by)).unwrap_or(false) {
+        relayout(window);
+    }
+}
+
+fn reveal(window: HWND, control: HWND) {
+    let mut bounds = RECT::default();
+    let mut client = RECT::default();
+    unsafe {
+        let _ = GetWindowRect(control, &mut bounds);
+        let corners = std::slice::from_raw_parts_mut(&mut bounds as *mut RECT as *mut POINT, 2);
+        MapWindowPoints(None, Some(window), corners);
+        let _ = GetClientRect(window, &mut client);
+    }
+    let Some(margin) = current().map(|model| model.scale.px(REVEAL_MARGIN)) else {
+        return;
+    };
+    let by = if bounds.top < margin {
+        bounds.top - margin
+    } else if bounds.bottom > client.bottom - margin {
+        bounds.bottom - client.bottom + margin
+    } else {
+        return;
+    };
+    if update(|model| model.scroll_page(by)).unwrap_or(false) {
         relayout(window);
     }
 }
@@ -229,10 +312,27 @@ unsafe extern "system" fn procedure(
             return LRESULT(0);
         }
         WM_DRAWITEM => {
+            let item = unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) };
             if let Some(model) = current() {
-                draw_item(unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) }, &model);
+                draw_item(item, &model);
+            }
+            let gained_focus =
+                item.itemAction.0 & ODA_FOCUS.0 != 0 && item.itemState.0 & ODS_FOCUS.0 != 0;
+            if gained_focus {
+                unsafe {
+                    let _ = PostMessageW(
+                        Some(window),
+                        WM_REVEAL,
+                        WPARAM(item.hwndItem.0 as usize),
+                        LPARAM(0),
+                    );
+                }
             }
             return LRESULT(1);
+        }
+        WM_REVEAL => {
+            reveal(window, HWND(wparam.0 as _));
+            return LRESULT(0);
         }
         WM_ERASEBKGND => return LRESULT(1),
         WM_PAINT => {
@@ -249,7 +349,7 @@ unsafe extern "system" fn procedure(
             return LRESULT(0);
         }
         WM_MOUSEWHEEL => {
-            scroll(window, ((wparam.0 >> 16) as u16 as i16).into());
+            scroll(window, ((wparam.0 >> 16) as u16 as i16).into(), lparam);
             return LRESULT(0);
         }
         WM_DPICHANGED => {
@@ -329,6 +429,6 @@ pub fn create(
         parent.button(placed.id, "", placed.bounds)?;
     }
     sync_names(window, &model);
-    arrange(window, &model, &layout);
+    arrange(window);
     Ok(window)
 }

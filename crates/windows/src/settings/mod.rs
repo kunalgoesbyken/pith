@@ -187,7 +187,8 @@ mod tests {
     use super::model::current;
     use super::*;
     use crate::ui::{self, Scale, Theme, force_dark_theme};
-    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+    use windows::Win32::Foundation::{LPARAM, POINT, RECT, WPARAM};
+    use windows::Win32::Graphics::Gdi::ClientToScreen;
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::core::w;
 
@@ -392,8 +393,16 @@ mod tests {
         );
     }
 
+    fn screen_point(window: &SettingsWindow, x: i32, y: i32) -> isize {
+        let mut point = POINT { x, y };
+        unsafe {
+            let _ = ClientToScreen(window.hwnd, &mut point);
+        }
+        ((point.y as u16 as isize) << 16) | point.x as u16 as isize
+    }
+
     #[test]
-    fn a_long_list_scrolls_in_whole_rows() {
+    fn the_wheel_scrolls_the_app_list_under_the_cursor_and_the_page_elsewhere() {
         let config = with_apps(&["a", "b", "c", "d", "e"]);
         let window = SettingsWindow::open(
             &config,
@@ -404,12 +413,26 @@ mod tests {
         )
         .unwrap();
         let wheel = |delta: i16| (delta as u16 as usize) << 16;
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), 0);
+        let list = build(&current().unwrap()).app_list;
+        let over_list = screen_point(
+            &window,
+            (list.left + list.right) / 2,
+            (list.top + list.bottom) / 2,
+        );
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), over_list);
         assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove b");
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(-360), 0);
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(-360), over_list);
         assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove c");
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(360), 0);
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(360), over_list);
         assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove a");
+
+        let overflows = current().unwrap().page_room > 0;
+        let elsewhere = screen_point(&window, 1, 1);
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), elsewhere);
+        assert_eq!(current().unwrap().page_offset > 0, overflows);
+        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove a");
+        send(window.hwnd, WM_MOUSEWHEEL, wheel(1200), elsewhere);
+        assert_eq!(current().unwrap().page_offset, 0);
     }
 
     #[test]

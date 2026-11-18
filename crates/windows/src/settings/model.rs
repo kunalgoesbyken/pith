@@ -24,6 +24,8 @@ pub struct Model {
     pub start_with_windows: bool,
     pub blocked: Vec<String>,
     pub first_app: usize,
+    pub page_offset: i32,
+    pub page_room: i32,
     pub status: String,
     pub footer: String,
     pub rival: Option<Rival>,
@@ -82,6 +84,8 @@ impl Model {
             start_with_windows: false,
             blocked: Vec::new(),
             first_app: 0,
+            page_offset: 0,
+            page_room: 0,
             status: String::new(),
             footer: String::new(),
             rival: None,
@@ -145,9 +149,26 @@ impl Model {
         })
     }
 
-    pub fn scroll(&mut self, rows: isize) {
-        let moved = self.first_app.saturating_add_signed(rows);
-        self.first_app = moved.min(self.last_first_app());
+    pub fn scroll(&mut self, rows: isize) -> bool {
+        let moved = self
+            .first_app
+            .saturating_add_signed(rows)
+            .min(self.last_first_app());
+        let changed = moved != self.first_app;
+        self.first_app = moved;
+        changed
+    }
+
+    pub fn scroll_page(&mut self, by: i32) -> bool {
+        let next = self.page_offset.saturating_add(by).clamp(0, self.page_room);
+        let changed = next != self.page_offset;
+        self.page_offset = next;
+        changed
+    }
+
+    pub fn set_page_room(&mut self, room: i32) {
+        self.page_room = room.max(0);
+        self.scroll_page(0);
     }
 
     pub fn visible_apps(&self) -> &[String] {

@@ -29,6 +29,9 @@ const STEP_WIDTH: i32 = 40;
 const SECTION_GAP: i32 = 20;
 const LABEL_GAP: i32 = 8;
 const HEADER_GAP: i32 = 4;
+const THUMB_INSET: i32 = 6;
+const THUMB_WIDTH: i32 = 4;
+const MIN_THUMB: i32 = 32;
 const MARK_HEIGHT: i32 = 44;
 const MARK_GAP: i32 = 14;
 const SEGMENT_WIDTH: i32 = 64;
@@ -106,6 +109,8 @@ pub struct Placed {
 #[derive(Clone, Debug)]
 pub struct Layout {
     pub client: RECT,
+    pub app_list: RECT,
+    pub scroll_thumb: Option<RECT>,
     pub mark: RECT,
     pub title: RECT,
     pub status: RECT,
@@ -364,6 +369,20 @@ fn app_specs(model: &Model) -> Vec<Spec> {
     specs
 }
 
+fn scroll_thumb(model: &Model, content_height: i32) -> Option<RECT> {
+    if model.page_room <= 0 {
+        return None;
+    }
+    let scale = model.scale;
+    let inset = scale.px(THUMB_INSET);
+    let visible = content_height - model.page_room;
+    let track = visible - 2 * inset;
+    let length = (track * visible / content_height).max(scale.px(MIN_THUMB));
+    let top = inset + (track - length) * model.page_offset / model.page_room;
+    let left = scale.px(CLIENT_WIDTH) - inset - scale.px(THUMB_WIDTH);
+    Some(rect(left, top, scale.px(THUMB_WIDTH), length))
+}
+
 pub fn build(model: &Model) -> Layout {
     let scale = model.scale;
     let margin = scale.px(MARGIN);
@@ -371,7 +390,7 @@ pub fn build(model: &Model) -> Layout {
         scale,
         left: margin,
         inner: scale.px(COLUMN_WIDTH),
-        y: margin,
+        y: margin - model.page_offset,
         controls: Vec::new(),
     };
     let header_top = builder.y;
@@ -474,8 +493,11 @@ pub fn build(model: &Model) -> Layout {
     builder.y = builder.y.max(left_end);
     builder.left = margin;
     let footer = builder.take(Role::Caption.line());
+    let content_height = builder.y + margin + model.page_offset;
     Layout {
-        client: rect(0, 0, scale.px(CLIENT_WIDTH), builder.y + margin),
+        client: rect(0, 0, scale.px(CLIENT_WIDTH), content_height),
+        app_list: apps.card,
+        scroll_thumb: scroll_thumb(model, content_height),
         mark,
         title,
         status,
