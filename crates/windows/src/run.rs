@@ -178,10 +178,9 @@ struct App {
     foreground: Foreground,
     settings: Option<SettingsWindow>,
     delete_data: bool,
-    keymap: Keymap,
     worker: Worker,
     overlay: Overlay,
-    keys: Keys,
+    keys: Keys<HWND>,
     reader: Reader,
     tray: Option<Tray>,
     onboarding: Option<Onboarding>,
@@ -250,9 +249,9 @@ impl App {
                         tray.set_auto_paused(&apps);
                     }
                 }
-                Action::ArmKeys if self.options.global_keys => self.keys.arm(self.control),
+                Action::ArmKeys if self.options.global_keys => self.keys.arm(),
                 Action::ArmKeys => {}
-                Action::DisarmKeys => self.keys.disarm(self.control),
+                Action::DisarmKeys => self.keys.disarm(),
             }
         }
     }
@@ -376,7 +375,7 @@ impl App {
         let Some(chord) = press.chord.filter(|_| self.options.global_keys) else {
             return;
         };
-        self.keys.disarm(self.control);
+        self.keys.disarm();
         replay(&chord);
         if self.engine.suggestion().is_some() {
             unsafe {
@@ -413,7 +412,7 @@ impl App {
                     let _ = KillTimer(Some(self.control), TIMER_REARM);
                 }
                 if self.options.global_keys && self.engine.suggestion().is_some() {
-                    self.keys.arm(self.control);
+                    self.keys.arm();
                 }
             }
             Signal::Timer(_) => {}
@@ -449,20 +448,9 @@ impl App {
         }
     }
 
-    fn rebind(&mut self, config: &Config) {
-        let keymap = keymap_of(config);
-        if keymap == self.keymap {
-            return;
-        }
-        self.keys.disarm(self.control);
-        self.keys.set_trigger(self.control, false);
-        self.keys = Keys::new(&keymap);
-        self.keymap = keymap;
-    }
-
     fn sync(&mut self) {
         let config = self.effective();
-        self.rebind(&config);
+        self.keys.rebind(&keymap_of(&config));
         self.reader.set_config(&config);
         let enabled = config.enabled;
         let actions = self.engine.handle(Event::SetConfig(config));
@@ -483,7 +471,7 @@ impl App {
 
     fn sync_trigger(&mut self, enabled: bool) {
         if self.options.global_keys {
-            self.keys.set_trigger(self.control, enabled);
+            self.keys.set_trigger(enabled);
         }
     }
 
@@ -692,10 +680,9 @@ pub fn run(
         foreground: Foreground::default(),
         settings: None,
         delete_data: false,
-        keymap: keymap.clone(),
         engine: Engine::new(config),
         worker,
-        keys: Keys::new(&keymap),
+        keys: Keys::new(&keymap, control),
         reader,
         tray,
         onboarding,
@@ -734,8 +721,8 @@ pub fn run(
         }
     }
     app.overlay.hide();
-    app.keys.disarm(app.control);
-    app.keys.set_trigger(app.control, false);
+    app.keys.disarm();
+    app.keys.set_trigger(false);
     let wipe = app
         .delete_data
         .then(|| app.options.data_dir.clone())
