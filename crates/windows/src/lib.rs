@@ -14,6 +14,7 @@ mod registry;
 mod run;
 mod settings;
 mod tray;
+mod ui;
 mod util;
 
 pub use control::Waker;
@@ -24,4 +25,6 @@ pub use onboarding::{
 };
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use run::{Inbound, InsertMode, Options, run};
+pub use settings::SettingsWindow;
+pub use ui::force_dark_theme;
 pub use util::{open_path, single_instance};

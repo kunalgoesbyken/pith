@@ -21,6 +21,7 @@ serde_json = "1"
 sha2 = "0.11"
 directories = "6"
 windows = "0.62"
+windows-numerics = "0.3"
 tray-icon = "0.26"
 
 [profile.release]

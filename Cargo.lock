@@ -1241,6 +1241,7 @@ dependencies = [
  "pith-infer",
  "tray-icon",
  "windows",
+ "windows-numerics",
 ]
 
 [[package]]

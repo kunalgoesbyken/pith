@@ -8,12 +8,18 @@ license.workspace = true
 pith-core.workspace = true
 pith-infer.workspace = true
 tray-icon.workspace = true
+windows-numerics.workspace = true
 
 [dependencies.windows]
 workspace = true
 features = [
+  "Wdk_System_SystemServices",
   "Win32_Foundation",
+  "Win32_Graphics_Direct2D",
+  "Win32_Graphics_Direct2D_Common",
+  "Win32_Graphics_DirectWrite",
   "Win32_Graphics_Dwm",
+  "Win32_Graphics_Dxgi_Common",
   "Win32_Graphics_Gdi",
   "Win32_Security",
   "Win32_System_Com",
@@ -28,6 +34,7 @@ features = [
   "Win32_System_Variant",
   "Win32_UI_Accessibility",
   "Win32_UI_Controls",
+  "Win32_UI_Controls_RichEdit",
   "Win32_UI_HiDpi",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
@@ -36,4 +43,4 @@ features = [
 
 [dev-dependencies.windows]
 workspace = true
-features = ["Win32_System_ProcessStatus"]
+features = ["Win32_System_ProcessStatus", "Win32_Storage_Xps"]

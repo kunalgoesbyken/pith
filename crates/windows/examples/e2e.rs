@@ -22,7 +22,7 @@ use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
 use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_LINEFROMCHAR, EM_LINESCROLL, EM_POSFROMCHAR, EM_REPLACESEL,
-    EM_SETSEL, EM_UNDO, PBM_GETPOS,
+    EM_SETSEL, EM_UNDO,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -1731,13 +1731,14 @@ fn onboarding_flow(marker: PathBuf) -> usize {
         control_text(controls.status),
     );
     window.event(OnboardingEvent::Progress(150, 400));
-    let position = unsafe { SendMessageW(controls.progress, PBM_GETPOS, None, None) }.0;
+    let position = window.step().view().permille;
     report.check(
         "onboarding shows download progress",
         shown(controls.progress)
-            && position == 375
-            && control_text(controls.status).contains("MB of"),
-        format!("{} at {position}", control_text(controls.status)),
+            && position == Some(375)
+            && control_text(controls.status).contains(" / ")
+            && control_text(controls.status).ends_with("MB"),
+        format!("{} at {position:?}", control_text(controls.status)),
     );
     window.event(OnboardingEvent::Progress(400, 400));
     report.check(

@@ -398,18 +398,23 @@ impl App {
         }
     }
 
-    fn refresh_tray(&self) {
-        let Some(tray) = &self.tray else { return };
-        let app = self.foreground.app();
-        let status = Status {
+    fn status_line(&self) -> String {
+        Status {
             model: self.model.clone(),
             pause: self.pause.as_ref().map(|pause| pause.shown.clone()),
             enabled: self.saved.enabled,
             skip: self.skip,
             notice: self.options.notice.clone(),
-        };
+        }
+        .line()
+    }
+
+    fn refresh_tray(&self) {
+        self.refresh_settings();
+        let Some(tray) = &self.tray else { return };
+        let app = self.foreground.app();
         tray.show(TrayView {
-            status: status.line(),
+            status: self.status_line(),
             active: self.engine.config().enabled,
             paused: self.pause.is_some(),
             foreground: app.map(str::to_string),
@@ -460,7 +465,6 @@ impl App {
         setting.apply(&mut self.saved);
         self.persist(&setting);
         self.sync();
-        self.refresh_settings();
     }
 
     fn persist(&self, setting: &Setting) {
@@ -474,7 +478,11 @@ impl App {
 
     fn refresh_settings(&self) {
         if let Some(window) = self.settings.as_ref().filter(|window| window.is_open()) {
-            window.refresh(&self.saved, registry::start_with_windows());
+            window.refresh(
+                &self.saved,
+                registry::start_with_windows(),
+                &self.status_line(),
+            );
         }
     }
 
@@ -483,7 +491,11 @@ impl App {
             window.show();
             return;
         }
-        match SettingsWindow::open(&self.saved, registry::start_with_windows()) {
+        match SettingsWindow::open(
+            &self.saved,
+            registry::start_with_windows(),
+            &self.status_line(),
+        ) {
             Ok(window) => {
                 window.show();
                 self.settings = Some(window);
