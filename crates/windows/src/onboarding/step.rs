@@ -105,77 +105,67 @@ mod tests {
         Step::Downloading { done, total }
     }
 
+    fn failed(message: &str) -> Step {
+        Step::Failed(message.into())
+    }
+
     #[test]
-    fn walks_download_loading_ready_done() {
-        let mut step = Step::Preparing;
-        for (event, expected) in [
-            (Event::Progress(0, 397), downloading(0, 397)),
-            (Event::Progress(100, 397), downloading(100, 397)),
-            (Event::Loading, downloading(100, 397)),
-            (Event::Progress(397, 397), Step::Loading),
-            (Event::Loading, Step::Loading),
-            (Event::Ready, Step::Practice),
-            (Event::Done, Step::Finished),
-        ] {
-            step = step.next(event);
-            assert_eq!(step, expected);
+    fn events_move_the_flow_forward_and_late_ones_are_ignored() {
+        let rows = [
+            (
+                Step::Preparing,
+                Event::Progress(0, 397),
+                downloading(0, 397),
+            ),
+            (
+                downloading(0, 397),
+                Event::Progress(100, 397),
+                downloading(100, 397),
+            ),
+            (downloading(100, 397), Event::Loading, downloading(100, 397)),
+            (
+                downloading(100, 397),
+                Event::Progress(397, 397),
+                Step::Loading,
+            ),
+            (Step::Loading, Event::Loading, Step::Loading),
+            (Step::Loading, Event::Ready, Step::Practice),
+            (Step::Practice, Event::Done, Step::Finished),
+            (Step::Preparing, Event::Loading, Step::Loading),
+            (Step::Preparing, Event::Ready, Step::Practice),
+            (Step::Preparing, Event::Progress(0, 0), downloading(0, 0)),
+            (Step::Preparing, Event::Progress(9, 5), Step::Loading),
+            (Step::Preparing, Event::Done, Step::Preparing),
+            (downloading(1, 2), Event::Done, downloading(1, 2)),
+            (Step::Loading, Event::Done, Step::Loading),
+            (Step::Practice, Event::Progress(1, 2), Step::Practice),
+            (Step::Practice, Event::Loading, Step::Practice),
+            (Step::Practice, Event::Failed("late".into()), Step::Practice),
+            (
+                Step::Preparing,
+                Event::Failed("offline".into()),
+                failed("offline"),
+            ),
+            (failed("offline"), Event::Ready, failed("offline")),
+            (failed("x"), Event::Done, Step::Closed),
+        ];
+        for row in rows {
+            let (step, event, expected) = row.clone();
+            assert_eq!(step.next(event), expected, "{row:?}");
         }
     }
 
     #[test]
-    fn cached_model_skips_the_download() {
-        let step = Step::Preparing.next(Event::Loading).next(Event::Ready);
-        assert_eq!(step, Step::Practice);
-    }
-
-    #[test]
-    fn remote_backend_goes_straight_to_practice() {
-        assert_eq!(Step::Preparing.next(Event::Ready), Step::Practice);
-    }
-
-    #[test]
-    fn done_is_ignored_until_practice() {
-        for step in [Step::Preparing, downloading(1, 2), Step::Loading] {
-            assert_eq!(step.clone().next(Event::Done), step);
-        }
-        assert_eq!(Step::Failed("x".into()).next(Event::Done), Step::Closed);
-    }
-
-    #[test]
-    fn practice_ignores_late_download_events() {
-        let step = Step::Practice;
-        for event in [
-            Event::Progress(1, 2),
-            Event::Loading,
-            Event::Failed("late".into()),
-        ] {
-            assert_eq!(step.clone().next(event), Step::Practice);
-        }
-    }
-
-    #[test]
-    fn failure_is_final_until_closed() {
-        let failed = Step::Preparing.next(Event::Failed("offline".into()));
-        assert_eq!(failed, Step::Failed("offline".into()));
-        assert_eq!(failed.clone().next(Event::Ready), failed);
-        assert_eq!(failed.next(Event::Close), Step::Closed);
-    }
-
-    #[test]
-    fn closing_works_from_every_live_step() {
+    fn closing_works_from_every_live_step_and_the_ends_are_terminal() {
         for step in [
             Step::Preparing,
             downloading(1, 2),
             Step::Loading,
             Step::Practice,
-            Step::Failed("x".into()),
+            failed("x"),
         ] {
-            assert_eq!(step.next(Event::Close), Step::Closed);
+            assert_eq!(step.clone().next(Event::Close), Step::Closed, "{step:?}");
         }
-    }
-
-    #[test]
-    fn finished_and_closed_are_terminal() {
         for end in [Step::Finished, Step::Closed] {
             for event in [
                 Event::Ready,
@@ -185,19 +175,9 @@ mod tests {
                 Event::Progress(1, 2),
                 Event::Failed("x".into()),
             ] {
-                assert_eq!(end.clone().next(event), end);
+                assert_eq!(end.clone().next(event.clone()), end, "{end:?} {event:?}");
             }
         }
-    }
-
-    #[test]
-    fn progress_is_clamped_and_zero_total_never_completes() {
-        assert_eq!(
-            Step::Preparing.next(Event::Progress(0, 0)),
-            downloading(0, 0)
-        );
-        assert_eq!(downloading(0, 0).view().permille, Some(0));
-        assert_eq!(Step::Preparing.next(Event::Progress(9, 5)), Step::Loading);
     }
 
     #[test]
@@ -215,8 +195,14 @@ mod tests {
     }
 
     #[test]
-    fn view_never_overflows_on_huge_sizes() {
-        let view = downloading(u64::MAX - 1, u64::MAX).view();
-        assert_eq!(view.permille, Some(999));
+    fn view_never_overflows_and_a_zero_total_reads_as_zero() {
+        let rows = [
+            (downloading(0, 0), Some(0)),
+            (downloading(u64::MAX - 1, u64::MAX), Some(999)),
+        ];
+        for row in rows {
+            let (step, permille) = row.clone();
+            assert_eq!(step.view().permille, permille, "{row:?}");
+        }
     }
 }

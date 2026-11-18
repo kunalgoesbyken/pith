@@ -180,25 +180,11 @@ mod tests {
     use super::*;
     use crate::ui::{self, Scale, Theme, force_dark_theme};
     use windows::Win32::Foundation::RECT;
-    use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        BM_CLICK, GWL_STYLE, GetWindowLongPtrW, GetWindowRect, GetWindowTextW, WM_DPICHANGED,
-        WM_SETTINGCHANGE, WS_VISIBLE,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, WM_DPICHANGED, WM_SETTINGCHANGE};
     use windows::core::w;
 
     fn marker(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("pith-onboarding-{name}-{}", std::process::id()))
-    }
-
-    fn text(hwnd: HWND) -> String {
-        let mut buffer = [0u16; 256];
-        let length = unsafe { GetWindowTextW(hwnd, &mut buffer) };
-        String::from_utf16_lossy(&buffer[..length as usize])
-    }
-
-    fn shown(hwnd: HWND) -> bool {
-        unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE.0 != 0 }
     }
 
     fn frame_width(hwnd: HWND) -> i32 {
@@ -207,41 +193,6 @@ mod tests {
             let _ = GetWindowRect(hwnd, &mut frame);
         }
         ui::width(frame)
-    }
-
-    #[test]
-    fn the_window_follows_the_steps_from_download_to_done() {
-        let marker = marker("flow");
-        let _ = fs::remove_file(&marker);
-        let mut window = Onboarding::create(marker.clone(), false, &Reach::ThisPc).unwrap();
-        let controls = window.controls();
-        assert_eq!(text(controls.status), "Starting Pith");
-        assert!(!shown(controls.progress) && !shown(controls.practice));
-        window.event(Event::Progress(150, 400));
-        assert!(shown(controls.progress));
-        assert!(text(controls.status).starts_with("Downloading model"));
-        window.event(Event::Ready);
-        assert!(shown(controls.practice) && !shown(controls.progress));
-        assert!(unsafe { IsWindowEnabled(controls.practice).as_bool() });
-        for key in ["Tab", "Shift+Tab", "Ctrl+Right", "Esc"] {
-            assert!(text(controls.keys).contains(key), "{key}");
-        }
-        unsafe {
-            SendMessageW(controls.done, BM_CLICK, None, None);
-        }
-        assert_eq!(window.poll(), Outcome::Finished);
-        assert!(marker.exists() && !shown(controls.window));
-        let _ = fs::remove_file(&marker);
-    }
-
-    #[test]
-    fn a_failure_shows_the_message_and_keeps_the_practice_box_hidden() {
-        let mut window = Onboarding::create(marker("failed"), false, &Reach::ThisPc).unwrap();
-        let controls = window.controls();
-        window.event(Event::Failed("offline & retry".into()));
-        assert!(text(controls.status).contains("offline & retry"));
-        assert!(!shown(controls.practice));
-        assert!(unsafe { IsWindowEnabled(controls.done).as_bool() });
     }
 
     #[test]

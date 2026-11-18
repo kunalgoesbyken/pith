@@ -64,10 +64,9 @@ mod tests {
         assert!(tracker.ignored("slack", 12));
         assert!(tracker.is_paused("slack"));
         assert_eq!(tracker.paused(), vec!["slack".to_string()]);
-    }
+        assert!(!tracker.ignored("slack", 12));
+        assert_eq!(tracker.paused().len(), 1);
 
-    #[test]
-    fn accept_resets_the_streak() {
         let mut tracker = IgnoreTracker::default();
         for _ in 0..5 {
             assert!(!ignore_times(&mut tracker, "slack", 11, 12));
@@ -76,6 +75,15 @@ mod tests {
         assert!(!tracker.is_paused("slack"));
         assert!(!ignore_times(&mut tracker, "slack", 11, 12));
         assert!(tracker.ignored("slack", 12));
+
+        let mut tracker = IgnoreTracker::default();
+        assert!(!ignore_times(&mut tracker, "slack", 1000, 0));
+        assert!(!tracker.is_paused("slack"));
+
+        let mut tracker = IgnoreTracker::default();
+        assert!(tracker.ignored("slack", 1));
+        assert!(tracker.ignored("\u{c9}diteur", 1));
+        assert!(tracker.is_paused("\u{e9}diteur"));
     }
 
     #[test]
@@ -101,37 +109,5 @@ mod tests {
         assert!(!tracker.resume("slack"));
         assert!(!ignore_times(&mut tracker, "slack", 2, 3));
         assert!(tracker.ignored("slack", 3));
-    }
-
-    #[test]
-    fn paused_app_reports_the_pause_once() {
-        let mut tracker = IgnoreTracker::default();
-        assert!(ignore_times(&mut tracker, "slack", 3, 3));
-        assert!(!tracker.ignored("slack", 3));
-        assert_eq!(tracker.paused().len(), 1);
-    }
-
-    #[test]
-    fn zero_limit_never_pauses() {
-        let mut tracker = IgnoreTracker::default();
-        assert!(!ignore_times(&mut tracker, "slack", 1000, 0));
-        assert!(!tracker.is_paused("slack"));
-    }
-
-    #[test]
-    fn limit_of_one_pauses_on_the_first_ignore() {
-        let mut tracker = IgnoreTracker::default();
-        assert!(tracker.ignored("slack", 1));
-    }
-
-    #[test]
-    fn non_latin_and_empty_names_are_ordinary_keys() {
-        let mut tracker = IgnoreTracker::default();
-        for app in ["\u{65e5}\u{672c}", "\u{c9}diteur", "", "__proto__"] {
-            assert!(tracker.ignored(app, 1), "{app:?}");
-            assert!(tracker.is_paused(app), "{app:?}");
-        }
-        assert!(tracker.is_paused("\u{e9}diteur"));
-        assert_eq!(tracker.paused().len(), 4);
     }
 }

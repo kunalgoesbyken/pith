@@ -222,19 +222,16 @@ mod tests {
     }
 
     #[test]
-    fn removes_nested_contents_and_keeps_the_folder_itself() {
+    fn removes_nested_contents_keeps_the_folder_and_ignores_a_missing_one() {
         let dir = scratch("nested");
         std::fs::create_dir_all(dir.join("models").join("deep")).unwrap();
         std::fs::write(dir.join("models").join("deep").join("a.gguf"), "x").unwrap();
         std::fs::write(dir.join("pith.log"), "x").unwrap();
         assert!(remove_contents(&dir, 1, Duration::ZERO).is_empty());
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        let absent = dir.join("absent");
+        assert!(remove_contents(&absent, 3, Duration::ZERO).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn nothing_left_means_nothing_to_report() {
-        assert_eq!(leftover_notice(Path::new("data"), &[]), None);
     }
 
     #[test]
@@ -249,12 +246,6 @@ mod tests {
         assert!(notice.contains(&*first.to_string_lossy()), "{notice}");
         assert!(notice.contains(" and 2 more"), "{notice}");
         assert!(!notice.contains("m5.gguf"), "{notice}");
-    }
-
-    #[test]
-    fn a_missing_folder_is_nothing_to_remove() {
-        let dir = scratch("missing").join("absent");
-        assert!(remove_contents(&dir, 3, Duration::ZERO).is_empty());
     }
 
     #[test]

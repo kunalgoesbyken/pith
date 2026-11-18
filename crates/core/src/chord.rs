@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_the_default_bindings() {
+    fn parses_named_keys_letters_digits_and_function_keys() {
         assert_eq!(
             chord("Tab"),
             Chord {
@@ -154,22 +154,25 @@ mod tests {
                 key: Key::Tab
             }
         );
-        assert!(chord("Shift+Tab").shift);
-        let word = chord(" ctrl + RIGHT ");
-        assert!(word.ctrl && !word.shift);
-        assert_eq!(word.key, Key::Right);
-        let trigger = chord("Ctrl+Shift+Space");
-        assert!(trigger.ctrl && trigger.shift);
-        assert_eq!(trigger.key, Key::Space);
-    }
-
-    #[test]
-    fn parses_letters_digits_and_function_keys() {
-        assert_eq!(chord("Ctrl+j").key, Key::Char('J'));
-        assert_eq!(chord("Alt+7").key, Key::Char('7'));
-        assert_eq!(chord("F1").key, Key::Function(1));
-        assert_eq!(chord("Ctrl+f24").key, Key::Function(24));
-        assert_eq!(chord("Esc").key, Key::Escape);
+        let table = [
+            ("Shift+Tab", false, true, Key::Tab),
+            (" ctrl + RIGHT ", true, false, Key::Right),
+            ("Ctrl+Shift+Space", true, true, Key::Space),
+            ("Ctrl+j", true, false, Key::Char('J')),
+            ("Alt+7", false, false, Key::Char('7')),
+            ("F1", false, false, Key::Function(1)),
+            ("Ctrl+f24", true, false, Key::Function(24)),
+            ("Esc", false, false, Key::Escape),
+        ];
+        for row in table {
+            let (source, ctrl, shift, key) = row;
+            let parsed = chord(source);
+            assert_eq!(
+                (parsed.ctrl, parsed.shift, parsed.key),
+                (ctrl, shift, key),
+                "{row:?}"
+            );
+        }
     }
 
     #[test]
@@ -207,6 +210,11 @@ mod tests {
             "F25",
             "Ctrl+ab",
             "Ctrl+\u{e9}",
+            "Ctrl+\u{ff34}",
+            "Ctrl+\u{440}",
+            "\u{540d}\u{524d}",
+            "Ctrl+\u{1f600}",
+            "Tab\u{200b}",
             "Ctrl+Enter",
         ] {
             assert!(Chord::parse(source).is_err(), "{source:?}");

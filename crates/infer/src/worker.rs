@@ -316,14 +316,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unload_request_alone_ends_the_session() {
-        let done = Arc::default();
-        let exit = serve_all(vec![Message::Unload], &done);
-        assert!(matches!(exit, Exit::Unload));
-        assert!(done.lock().unwrap().is_empty());
-    }
-
-    #[test]
     fn a_closed_queue_still_ends_the_session_as_closed() {
         let done = Arc::default();
         let exit = serve_all(vec![Message::Job((1, request("a")))], &done);
@@ -342,17 +334,18 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_waits_until_the_thread_has_let_go() {
-        let worker = worker(Box::new(|| Err("no model".into())));
-        assert!(worker.shutdown(Duration::from_secs(5)));
-    }
-
-    #[test]
-    fn shutdown_reports_a_thread_still_busy_after_the_wait() {
-        let worker = worker(Box::new(|| {
-            std::thread::sleep(Duration::from_millis(400));
-            Err("late".into())
-        }));
-        assert!(!worker.shutdown(Duration::from_millis(20)));
+    fn shutdown_reports_whether_the_thread_let_go_within_the_wait() {
+        let rows = [
+            (Duration::ZERO, Duration::from_secs(5), true),
+            (Duration::from_millis(400), Duration::from_millis(20), false),
+        ];
+        for row in rows {
+            let (delay, wait, released) = row;
+            let worker = worker(Box::new(move || {
+                std::thread::sleep(delay);
+                Err("no model".into())
+            }));
+            assert_eq!(worker.shutdown(wait), released, "{row:?}");
+        }
     }
 }

@@ -56,35 +56,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn splits_partial_word_into_forced_prefix() {
-        let field = FieldSnapshot {
-            window_title: "Re: contract".into(),
-            before: "Please sign the contr".into(),
-            ..Default::default()
-        };
-        let request = build(&field, &Config::default());
-        assert_eq!(request.prompt, "Re: contract\n\nPlease sign the");
-        assert_eq!(request.forced_prefix, " contr");
-    }
-
-    #[test]
-    fn trailing_space_becomes_forced_prefix() {
-        let field = FieldSnapshot {
-            before: "Hi there ".into(),
-            ..Default::default()
-        };
-        let request = build(&field, &Config::default());
-        assert_eq!(request.prompt, "Hi there");
-        assert_eq!(request.forced_prefix, " ");
-    }
-
-    #[test]
-    fn request_carries_the_field_id() {
-        let field = FieldSnapshot {
-            field_id: 42,
-            before: "Hi".into(),
-            ..Default::default()
-        };
-        assert_eq!(build(&field, &Config::default()).field_id, 42);
+    fn the_cursor_word_or_trailing_space_becomes_the_forced_prefix() {
+        let table = [
+            (
+                "Re: contract",
+                "Please sign the contr",
+                "Re: contract\n\nPlease sign the",
+                " contr",
+            ),
+            ("", "Hi there ", "Hi there", " "),
+        ];
+        for row in table {
+            let (window_title, before, prompt, forced_prefix) = row;
+            let field = FieldSnapshot {
+                window_title: window_title.into(),
+                before: before.into(),
+                ..Default::default()
+            };
+            let request = build(&field, &Config::default());
+            assert_eq!(
+                (request.prompt.as_str(), request.forced_prefix.as_str()),
+                (prompt, forced_prefix),
+                "{row:?}"
+            );
+        }
     }
 }

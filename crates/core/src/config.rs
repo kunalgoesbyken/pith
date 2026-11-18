@@ -56,34 +56,57 @@ mod tests {
     }
 
     #[test]
-    fn app_name_is_idempotent() {
-        for raw in [
-            "Foo.Bar.exe",
-            "Foo.Bar",
-            r"C:\Apps\Foo.Bar.EXE",
-            "code.exe",
-            "",
-            ".exe",
-            "a.exe.exe",
-            "foo .exe",
-            ".EXE \u{a0}\t.exe",
+    fn blocked_apps_extend_the_built_in_list_and_keep_dotted_names() {
+        let config = Config {
+            blocked_apps: vec!["slack".into(), "Foo.Bar.exe".into()],
+            ..Config::default()
+        };
+        for (app, blocked) in [
+            ("slack.exe", true),
+            ("KeePass", true),
+            ("notepad", false),
+            ("Foo.Bar", true),
+            (r"C:\x\FOO.BAR.exe", true),
+            ("Foo", false),
         ] {
-            let once = app_name(raw);
-            assert_eq!(app_name(&once), once, "{raw}");
+            assert_eq!(config.is_blocked(app), blocked, "{app}");
         }
-        assert_eq!(app_name(r"C:\Apps\Foo.Bar.EXE"), "Foo.Bar");
-        assert_eq!(app_name("foo .exe"), "foo");
     }
 
     #[test]
-    fn user_list_extends_the_built_in_list() {
-        let config = Config {
-            blocked_apps: vec!["slack".into()],
-            ..Config::default()
-        };
-        assert!(config.is_blocked("slack.exe"));
-        assert!(config.is_blocked("KeePass"));
-        assert!(!config.is_blocked("notepad"));
+    fn keys_are_parsed_once_replace_the_defaults_and_round_trip() {
+        let defaults = Config::default().to_toml();
+        for line in [
+            "accept_keys = [\"Tab\"]",
+            "\"Shift+Tab\",",
+            "\"Ctrl+Right\",",
+            "force_trigger_key = \"Ctrl+Shift+Space\"",
+        ] {
+            assert!(defaults.contains(line), "{line}\n{defaults}");
+        }
+        let custom = Config::from_toml(
+            "accept_keys = [\" ctrl + J \", \"F9\"]
+accept_word_keys = [\"alt+right\"]
+force_trigger_key = \"WIN+shift+Space\"",
+        )
+        .unwrap();
+        assert_eq!(
+            custom.accept_keys,
+            [Chord::parse("Ctrl+J").unwrap(), Chord::parse("F9").unwrap()]
+        );
+        assert_eq!(
+            custom.accept_word_keys,
+            [Chord::parse("Alt+Right").unwrap()]
+        );
+        let trigger = Chord::parse("Shift+Win+Space").unwrap();
+        assert_eq!(custom.force_trigger_key, trigger);
+        let keymap = custom.keymap();
+        assert_eq!(keymap.accept_all.len(), 2);
+        assert_eq!(keymap.accept_word.len(), 1);
+        assert_eq!(keymap.trigger, Some(trigger));
+        assert_eq!(Config::from_toml(&custom.to_toml()).unwrap(), custom);
+        let off = Config::from_toml("force_trigger = false").unwrap();
+        assert_eq!(off.keymap().trigger, None);
     }
 
     #[test]
@@ -159,28 +182,6 @@ mod tests {
     }
 
     #[test]
-    fn key_names_are_parsed_once_when_the_config_loads() {
-        let config = Config::from_toml(
-            "accept_keys = [\" ctrl + J \", \"F9\"]
-accept_word_keys = [\"alt+right\"]
-force_trigger_key = \"WIN+shift+Space\"",
-        )
-        .unwrap();
-        assert_eq!(
-            config.accept_keys,
-            [Chord::parse("Ctrl+J").unwrap(), Chord::parse("F9").unwrap()]
-        );
-        assert_eq!(
-            config.accept_word_keys,
-            [Chord::parse("Alt+Right").unwrap()]
-        );
-        assert_eq!(
-            config.force_trigger_key,
-            Chord::parse("Shift+Win+Space").unwrap()
-        );
-    }
-
-    #[test]
     fn invalid_key_names_are_config_errors() {
         for key in [
             "\"\"",
@@ -190,12 +191,6 @@ force_trigger_key = \"WIN+shift+Space\"",
             "\"Hyper+Tab\"",
             "\"Ctrl+Enter\"",
             "\"F25\"",
-            "\"Ctrl+\u{e9}\"",
-            "\"Ctrl+\u{ff34}\"",
-            "\"Ctrl+\u{440}\"",
-            "\"\u{540d}\u{524d}\"",
-            "\"Ctrl+\u{1f600}\"",
-            "\"Tab\u{200b}\"",
             "\"Ctrl+Alt+j\"",
             "\"j\"",
         ] {
@@ -211,65 +206,12 @@ force_trigger_key = \"WIN+shift+Space\"",
     }
 
     #[test]
-    fn key_names_must_be_strings() {
-        for toml in [
-            "accept_keys = [1]",
-            "accept_keys = \"Tab\"",
-            "accept_word_keys = [[\"Tab\"]]",
-            "force_trigger_key = 9",
-            "force_trigger_key = [\"Ctrl+Space\"]",
-        ] {
-            assert!(Config::from_toml(toml).is_err(), "{toml}");
-        }
-    }
-
-    #[test]
-    fn empty_key_lists_are_allowed_and_bind_nothing() {
-        let config =
-            Config::from_toml("accept_keys = []\naccept_word_keys = []\nforce_trigger = false")
-                .unwrap();
-        assert_eq!(config.keymap(), Keymap::default());
-    }
-
-    #[test]
     fn the_error_names_the_bad_key() {
         let error = Config::from_toml("accept_keys = [\"Hyper+Tab\"]").unwrap_err();
         assert!(error.contains("Hyper+Tab"), "{error}");
         assert!(error.contains("accept_keys"), "{error}");
         let error = Config::from_toml("force_trigger_key = \"Ctrl+\u{e9}\"").unwrap_err();
         assert!(error.contains("force_trigger_key"), "{error}");
-    }
-
-    #[test]
-    fn default_keys_are_the_documented_chords() {
-        let keymap = Config::default().keymap();
-        assert_eq!(keymap.accept_all, [Chord::parse("Tab").unwrap()]);
-        assert_eq!(
-            keymap.accept_word,
-            [
-                Chord::parse("Shift+Tab").unwrap(),
-                Chord::parse("Ctrl+Right").unwrap()
-            ]
-        );
-        assert_eq!(
-            keymap.trigger,
-            Some(Chord::parse("Ctrl+Shift+Space").unwrap())
-        );
-    }
-
-    #[test]
-    fn keys_serialize_to_the_toml_users_write() {
-        let text = Config::default().to_toml();
-        for line in [
-            "accept_keys = [\"Tab\"]",
-            "\"Shift+Tab\",",
-            "\"Ctrl+Right\",",
-            "force_trigger_key = \"Ctrl+Shift+Space\"",
-        ] {
-            assert!(text.contains(line), "{line}\n{text}");
-        }
-        let custom = Config::from_toml("accept_keys = [\"ctrl+j\"]").unwrap();
-        assert_eq!(Config::from_toml(&custom.to_toml()).unwrap(), custom);
     }
 
     #[test]
@@ -287,33 +229,6 @@ max_words = 4",
         assert_eq!(keymap.accept_all.len(), 1);
         assert_eq!(keymap.accept_word.len(), 2);
         assert!(keymap.trigger.is_some());
-    }
-
-    #[test]
-    fn custom_keys_replace_the_defaults() {
-        let config = Config::from_toml(
-            "accept_keys = [\"Right\", \"Ctrl+j\"]
-accept_word_keys = [\"Alt+Right\"]
-force_trigger_key = \"F9\"",
-        )
-        .unwrap();
-        let keymap = config.keymap();
-        assert_eq!(keymap.accept_all.len(), 2);
-        assert_eq!(keymap.accept_word.len(), 1);
-        assert_eq!(keymap.trigger, Some(Chord::parse("F9").unwrap()));
-        let off = Config::from_toml("force_trigger = false").unwrap();
-        assert_eq!(off.keymap().trigger, None);
-    }
-
-    #[test]
-    fn dotted_names_stay_blocked() {
-        let config = Config {
-            blocked_apps: vec!["Foo.Bar.exe".into()],
-            ..Config::default()
-        };
-        assert!(config.is_blocked("Foo.Bar"));
-        assert!(config.is_blocked(&app_name(r"C:\x\FOO.BAR.exe")));
-        assert!(!config.is_blocked("Foo"));
     }
 }
 

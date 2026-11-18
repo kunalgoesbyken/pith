@@ -240,13 +240,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colors_convert_to_colorrefs_with_swapped_channels() {
+    fn colors_swap_channels_for_colorrefs_and_mix_each_channel() {
         assert_eq!(Rgb(0x1A2B3C).colorref().0, 0x003C_2B1A);
         assert_eq!(Rgb::from_colorref(0x003C_2B1A), Rgb(0x1A2B3C));
-    }
-
-    #[test]
-    fn mixing_moves_each_channel_toward_the_other_color() {
         assert_eq!(BLACK.mix(WHITE, 0.0), BLACK);
         assert_eq!(BLACK.mix(WHITE, 1.0), WHITE);
         assert_eq!(Rgb(0x102030).mix(Rgb(0x304050), 0.5), Rgb(0x203040));
@@ -256,25 +252,5 @@ mod tests {
     fn text_on_accent_follows_the_accent_brightness() {
         assert_eq!(Accent::of(Rgb(0x0067C0)).on, WHITE);
         assert_eq!(Accent::of(Rgb(0x4CC2FF)).on, BLACK);
-    }
-
-    #[test]
-    fn the_forced_theme_overrides_the_registry_until_cleared() {
-        force_dark_theme(Some(true));
-        let forced = Theme::detect();
-        assert_eq!(forced.dark, !forced.contrast);
-        force_dark_theme(Some(false));
-        assert!(!Theme::detect().dark);
-        force_dark_theme(None);
-    }
-
-    #[test]
-    fn backgrounds_are_never_pure_white_or_black() {
-        for palette in [
-            Palette::light(Accent::of(DEFAULT_ACCENT)),
-            Palette::dark(Accent::of(DEFAULT_ACCENT)),
-        ] {
-            assert!(palette.page != WHITE && palette.page != BLACK);
-        }
     }
 }

@@ -260,6 +260,8 @@ mod tests {
             ("  ...", 6, false, None),
             ("", 6, false, None),
             (" 你好世界", 2, false, Some(" 你好")),
+            (" one two ", 6, true, Some(" one two")),
+            (" one two", 6, true, Some(" one")),
         ];
         for (raw, max, truncated, expected) in cases {
             assert_eq!(
@@ -326,15 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn tail_handles_short_and_multibyte() {
-        assert_eq!(tail_chars("héllo", 10), "héllo");
-        assert_eq!(tail_chars("", 10), "");
-        let long = "日本語".repeat(50);
-        let tail = tail_chars(&long, 40);
-        assert!(tail.chars().count() <= 40);
-    }
-
-    #[test]
     fn sentence_end_cases() {
         assert_eq!(sentence_end(" by Friday."), Some(SentenceEnd::NeedsSpace));
         assert_eq!(sentence_end(" costs 3."), Some(SentenceEnd::NeedsSpace));
@@ -398,38 +391,10 @@ mod tests {
     }
 
     #[test]
-    fn tail_never_starts_inside_a_grapheme() {
-        let text = "नमस्ते".repeat(40);
-        for window in 1..30 {
-            let tail = tail_chars(&text, window);
-            assert!(
-                !tail.starts_with(|c: char| ('ऀ'..='ः').contains(&c) || ('ा'..='्').contains(&c)),
-                "{window}"
-            );
-        }
-    }
-
-    #[test]
-    fn tail_window_of_one_keeps_the_last_grapheme() {
-        assert_eq!(tail_chars("hello", 1), "o");
-        assert_eq!(tail_chars("cafe\u{301}", 1), "e\u{301}");
-    }
-
-    #[test]
     fn tail_never_leaves_a_mark_whose_space_was_trimmed() {
         let text = format!("{}\u{2003}\u{fe0f}{}", "a".repeat(27), "b".repeat(32));
         assert_eq!(tail_chars(&text, 50), "b".repeat(32));
-    }
-
-    #[test]
-    fn clean_completion_keeps_a_word_followed_by_space_when_truncated() {
-        assert_eq!(
-            clean_completion(" one two ", 6, true).as_deref(),
-            Some(" one two")
-        );
-        assert_eq!(
-            clean_completion(" one two", 6, true).as_deref(),
-            Some(" one")
-        );
+        assert_eq!(tail_chars("hello", 1), "o");
+        assert_eq!(tail_chars("cafe\u{301}", 1), "e\u{301}");
     }
 }

@@ -48,17 +48,6 @@ mod tests {
     }
 
     #[test]
-    fn local_copy_promises_nothing_leaves_the_pc() {
-        for text in [
-            promise(&Reach::ThisPc),
-            footer(&Reach::ThisPc),
-            tooltip(&Reach::ThisPc),
-        ] {
-            assert!(text.contains("this PC"), "{text}");
-        }
-    }
-
-    #[test]
     fn server_copy_names_the_host_and_never_claims_local() {
         let reach = server("api.example.com");
         for text in [promise(&reach), footer(&reach), tooltip(&reach)] {

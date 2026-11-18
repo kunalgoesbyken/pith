@@ -69,26 +69,26 @@ mod tests {
     }
 
     #[test]
-    fn the_inside_is_opaque_fill() {
-        assert_eq!(style().pixel(PILL, 50, 14, 0, false), 0xFF20_2020);
-    }
-
-    #[test]
-    fn the_corners_are_transparent() {
-        assert_eq!(style().pixel(PILL, 0, 0, 0, false) >> 24, 0);
-        assert_eq!(style().pixel(PILL, 99, 27, 0, false) >> 24, 0);
-    }
-
-    #[test]
-    fn the_rim_is_the_stroke_color() {
-        assert_eq!(style().pixel(PILL, 50, 0, 0, false), 0xFF00_67C0);
-        assert_eq!(style().pixel(PILL, 50, 27, 0, false), 0xFF00_67C0);
-    }
-
-    #[test]
-    fn covered_pixels_take_the_text_color_and_the_next_word_the_strong_one() {
-        assert_eq!(style().pixel(PILL, 50, 14, 255, false), 0xFF90_9090);
-        assert_eq!(style().pixel(PILL, 50, 14, 255, true), 0xFFFF_FFFF);
+    fn pixels_are_fill_inside_transparent_at_the_corners_stroke_on_the_rim_and_text_when_covered() {
+        let all = u32::MAX;
+        let alpha = 0xFF00_0000;
+        let rows = [
+            (50, 14, 0, false, all, 0xFF20_2020),
+            (0, 0, 0, false, alpha, 0),
+            (99, 27, 0, false, alpha, 0),
+            (50, 0, 0, false, all, 0xFF00_67C0),
+            (50, 27, 0, false, all, 0xFF00_67C0),
+            (50, 14, 255, false, all, 0xFF90_9090),
+            (50, 14, 255, true, all, 0xFFFF_FFFF),
+        ];
+        for row in rows {
+            let (x, y, coverage, strong, mask, expected) = row;
+            assert_eq!(
+                style().pixel(PILL, x, y, coverage, strong) & mask,
+                expected,
+                "{row:?}"
+            );
+        }
     }
 
     #[test]

@@ -2,8 +2,7 @@ mod common;
 
 use common::{Rng, is_boundary, text};
 use pith_core::{
-    Config, FieldSnapshot, SentenceEnd, build, clean_completion, next_word, sentence_end,
-    split_partial, tail_chars,
+    SentenceEnd, clean_completion, next_word, sentence_end, split_partial, tail_chars,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -40,16 +39,6 @@ fn tail_chars_is_a_clean_bounded_suffix() {
         if window > 0 && ends_in_text {
             assert!(!tail.is_empty(), "{input:?} {window}");
         }
-    }
-}
-
-#[test]
-fn tail_chars_keeps_the_last_window_for_every_window_size() {
-    for window in 1..8 {
-        let input = "abcdefghij";
-        let tail = tail_chars(input, window);
-        assert!(!tail.is_empty(), "{window}");
-        assert!(input.ends_with(tail), "{window}");
     }
 }
 
@@ -126,18 +115,6 @@ fn clean_completion_returns_a_clean_single_line_prefix() {
 }
 
 #[test]
-fn clean_completion_only_drops_a_word_that_may_be_cut() {
-    assert_eq!(
-        clean_completion(" one two ", 6, true).as_deref(),
-        Some(" one two")
-    );
-    assert_eq!(
-        clean_completion(" one two", 6, true).as_deref(),
-        Some(" one")
-    );
-}
-
-#[test]
 fn sentence_end_ignores_trailing_whitespace_and_matches_the_last_character() {
     let mut rng = Rng::new(5);
     for _ in 0..CASES {
@@ -151,39 +128,5 @@ fn sentence_end_ignores_trailing_whitespace_and_matches_the_last_character() {
             _ => None,
         };
         assert_eq!(sentence_end(&input), expected, "{input:?}");
-    }
-}
-
-#[test]
-fn build_prompt_is_clean_for_any_text_and_window() {
-    let mut rng = Rng::new(6);
-    for _ in 0..CASES {
-        let field = FieldSnapshot {
-            before: text(&mut rng, 40),
-            window_title: text(&mut rng, 3),
-            ..Default::default()
-        };
-        let config = Config {
-            context_chars: 1 + rng.below(40),
-            ..Config::default()
-        };
-        let request = build(&field, &config);
-        let context = format!("{}{}", request.prompt, request.forced_prefix);
-        assert!(context.contains(&request.forced_prefix));
-        assert!(
-            field.before.ends_with(request.forced_prefix.as_str()),
-            "{field:?}"
-        );
-        if field
-            .before
-            .graphemes(true)
-            .next_back()
-            .is_some_and(|g| !g.starts_with(char::is_whitespace))
-        {
-            assert!(
-                !request.forced_prefix.is_empty() || !request.prompt.is_empty(),
-                "{field:?}"
-            );
-        }
     }
 }

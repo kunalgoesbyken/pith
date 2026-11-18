@@ -613,26 +613,56 @@ mod tests {
         }
     }
 
-    #[test]
-    fn emphasis_covers_only_the_rows_of_the_line_that_has_it() {
-        let lines = [line(10, 100, 50), line(0, 120, 80)];
-        let rows = row_spans(&lines, &[Some((0, 30)), None], 0, 100, 20, 40);
-        assert_eq!(rows.len(), 40);
-        assert!(rows[..20].iter().all(|row| *row == Some((10, 40))));
-        assert!(rows[20..].iter().all(Option::is_none));
+    fn emphasized(
+        blank_above: usize,
+        span: (i32, i32),
+        count: usize,
+        height: usize,
+    ) -> Vec<Option<(i32, i32)>> {
+        std::iter::repeat_n(None, blank_above)
+            .chain(std::iter::repeat_n(Some(span), count))
+            .chain(std::iter::repeat(None))
+            .take(height)
+            .collect()
     }
 
     #[test]
-    fn emphasis_is_relative_to_the_left_edge_of_the_picture() {
-        let lines = [line(210, 50, 50)];
-        let rows = row_spans(&lines, &[Some((20, 50))], 200, 50, 10, 10);
-        assert!(rows.iter().all(|row| *row == Some((30, 60))));
-    }
-
-    #[test]
-    fn a_line_taller_than_the_picture_is_clipped() {
-        let lines = [line(0, 5, 10)];
-        let rows = row_spans(&lines, &[Some((0, 10))], 0, 0, 20, 8);
-        assert_eq!(rows.iter().filter(|row| row.is_some()).count(), 3);
+    fn emphasis_rows_are_clipped_and_relative_to_the_picture() {
+        let rows = [
+            (
+                vec![line(10, 100, 50), line(0, 120, 80)],
+                vec![Some((0, 30)), None],
+                0,
+                100,
+                20,
+                40,
+                emphasized(0, (10, 40), 20, 40),
+            ),
+            (
+                vec![line(210, 50, 50)],
+                vec![Some((20, 50))],
+                200,
+                50,
+                10,
+                10,
+                emphasized(0, (30, 60), 10, 10),
+            ),
+            (
+                vec![line(0, 5, 10)],
+                vec![Some((0, 10))],
+                0,
+                0,
+                20,
+                8,
+                emphasized(5, (0, 10), 3, 8),
+            ),
+        ];
+        for (lines, spans, left, first, line_height, height, expected) in rows {
+            assert_eq!(
+                row_spans(&lines, &spans, left, first, line_height, height),
+                expected,
+                "{spans:?} {left} {first} {line_height} {height}"
+            );
+        }
     }
 }

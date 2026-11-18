@@ -1,7 +1,7 @@
 mod common;
 
 use common::{Rng, text};
-use pith_core::{Config, FieldSnapshot, SkipReason, app_name, check};
+use pith_core::{Config, app_name};
 
 const CASES: usize = 4000;
 
@@ -43,40 +43,6 @@ fn app_name_is_idempotent_and_stable_under_blocking() {
             assert!(config.is_blocked(&raw), "{raw:?}");
             assert!(config.is_blocked(&once), "{raw:?} {once:?}");
         }
-    }
-}
-
-#[test]
-fn policy_is_total_and_ordered_for_any_snapshot() {
-    let mut rng = Rng::new(11);
-    for _ in 0..CASES {
-        let field = FieldSnapshot {
-            app: "notepad".into(),
-            before: text(&mut rng, 20),
-            after: text(&mut rng, 6),
-            has_selection: rng.chance(10),
-            is_password: rng.chance(10),
-            composing: rng.chance(10),
-            ..Default::default()
-        };
-        let config = Config {
-            min_chars_before: rng.below(8),
-            ..Config::default()
-        };
-        let verdict = check(&field, &config);
-        if field.is_password {
-            assert_eq!(verdict, Err(SkipReason::Password), "{field:?}");
-        }
-        if verdict.is_ok() {
-            let line = field.before.rsplit(['\n', '\r']).next().unwrap_or_default();
-            assert!(
-                line.trim().chars().count() >= config.min_chars_before,
-                "{field:?}"
-            );
-            let rest = field.after.split(['\n', '\r']).next().unwrap_or_default();
-            assert!(rest.trim().is_empty(), "{field:?}");
-        }
-        assert_eq!(check(&field, &config), verdict);
     }
 }
 

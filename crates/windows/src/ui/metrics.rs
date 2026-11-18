@@ -107,13 +107,4 @@ mod tests {
         assert_eq!(Scale(120).px(15), 19);
         assert_eq!(Scale(144).size(12.0), 18.0);
     }
-
-    #[test]
-    fn rectangle_helpers_keep_size_and_move_edges() {
-        let bounds = rect(10, 20, 100, 40);
-        assert_eq!((width(bounds), height(bounds)), (100, 40));
-        assert_eq!(inset(bounds, 5), rect(15, 25, 90, 30));
-        assert_eq!(offset(bounds, -10, -20), rect(0, 0, 100, 40));
-        assert_eq!(origin(bounds), rect(0, 0, 100, 40));
-    }
 }

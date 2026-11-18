@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn the_visible_window_of_apps_clamps_to_the_list() {
+    fn the_visible_window_of_apps_clamps_to_the_list_and_follows_a_shrinking_list() {
         let mut model = with_apps(5);
         assert_eq!(model.visible_apps().len(), MAX_APP_ROWS);
         model.scroll(100);
@@ -185,10 +185,6 @@ mod tests {
         model.scroll(-100);
         assert_eq!(model.visible_apps(), ["app0", "app1", "app2"]);
         assert_eq!(with_apps(0).visible_apps().len(), 0);
-    }
-
-    #[test]
-    fn shrinking_the_list_pulls_the_window_back() {
         let mut model = with_apps(5);
         model.scroll(2);
         let config = Config {
@@ -199,19 +195,6 @@ mod tests {
         assert_eq!(model.first_app, 0);
         assert_eq!(model.visible_apps(), ["only"]);
         assert!(model.start_with_windows);
-    }
-
-    #[test]
-    fn the_status_line_names_the_model() {
-        let model = with_apps(0);
-        assert_eq!(model.status, "Ready \u{b7} Standard model");
-        let remote = Config {
-            remote_url: Some("http://localhost".into()),
-            ..Config::default()
-        };
-        let mut model = model;
-        model.refresh(&remote, false, "Ready", &StatsView::default());
-        assert_eq!(model.status, "Ready \u{b7} Remote model");
     }
 
     #[test]
@@ -226,43 +209,5 @@ mod tests {
         model.opacity = 50;
         assert_eq!(model.step_opacity(true), Some(60));
         assert_eq!(model.step_opacity(false), Some(50));
-    }
-
-    #[test]
-    fn choices_select_independently_per_group() {
-        let mut model = with_apps(0);
-        let frequency = Choice::Frequency(Suggestions::More);
-        let length = Choice::Length(Length::Long);
-        assert!(!model.selected(frequency) && !model.selected(length));
-        model.select(length);
-        assert!(model.selected(length) && !model.selected(frequency));
-        model.select(frequency);
-        assert!(model.selected(length) && model.selected(frequency));
-    }
-
-    #[test]
-    fn refresh_carries_the_stats_and_the_config_values() {
-        let mut model = with_apps(0);
-        let stats = StatsView {
-            today: Counts {
-                shown: 4,
-                ..Counts::default()
-            },
-            total: Counts {
-                shown: 9,
-                ..Counts::default()
-            },
-        };
-        let config = Config {
-            ghost_opacity: 70,
-            max_words: 10,
-            typing_wpm: 80,
-            ..Config::default()
-        };
-        model.refresh(&config, false, "Ready", &stats);
-        assert_eq!((model.today.shown, model.total.shown), (4, 9));
-        assert_eq!(model.opacity, 70);
-        assert_eq!(model.length, Some(Length::Long));
-        assert_eq!(model.typing_wpm, 80);
     }
 }

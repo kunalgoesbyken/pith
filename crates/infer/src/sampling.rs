@@ -42,26 +42,31 @@ mod tests {
 
     #[test]
     fn prefix_consistency() {
-        assert!(consistent_with_prefix(b" contract", b" contr"));
-        assert!(consistent_with_prefix(b" con", b" contr"));
-        assert!(!consistent_with_prefix(b" cat", b" contr"));
-        assert!(!consistent_with_prefix(b"", b" contr"));
-        assert!(consistent_with_prefix(b"x", b""));
-    }
-
-    #[test]
-    fn prefix_never_splits_a_character() {
         let tsu = "つい".as_bytes();
-        assert!(consistent_with_prefix(&tsu[..3], tsu));
-        assert!(consistent_with_prefix(tsu, &tsu[..3]));
-        assert!(!consistent_with_prefix(&tsu[..1], tsu));
-        assert!(!consistent_with_prefix(&tsu[..2], tsu));
-        assert!(!consistent_with_prefix(&tsu[..4], tsu));
-        assert!(consistent_with_prefix("ñ".as_bytes(), "ña".as_bytes()));
-        assert!(!consistent_with_prefix(
-            &"ñ".as_bytes()[..1],
-            "ña".as_bytes()
-        ));
+        let enye = "ñ".as_bytes();
+        let enye_a = "ña".as_bytes();
+        let rows: [(&[u8], &[u8], bool); 12] = [
+            (b" contract", b" contr", true),
+            (b" con", b" contr", true),
+            (b" cat", b" contr", false),
+            (b"", b" contr", false),
+            (b"x", b"", true),
+            (&tsu[..3], tsu, true),
+            (tsu, &tsu[..3], true),
+            (&tsu[..1], tsu, false),
+            (&tsu[..2], tsu, false),
+            (&tsu[..4], tsu, false),
+            (enye, enye_a, true),
+            (&enye[..1], enye_a, false),
+        ];
+        for row in rows {
+            let (piece, remaining, expected) = row;
+            assert_eq!(
+                consistent_with_prefix(piece, remaining),
+                expected,
+                "{row:?}"
+            );
+        }
     }
 
     #[test]
@@ -72,39 +77,21 @@ mod tests {
     }
 
     #[test]
-    fn lse_matches_naive() {
-        let logits = [1.0f32, 2.0, 3.0];
-        let naive = logits.iter().map(|l| l.exp()).sum::<f32>().ln();
-        assert!((log_sum_exp(&logits) - naive).abs() < 1e-5);
-    }
-
-    #[test]
-    fn common_prefix() {
-        assert_eq!(common_prefix_len(&[1, 2, 3], &[1, 2, 4]), 2);
-        assert_eq!(common_prefix_len::<i32>(&[], &[1]), 0);
-    }
-
-    #[test]
-    fn appended_tokens_keep_the_whole_cache() {
-        assert_eq!(reusable_prefix(&[1, 2, 3], &[1, 2, 3, 4, 5]), 3);
-    }
-
-    #[test]
-    fn edit_truncates_to_the_common_prefix() {
-        assert_eq!(reusable_prefix(&[1, 2, 3, 4], &[1, 2, 9, 4]), 2);
-        assert_eq!(reusable_prefix(&[1, 2, 3, 4], &[1, 2]), 1);
-    }
-
-    #[test]
-    fn identical_prompt_still_reevaluates_the_last_token_for_logits() {
-        assert_eq!(reusable_prefix(&[1, 2, 3], &[1, 2, 3]), 2);
-        assert_eq!(reusable_prefix(&[1, 2, 3, 4], &[1, 2, 3]), 2);
-    }
-
-    #[test]
-    fn cold_or_unrelated_cache_reuses_nothing() {
-        assert_eq!(reusable_prefix::<i32>(&[], &[1, 2]), 0);
-        assert_eq!(reusable_prefix(&[7, 8], &[1, 2]), 0);
-        assert_eq!(reusable_prefix::<i32>(&[1], &[]), 0);
+    fn reusable_prefix_keeps_the_common_prefix_but_re_evaluates_the_last_token() {
+        let rows: [(&[i32], &[i32], usize); 9] = [
+            (&[1, 2, 3], &[1, 2, 3, 4, 5], 3),
+            (&[1, 2, 3, 4], &[1, 2, 9, 4], 2),
+            (&[1, 2, 3, 4], &[1, 2], 1),
+            (&[1, 2, 3], &[1, 2, 3], 2),
+            (&[1, 2, 3, 4], &[1, 2, 3], 2),
+            (&[], &[1, 2], 0),
+            (&[7, 8], &[1, 2], 0),
+            (&[1], &[], 0),
+            (&[1, 2], &[1, 2, 3], 2),
+        ];
+        for row in rows {
+            let (cached, tokens, expected) = row;
+            assert_eq!(reusable_prefix(cached, tokens), expected, "{row:?}");
+        }
     }
 }

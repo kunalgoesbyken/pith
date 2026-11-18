@@ -114,82 +114,124 @@ mod tests {
     }
 
     #[test]
-    fn a_caret_inside_its_field_and_monitor_stays_inline() {
-        assert_eq!(
-            on(&[PRIMARY], Some(CARET), Some(FIELD)),
-            Some(Placement::Inline(CARET))
-        );
-    }
-
-    #[test]
-    fn a_caret_without_known_field_bounds_stays_inline() {
-        assert_eq!(
-            on(&[PRIMARY], Some(CARET), None),
-            Some(Placement::Inline(CARET))
-        );
-    }
-
-    #[test]
-    fn a_zero_width_caret_stays_inline() {
-        let caret = rect(500, 508, 0, 24);
-        assert_eq!(
-            on(&[PRIMARY], Some(caret), Some(FIELD)),
-            Some(Placement::Inline(caret))
-        );
-    }
-
-    #[test]
-    fn a_caret_on_the_field_edge_stays_inline() {
-        for x in [FIELD.x, FIELD.x + FIELD.width] {
-            let caret = rect(x, 508, 1, 24);
-            assert_eq!(
-                on(&[PRIMARY], Some(caret), Some(FIELD)),
-                Some(Placement::Inline(caret))
-            );
+    fn a_trusted_caret_stays_inline_and_a_missing_one_anchors_to_the_field() {
+        let anchored = Some(Placement::Anchored(FIELD));
+        let table = [
+            (Some(CARET), Some(FIELD), Some(Placement::Inline(CARET))),
+            (Some(CARET), None, Some(Placement::Inline(CARET))),
+            (
+                Some(rect(500, 508, 0, 24)),
+                Some(FIELD),
+                Some(Placement::Inline(rect(500, 508, 0, 24))),
+            ),
+            (
+                Some(rect(FIELD.x, 508, 1, 24)),
+                Some(FIELD),
+                Some(Placement::Inline(rect(FIELD.x, 508, 1, 24))),
+            ),
+            (
+                Some(rect(FIELD.x + FIELD.width, 508, 1, 24)),
+                Some(FIELD),
+                Some(Placement::Inline(rect(FIELD.x + FIELD.width, 508, 1, 24))),
+            ),
+            (None, Some(FIELD), anchored),
+            (None, None, None),
+        ];
+        for row in table {
+            let (caret, element, expected) = row;
+            assert_eq!(on(&[PRIMARY], caret, element), expected, "{row:?}");
         }
-    }
-
-    #[test]
-    fn a_missing_caret_anchors_to_the_field() {
-        assert_eq!(
-            on(&[PRIMARY], None, Some(FIELD)),
-            Some(Placement::Anchored(FIELD))
-        );
-    }
-
-    #[test]
-    fn nothing_known_places_nothing() {
-        assert_eq!(on(&[PRIMARY], None, None), None);
     }
 
     #[test]
     fn untrusted_carets_fall_back_to_the_field() {
-        let cases = [
-            ("zero height", rect(500, 508, 1, 0)),
-            ("negative height", rect(500, 532, 1, -24)),
-            ("negative width", rect(500, 508, -1, 24)),
-            ("origin placeholder", rect(0, 0, 0, 0)),
-            ("left of the field", rect(100, 508, 1, 24)),
-            ("right of the field", rect(1200, 508, 1, 24)),
-            ("above the field", rect(500, 100, 1, 24)),
-            ("below the field", rect(500, 900, 1, 24)),
-            ("off every monitor", rect(5000, 508, 1, 24)),
-            ("far negative", rect(-90_000, -90_000, 1, 24)),
-            ("taller than the monitor", rect(500, 0, 1, 4000)),
-            ("saturated", rect(i32::MAX, i32::MAX, i32::MAX, i32::MAX)),
+        let field = rect(600, 750, 900, 60);
+        let anchored = Some(Placement::Anchored(FIELD));
+        let table = [
+            ("zero height", rect(500, 508, 1, 0), Some(FIELD), anchored),
+            (
+                "negative height",
+                rect(500, 532, 1, -24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "negative width",
+                rect(500, 508, -1, 24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "origin placeholder",
+                rect(0, 0, 0, 0),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "left of the field",
+                rect(100, 508, 1, 24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "right of the field",
+                rect(1200, 508, 1, 24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "above the field",
+                rect(500, 100, 1, 24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "below the field",
+                rect(500, 900, 1, 24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "off every monitor",
+                rect(5000, 508, 1, 24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "off every monitor, no field",
+                rect(5000, 508, 1, 24),
+                None,
+                None,
+            ),
+            (
+                "far negative",
+                rect(-90_000, -90_000, 1, 24),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "taller than the monitor",
+                rect(500, 0, 1, 4000),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "saturated",
+                rect(i32::MAX, i32::MAX, i32::MAX, i32::MAX),
+                Some(FIELD),
+                anchored,
+            ),
+            (
+                "unscaled units",
+                rect(375, 381, 1, 18),
+                Some(field),
+                Some(Placement::Anchored(field)),
+            ),
         ];
-        for (name, caret) in cases {
-            assert_eq!(
-                on(&[PRIMARY], Some(caret), Some(FIELD)),
-                Some(Placement::Anchored(FIELD)),
-                "{name}"
-            );
+        for row in table {
+            let (name, caret, element, expected) = row;
+            assert_eq!(on(&[PRIMARY], Some(caret), element), expected, "{name}");
         }
-    }
-
-    #[test]
-    fn a_caret_off_the_monitor_without_a_field_places_nothing() {
-        assert_eq!(on(&[PRIMARY], Some(rect(5000, 508, 1, 24)), None), None);
     }
 
     #[test]
@@ -212,15 +254,6 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_caret_from_another_window_does_not_beat_the_field() {
-        let stale = rect(1500, 700, 1, 24);
-        assert_eq!(
-            on(&[PRIMARY], Some(stale), Some(FIELD)),
-            Some(Placement::Anchored(FIELD))
-        );
-    }
-
-    #[test]
     fn monitors_at_negative_coordinates_are_valid_homes() {
         let works = [PRIMARY, LEFT, ABOVE];
         let field = rect(-1000, 100, 600, 40);
@@ -240,36 +273,10 @@ mod tests {
     }
 
     #[test]
-    fn a_negative_origin_caret_is_off_a_primary_only_desktop() {
-        let caret = rect(-900, 108, 1, 24);
-        assert_eq!(on(&[PRIMARY], Some(caret), None), None);
-    }
-
-    #[test]
     fn a_field_straddling_monitors_is_visible() {
         let field = rect(-100, 500, 400, 40);
         assert_eq!(
             on(&[PRIMARY, LEFT], None, Some(field)),
-            Some(Placement::Anchored(field))
-        );
-    }
-
-    #[test]
-    fn scaled_coordinates_are_judged_in_the_same_pixels_as_the_field() {
-        let field = rect(600, 750, 900, 60);
-        let caret = rect(750, 762, 2, 36);
-        assert_eq!(
-            on(&[PRIMARY], Some(caret), Some(field)),
-            Some(Placement::Inline(caret))
-        );
-    }
-
-    #[test]
-    fn a_caret_reported_in_unscaled_units_falls_back_to_the_field() {
-        let field = rect(600, 750, 900, 60);
-        let virtualised = rect(375, 381, 1, 18);
-        assert_eq!(
-            on(&[PRIMARY], Some(virtualised), Some(field)),
             Some(Placement::Anchored(field))
         );
     }
@@ -289,28 +296,20 @@ mod tests {
     }
 
     #[test]
-    fn the_pill_sits_below_the_field_at_its_start_edge() {
-        assert_eq!(
-            pill(FIELD, 200, 28, PRIMARY, false),
-            Some(rect(400, 544, 200, 28))
-        );
-    }
-
-    #[test]
-    fn a_right_to_left_pill_aligns_to_the_field_end_edge() {
-        assert_eq!(
-            pill(FIELD, 200, 28, PRIMARY, true),
-            Some(rect(800, 544, 200, 28))
-        );
-    }
-
-    #[test]
-    fn the_pill_moves_above_when_there_is_no_room_below() {
-        let field = rect(400, 1000, 600, 30);
-        assert_eq!(
-            pill(field, 200, 28, PRIMARY, false),
-            Some(rect(400, 968, 200, 28))
-        );
+    fn the_pill_follows_the_field_edge_and_moves_above_when_there_is_no_room_below() {
+        let table = [
+            (FIELD, false, rect(400, 544, 200, 28)),
+            (FIELD, true, rect(800, 544, 200, 28)),
+            (rect(400, 1000, 600, 30), false, rect(400, 968, 200, 28)),
+        ];
+        for row in table {
+            let (field, rtl, expected) = row;
+            assert_eq!(
+                pill(field, 200, 28, PRIMARY, rtl),
+                Some(expected),
+                "{row:?}"
+            );
+        }
     }
 
     #[test]
@@ -368,14 +367,12 @@ mod tests {
     }
 
     #[test]
-    fn a_pill_wider_or_taller_than_the_work_area_is_dropped() {
-        assert_eq!(pill(FIELD, 2000, 28, PRIMARY, false), None);
-        assert_eq!(pill(FIELD, 200, 2000, PRIMARY, false), None);
-    }
-
-    #[test]
-    fn saturated_field_coordinates_do_not_overflow() {
-        let field = rect(i32::MAX, i32::MAX, i32::MAX, i32::MAX);
-        assert_eq!(pill(field, 200, 28, PRIMARY, false), None);
+    fn a_pill_that_cannot_fit_the_work_area_is_dropped() {
+        let saturated = rect(i32::MAX, i32::MAX, i32::MAX, i32::MAX);
+        let table = [(FIELD, 2000, 28), (FIELD, 200, 2000), (saturated, 200, 28)];
+        for row in table {
+            let (field, width, height) = row;
+            assert_eq!(pill(field, width, height, PRIMARY, false), None, "{row:?}");
+        }
     }
 }

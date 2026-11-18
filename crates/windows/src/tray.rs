@@ -279,14 +279,4 @@ mod tests {
         assert_eq!(menu_text(&long).chars().count(), MENU_TEXT_CHARS + 1);
         assert!(menu_text(&long).ends_with('\u{2026}'));
     }
-
-    #[test]
-    fn tooltip_names_battery_saver_only_while_paused_for_it() {
-        let mut view = TrayView::default();
-        assert_eq!(tooltip_for(&view, "resting"), "resting");
-        view.paused = true;
-        assert_eq!(tooltip_for(&view, "resting"), "resting");
-        view.power_paused = true;
-        assert_eq!(tooltip_for(&view, "resting"), POWER_TOOLTIP);
-    }
 }

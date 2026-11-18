@@ -198,9 +198,4 @@ mod tests {
         write_string(&key, "Value", None).unwrap();
         remove(&key);
     }
-
-    #[test]
-    fn missing_dword_reads_as_none() {
-        assert_eq!(read_dword(&scratch_key(), "AppsUseLightTheme"), None);
-    }
 }

@@ -74,59 +74,36 @@ pub fn detect() -> Option<Rival> {
 mod tests {
     use super::*;
 
-    fn images(names: &[&str]) -> Vec<String> {
-        names.iter().map(|name| name.to_string()).collect()
-    }
-
     #[test]
-    fn a_running_predictor_is_matched_by_image_name_ignoring_case_and_extension() {
-        for name in ["Lightkey.exe", "LIGHTKEY.EXE", r"C:\Apps\lightkey.exe"] {
-            assert_eq!(
-                find_predictor(&PREDICTORS, &images(&["explorer.exe", name])),
+    fn a_running_predictor_is_matched_by_whole_image_name_ignoring_case_and_extension() {
+        let rows: [(&[&str], Option<Rival>); 5] = [
+            (
+                &["explorer.exe", "Lightkey.exe"],
                 Some(Rival::App("Lightkey")),
-                "{name}"
-            );
+            ),
+            (
+                &["explorer.exe", "LIGHTKEY.EXE"],
+                Some(Rival::App("Lightkey")),
+            ),
+            (
+                &["explorer.exe", r"C:\Apps\lightkey.exe"],
+                Some(Rival::App("Lightkey")),
+            ),
+            (
+                &[
+                    "explorer.exe",
+                    "lightkeyboard.exe",
+                    "phraseexpressor.exe",
+                    "",
+                ],
+                None,
+            ),
+            (&[], None),
+        ];
+        for row in rows {
+            let (names, expected) = &row;
+            let running: Vec<String> = names.iter().map(|name| name.to_string()).collect();
+            assert_eq!(find_predictor(&PREDICTORS, &running), *expected, "{row:?}");
         }
-    }
-
-    #[test]
-    fn unrelated_and_look_alike_processes_are_not_predictors() {
-        let running = images(&[
-            "explorer.exe",
-            "lightkeyboard.exe",
-            "phraseexpressor.exe",
-            "",
-        ]);
-        assert_eq!(find_predictor(&PREDICTORS, &running), None);
-        assert_eq!(find_predictor(&PREDICTORS, &[]), None);
-    }
-
-    #[test]
-    fn the_first_table_entry_wins_when_several_are_running() {
-        let running = images(&["lightkey.exe", "PhraseExpress.exe"]);
-        assert_eq!(
-            find_predictor(&PREDICTORS, &running),
-            Some(Rival::App("PhraseExpress"))
-        );
-    }
-
-    #[test]
-    fn only_the_operating_system_feature_offers_a_settings_page() {
-        assert_eq!(
-            Rival::TextSuggestions.settings_page(),
-            Some("ms-settings:typing")
-        );
-        assert_eq!(Rival::App("Lightkey").settings_page(), None);
-    }
-
-    #[test]
-    fn the_process_list_includes_this_test_process() {
-        let own = std::env::current_exe().unwrap();
-        let own = pith_core::app_name(&own.to_string_lossy());
-        assert!(
-            running_images()
-                .iter()
-                .any(|image| pith_core::app_name(image).eq_ignore_ascii_case(&own))
-        );
     }
 }

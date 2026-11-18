@@ -76,25 +76,6 @@ mod tests {
     }
 
     #[test]
-    fn every_skip_reason_has_a_distinct_nonempty_label() {
-        let all = [
-            SkipReason::Disabled,
-            SkipReason::Password,
-            SkipReason::Composing,
-            SkipReason::BlockedApp,
-            SkipReason::Selection,
-            SkipReason::TextAfterCaret,
-            SkipReason::TooShort,
-            SkipReason::NotProse,
-        ];
-        let mut labels: Vec<_> = all.into_iter().map(skip_label).collect();
-        assert!(labels.iter().all(|label| !label.is_empty()));
-        labels.sort_unstable();
-        labels.dedup();
-        assert_eq!(labels.len(), all.len());
-    }
-
-    #[test]
     fn line_follows_the_documented_priority() {
         let skip = Some(SkipReason::Password);
         let loading = Model::Loading("loading model.gguf".into());

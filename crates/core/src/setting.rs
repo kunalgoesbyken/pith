@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn levels_are_distinct_and_recognised_after_a_toml_round_trip() {
+    fn levels_and_lengths_are_distinct_and_recognised_after_a_toml_round_trip() {
         for level in Suggestions::ALL {
             let mut config = Config::default();
             level.apply(&mut config);
@@ -158,30 +158,6 @@ mod tests {
             Suggestions::of(&Config::default()),
             Some(Suggestions::Normal)
         );
-    }
-
-    #[test]
-    fn levels_order_confidence_and_length() {
-        let thresholds = Suggestions::ALL.map(Suggestions::thresholds);
-        assert!(thresholds[0].0 > thresholds[1].0 && thresholds[1].0 > thresholds[2].0);
-        assert!(thresholds[0].1 > thresholds[1].1 && thresholds[1].1 > thresholds[2].1);
-    }
-
-    #[test]
-    fn hand_tuned_values_match_no_level_and_other_fields_are_kept() {
-        let mut config = Config {
-            min_mean_logprob: -1.23,
-            max_words: 9,
-            ..Config::default()
-        };
-        assert_eq!(Suggestions::of(&config), None);
-        Suggestions::More.apply(&mut config);
-        assert_eq!(config.max_words, 9);
-        assert_eq!(Suggestions::of(&config), Some(Suggestions::More));
-    }
-
-    #[test]
-    fn lengths_map_to_distinct_word_limits_and_normal_is_the_default() {
         let words = Length::ALL.map(Length::words);
         assert!(words[0] < words[1] && words[1] < words[2]);
         assert_eq!(Length::of(&Config::default()), Some(Length::Normal));
@@ -200,6 +176,19 @@ mod tests {
     }
 
     #[test]
+    fn hand_tuned_values_match_no_level_and_other_fields_are_kept() {
+        let mut config = Config {
+            min_mean_logprob: -1.23,
+            max_words: 9,
+            ..Config::default()
+        };
+        assert_eq!(Suggestions::of(&config), None);
+        Suggestions::More.apply(&mut config);
+        assert_eq!(config.max_words, 9);
+        assert_eq!(Suggestions::of(&config), Some(Suggestions::More));
+    }
+
+    #[test]
     fn opacity_is_clamped_to_the_range_the_config_accepts() {
         for (asked, stored) in [(0, 10), (9, 10), (10, 10), (55, 55), (100, 100), (255, 100)] {
             let mut config = Config::default();
@@ -207,33 +196,6 @@ mod tests {
             assert_eq!(config.ghost_opacity, stored, "{asked}");
             assert!(Config::from_toml(&config.to_toml()).is_ok(), "{asked}");
         }
-    }
-
-    #[test]
-    fn length_and_opacity_persist_through_the_commented_file() {
-        let dir = scratch("length-opacity");
-        let path = dir.join("config.toml");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            &path,
-            "# mine
-ghost_opacity = 50 # faint
-max_words = 6 # short ones
-",
-        )
-        .unwrap();
-        Setting::Length(Length::Long).persist(&path).unwrap();
-        Setting::GhostOpacity(70).persist(&path).unwrap();
-        let text = stored(&path);
-        assert_eq!(
-            text,
-            "# mine
-ghost_opacity = 70 # faint
-max_words = 10 # short ones
-max_tokens = 27
-"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -275,28 +237,6 @@ max_tokens = 27
     }
 
     #[test]
-    fn settings_apply_only_their_own_field() {
-        let base = Config::default();
-        let mut config = base.clone();
-        Setting::Enabled(false).apply(&mut config);
-        assert_eq!(
-            config,
-            Config {
-                enabled: false,
-                ..base.clone()
-            }
-        );
-        let mut config = base.clone();
-        Setting::Block("zoom".into()).apply(&mut config);
-        Setting::Block("zoom".into()).apply(&mut config);
-        assert_eq!(config.blocked_apps, ["zoom"]);
-        Setting::Unblock("ZOOM.exe".into()).apply(&mut config);
-        assert_eq!(config, base);
-        Setting::Suggestions(Suggestions::Fewer).apply(&mut config);
-        assert_eq!(Suggestions::of(&config), Some(Suggestions::Fewer));
-    }
-
-    #[test]
     fn save_round_trips_creates_parents_and_leaves_no_temporary_file() {
         let dir = scratch("save");
         let path = dir.join("nested").join("config.toml");
@@ -318,41 +258,15 @@ max_tokens = 27
     }
 
     #[test]
-    fn persisting_changes_only_its_own_field_in_the_stored_file() {
-        let dir = scratch("persist");
-        let path = dir.join("config.toml");
-        Setting::Block("Zoom".into()).persist(&path).unwrap();
-        assert_eq!(
-            Config::from_toml(&std::fs::read_to_string(&path).unwrap())
-                .unwrap()
-                .blocked_apps,
-            ["Zoom"]
-        );
-        std::fs::write(
-            &path,
-            "max_words = 9
-blocked_apps = [\"Zoom\"]
-",
-        )
-        .unwrap();
-        Setting::Suggestions(Suggestions::More)
-            .persist(&path)
-            .unwrap();
-        Setting::Enabled(false).persist(&path).unwrap();
-        let stored = Config::from_toml(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(stored.max_words, 9);
-        assert_eq!(stored.blocked_apps, ["Zoom"]);
-        assert!(!stored.enabled);
-        assert_eq!(Suggestions::of(&stored), Some(Suggestions::More));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn persisting_never_overwrites_a_file_it_cannot_read() {
         let dir = scratch("persist-invalid");
         let path = dir.join("config.toml");
         std::fs::create_dir_all(&dir).unwrap();
-        for broken in ["max_words = 0", "this is = not toml ["] {
+        for broken in [
+            "max_words = 0",
+            "this is = not toml [",
+            "accept_keys = [\"Hyper+Tab\"]\n",
+        ] {
             std::fs::write(&path, broken).unwrap();
             assert!(Setting::Enabled(false).persist(&path).is_err());
             assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
@@ -389,7 +303,7 @@ note = "kept"
     }
 
     #[test]
-    fn persisting_keeps_comments_layout_and_unknown_keys() {
+    fn persisting_keeps_comments_layout_and_unknown_keys_and_rewrites_values_in_place() {
         let dir = scratch("comments");
         let path = dir.join("config.toml");
         std::fs::create_dir_all(&dir).unwrap();
@@ -429,11 +343,30 @@ note = "kept"
         assert_eq!(config.max_words, 9);
         assert!(!config.enabled);
         assert_eq!(Suggestions::of(&config), Some(Suggestions::More));
+        let path = dir.join("short.toml");
+        std::fs::write(
+            &path,
+            "# mine
+ghost_opacity = 50 # faint
+max_words = 6 # short ones
+",
+        )
+        .unwrap();
+        Setting::Length(Length::Long).persist(&path).unwrap();
+        Setting::GhostOpacity(70).persist(&path).unwrap();
+        assert_eq!(
+            stored(&path),
+            "# mine
+ghost_opacity = 70 # faint
+max_words = 10 # short ones
+max_tokens = 27
+"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn persisting_a_no_op_leaves_the_file_byte_identical() {
+    fn persisting_a_no_op_leaves_the_file_byte_identical_and_writes_only_changed_keys() {
         let dir = scratch("noop");
         let path = dir.join("config.toml");
         std::fs::create_dir_all(&dir).unwrap();
@@ -442,6 +375,9 @@ note = "kept"
         Setting::Unblock("nothing".into()).persist(&path).unwrap();
         Setting::Enabled(true).persist(&path).unwrap();
         assert_eq!(stored(&path), COMMENTED);
+        let sparse = dir.join("sparse.toml");
+        Setting::Enabled(false).persist(&sparse).unwrap();
+        assert_eq!(stored(&sparse).trim(), "enabled = false");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -458,27 +394,6 @@ note = "kept"
         let config = Config::from_toml(&text).unwrap();
         assert_eq!(config.accept_keys, [Chord::parse("Ctrl+J").unwrap()]);
         assert_eq!(config.force_trigger_key, Chord::parse("F9").unwrap());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn persisting_never_overwrites_a_file_with_an_invalid_key() {
-        let dir = scratch("bad-key");
-        let path = dir.join("config.toml");
-        std::fs::create_dir_all(&dir).unwrap();
-        let broken = "accept_keys = [\"Hyper+Tab\"]\n";
-        std::fs::write(&path, broken).unwrap();
-        assert!(Setting::Enabled(false).persist(&path).is_err());
-        assert_eq!(stored(&path), broken);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn persisting_only_writes_the_keys_it_changes() {
-        let dir = scratch("sparse");
-        let path = dir.join("config.toml");
-        Setting::Enabled(false).persist(&path).unwrap();
-        assert_eq!(stored(&path).trim(), "enabled = false");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

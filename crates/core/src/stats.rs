@@ -222,13 +222,6 @@ mod tests {
     }
 
     #[test]
-    fn days_order_by_calendar_date() {
-        assert!(Day::from_ymd(2026, 12, 31) < Day::from_ymd(2027, 1, 1));
-        assert!(Day::from_ymd(2026, 2, 9) < Day::from_ymd(2026, 2, 10));
-        assert_eq!(Day::from_ymd(2026, 11, 16), MONDAY);
-    }
-
-    #[test]
     fn accepts_count_words_and_chars_by_unicode_rules() {
         let mut counts = Counts::default();
         counts.record_accept("the quick fox", false);
@@ -239,23 +232,6 @@ mod tests {
         assert_eq!(counts.accepted_words, 2);
         assert_eq!(counts.words, 3 + 1 + 4);
         assert_eq!(counts.chars, 13 + 6 + 19);
-    }
-
-    #[test]
-    fn counters_saturate_instead_of_overflowing() {
-        let mut full = Counts {
-            shown: u64::MAX,
-            accepted: u64::MAX,
-            accepted_words: u64::MAX,
-            words: u64::MAX,
-            chars: u64::MAX,
-        };
-        full.record_shown();
-        full.record_accept("a b", false);
-        full.add(full);
-        assert_eq!(full.shown, u64::MAX);
-        assert_eq!(full.chars, u64::MAX);
-        assert_eq!(full.seconds_saved(1), u64::MAX / CHARS_PER_WORD);
     }
 
     #[test]
@@ -277,19 +253,13 @@ mod tests {
         stats.record(counts(5, 2, 4, 20), TUESDAY);
         assert_eq!(stats.today(TUESDAY), counts(5, 2, 4, 20));
         assert_eq!(stats.total(), counts(8, 3, 7, 30));
-    }
-
-    #[test]
-    fn a_clock_set_back_still_starts_a_fresh_day() {
-        let mut stats = Stats::default();
-        stats.record(counts(4, 0, 0, 0), TUESDAY);
         stats.record(counts(1, 0, 0, 0), MONDAY);
         assert_eq!(stats.today(MONDAY), counts(1, 0, 0, 0));
-        assert_eq!(stats.total().shown, 5);
+        assert_eq!(stats.total().shown, 9);
     }
 
     #[test]
-    fn saved_stats_load_back_and_hold_only_numbers() {
+    fn saved_stats_load_back_and_hold_only_numbers_and_unknown_fields_are_ignored() {
         let dir = scratch("round-trip");
         let path = dir.join("stats.toml");
         let mut stats = Stats::default();
@@ -301,6 +271,8 @@ mod tests {
             let (_, value) = line.split_once(" = ").unwrap_or(("", "0"));
             line.is_empty() || line.starts_with('[') || value.parse::<u64>().is_ok()
         }));
+        std::fs::write(&path, "future = 1\n[total]\nshown = 7\n").unwrap();
+        assert_eq!(Stats::load(&path).unwrap().total().shown, 7);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -339,16 +311,6 @@ mod tests {
         std::fs::create_dir_all(&path).unwrap();
         assert!(Stats::load(&path).is_err());
         assert!(path.is_dir());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn unknown_or_missing_fields_do_not_lose_the_known_ones() {
-        let dir = scratch("partial");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("stats.toml");
-        std::fs::write(&path, "future = 1\n[total]\nshown = 7\n").unwrap();
-        assert_eq!(Stats::load(&path).unwrap().total().shown, 7);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

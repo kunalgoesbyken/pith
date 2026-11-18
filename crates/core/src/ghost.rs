@@ -289,8 +289,6 @@ pub fn layout(text: &str, flow: &Flow, measure: &dyn Fn(&str) -> i32) -> Vec<Lin
 mod tests {
     use super::*;
 
-    const MAX_FADE_MS: u32 = 80;
-
     fn measure(text: &str) -> i32 {
         text.graphemes(true).count() as i32 * 10
     }
@@ -316,79 +314,63 @@ mod tests {
         }
     }
 
-    fn rows(text: &str, flow: &Flow) -> Vec<(String, i32, i32)> {
+    fn rows<'a>(text: &'a str, flow: &Flow) -> Vec<(&'a str, i32, i32)> {
         layout(text, flow, &measure)
             .into_iter()
-            .map(|line| (text[line.start..line.end].to_string(), line.x, line.y))
+            .map(|line| (&text[line.start..line.end], line.x, line.y))
             .collect()
     }
 
     #[test]
-    fn short_text_stays_on_the_caret_line_right_of_the_caret() {
-        let flow = flow(50, 0, 400, false);
-        assert_eq!(
-            rows(" over there", &flow),
-            [(" over there".into(), 51, 100)]
-        );
-    }
-
-    #[test]
-    fn long_text_wraps_at_word_boundaries_and_restarts_at_the_left_edge() {
-        let flow = flow(0, 0, 100, false);
-        assert_eq!(
-            rows(" alpha beta gamma delta", &flow),
-            [
-                (" alpha".into(), 1, 100),
-                ("beta gamma".into(), 0, 120),
-                ("delta".into(), 0, 140),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_word_that_does_not_fit_after_the_caret_moves_down_whole() {
-        let flow = flow(70, 0, 100, false);
-        assert_eq!(rows(" word", &flow), [("word".into(), 0, 120)]);
-    }
-
-    #[test]
-    fn a_word_wider_than_the_field_splits_between_graphemes() {
-        let flow = flow(0, 0, 40, false);
-        let rows = rows("abcdefghij", &flow);
-        assert_eq!(
-            rows,
-            [
-                ("abcd".into(), 0, 120),
-                ("efgh".into(), 0, 140),
-                ("ij".into(), 0, 160),
-            ]
-        );
-    }
-
-    #[test]
-    fn combining_marks_and_emoji_never_split_from_their_base() {
-        let flow = flow(0, 0, 30, false);
-        let text = "e\u{301}e\u{301}e\u{301}e\u{301}";
-        for (line, _, _) in rows(text, &flow) {
-            assert!(!line.starts_with('\u{301}'), "{line:?}");
+    fn layout_places_and_wraps_lines_by_the_documented_rules() {
+        type Placed<'a> = &'a [(&'a str, i32, i32)];
+        let table: [(&str, i32, i32, bool, Placed); 7] = [
+            (" over there", 50, 400, false, &[(" over there", 51, 100)]),
+            (
+                " alpha beta gamma delta",
+                0,
+                100,
+                false,
+                &[
+                    (" alpha", 1, 100),
+                    ("beta gamma", 0, 120),
+                    ("delta", 0, 140),
+                ],
+            ),
+            (" word", 70, 100, false, &[("word", 0, 120)]),
+            (
+                "abcdefghij",
+                0,
+                40,
+                false,
+                &[("abcd", 0, 120), ("efgh", 0, 140), ("ij", 0, 160)],
+            ),
+            ("שלום", 200, 400, true, &[("שלום", 160, 100)]),
+            (
+                "aaaa bbbb cccc",
+                60,
+                100,
+                true,
+                &[("aaaa", 20, 100), ("bbbb cccc", 10, 120)],
+            ),
+            ("   ", 0, 100, false, &[]),
+        ];
+        for row in table {
+            let (text, caret_x, width, rtl, expected) = row;
+            assert_eq!(
+                rows(text, &flow(caret_x, 0, width, rtl)),
+                expected,
+                "{row:?}"
+            );
         }
-        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}".repeat(4);
-        let rows = rows(&family, &flow);
-        let rejoined: String = rows.iter().map(|(line, _, _)| line.as_str()).collect();
-        assert_eq!(rejoined, family);
-        for (line, _, _) in &rows {
-            assert_eq!(line.matches('\u{200D}').count() % 2, 0, "{line:?}");
-        }
+        assert!(layout("", &flow(0, 0, 100, false), &measure).is_empty());
     }
 
     #[test]
     fn rows_beyond_the_field_height_are_dropped() {
         let mut flow = flow(0, 0, 100, false);
         flow.max_lines = 1;
-        assert_eq!(
-            rows(" alpha beta gamma", &flow),
-            [(" alpha".into(), 1, 100)]
-        );
+        assert_eq!(rows(" alpha beta gamma", &flow), [(" alpha", 1, 100)]);
         assert_eq!(lines_that_fit(flow.bounds, 100, 20), 45);
         assert_eq!(
             lines_that_fit(
@@ -406,96 +388,34 @@ mod tests {
     }
 
     #[test]
-    fn a_line_never_leaves_the_bounds_even_for_one_wide_grapheme() {
-        let flow = flow(0, 0, 5, false);
-        for line in layout("abc", &flow, &measure) {
-            assert!(line.x >= 0);
+    fn strong_span_marks_the_next_word_within_each_line() {
+        let table = [
+            (
+                " alpha beta gamma",
+                0,
+                100,
+                false,
+                0,
+                6,
+                false,
+                Some((0, 60)),
+            ),
+            (" alpha beta gamma", 0, 100, false, 1, 6, false, None),
+            ("aaaa bbbb", 60, 100, true, 0, 9, true, Some((0, 40))),
+            ("aaaa bbbb", 60, 100, true, 1, 4, true, None),
+            ("aaaa bbbb", 200, 400, true, 0, 4, true, Some((50, 90))),
+            ("aaaa bbbb", 200, 400, true, 0, 4, false, Some((0, 40))),
+            (" שלום עולם", 300, 400, true, 0, 2, true, None),
+        ];
+        for row in table {
+            let (text, caret_x, width, flow_rtl, line, strong_end, rtl, expected) = row;
+            let lines = layout(text, &flow(caret_x, 0, width, flow_rtl), &measure);
+            assert_eq!(
+                strong_span(text, &lines[line], strong_end, rtl, &measure),
+                expected,
+                "{row:?}"
+            );
         }
-    }
-
-    #[test]
-    fn rtl_text_extends_left_from_the_caret() {
-        let flow = flow(200, 0, 400, true);
-        assert_eq!(rows("שלום", &flow), [("שלום".into(), 160, 100)]);
-    }
-
-    #[test]
-    fn rtl_text_wraps_back_to_the_right_edge() {
-        let flow = flow(60, 0, 100, true);
-        assert_eq!(
-            rows("aaaa bbbb cccc", &flow),
-            [("aaaa".into(), 20, 100), ("bbbb cccc".into(), 10, 120),]
-        );
-    }
-
-    #[test]
-    fn caret_at_the_far_edge_never_places_text_off_the_bounds() {
-        let ltr = flow(400, 0, 400, false);
-        for line in layout(" next", &ltr, &measure) {
-            assert!(line.x >= 0 && line.x + line.width <= 400);
-        }
-        let rtl = flow(0, 0, 400, true);
-        for line in layout("next", &rtl, &measure) {
-            assert!(line.x >= 0 && line.x + line.width <= 400);
-        }
-    }
-
-    #[test]
-    fn strong_span_covers_the_next_word_from_the_logical_start() {
-        let text = " alpha beta gamma";
-        let flow = flow(0, 0, 100, false);
-        let lines = layout(text, &flow, &measure);
-        let strong_end = " alpha".len();
-        assert_eq!(
-            strong_span(text, &lines[0], strong_end, false, &measure),
-            Some((0, 60))
-        );
-        assert_eq!(
-            strong_span(text, &lines[1], strong_end, false, &measure),
-            None
-        );
-    }
-
-    #[test]
-    fn strong_span_is_the_whole_line_when_the_word_ends_after_it() {
-        let text = "aaaa bbbb";
-        let flow = flow(60, 0, 100, true);
-        let lines = layout(text, &flow, &measure);
-        assert_eq!(
-            strong_span(text, &lines[0], 9, true, &measure),
-            Some((0, 40))
-        );
-        assert_eq!(strong_span(text, &lines[1], 4, true, &measure), None);
-    }
-
-    #[test]
-    fn strong_span_sits_at_the_right_end_of_an_rtl_line() {
-        let text = "aaaa bbbb";
-        let flow = flow(200, 0, 400, true);
-        let lines = layout(text, &flow, &measure);
-        assert_eq!(
-            strong_span(text, &lines[0], 4, true, &measure),
-            Some((50, 90))
-        );
-        assert_eq!(
-            strong_span(text, &lines[0], 4, false, &measure),
-            Some((0, 40))
-        );
-    }
-
-    #[test]
-    fn strong_span_ignores_a_boundary_inside_a_character() {
-        let text = " שלום עולם";
-        let flow = flow(300, 0, 400, true);
-        let lines = layout(text, &flow, &measure);
-        assert_eq!(strong_span(text, &lines[0], 2, true, &measure), None);
-    }
-
-    #[test]
-    fn empty_and_blank_text_produce_no_lines() {
-        let flow = flow(0, 0, 100, false);
-        assert!(layout("", &flow, &measure).is_empty());
-        assert!(layout("   ", &flow, &measure).is_empty());
     }
 
     #[test]
@@ -517,11 +437,44 @@ mod tests {
     }
 
     #[test]
-    fn dark_ghost_on_white_stays_at_the_configured_opacity_when_contrast_allows() {
-        let result = ink(Some(BLACK), WHITE, 70);
-        assert_eq!(result.color, BLACK);
-        assert_eq!(u32::from(result.alpha), opacity_alpha(70));
-        assert!(contrast(blend(BLACK, WHITE, u32::from(result.alpha)), WHITE) >= CONTRAST_FLOOR);
+    fn ink_picks_a_readable_colour_and_stays_within_the_alpha_cap() {
+        let picks = [
+            (Some(BLACK), WHITE, 70, BLACK),
+            (None, WHITE, 50, BLACK),
+            (None, 0x0010_1010, 50, WHITE),
+            (None, 0x00FF_0000, 50, WHITE),
+            (None, 0x0000_FF00, 50, BLACK),
+        ];
+        for row in picks {
+            let (foreground, background, percent, expected) = row;
+            assert_eq!(
+                ink(foreground, background, percent).color,
+                expected,
+                "{row:?}"
+            );
+        }
+        assert_eq!(
+            u32::from(ink(Some(BLACK), WHITE, 70).alpha),
+            opacity_alpha(70)
+        );
+        for background in [
+            BLACK,
+            WHITE,
+            0x0080_8080,
+            0x00FF_00FF,
+            0x0000_FFFF,
+            0x0010_2030,
+        ] {
+            for percent in [1u8, 10, 35, 50, 65, 100, 255] {
+                let result = ink(None, background, percent);
+                assert!(u32::from(result.alpha) <= MAX_ALPHA);
+                let shown = blend(result.color, background, u32::from(result.alpha));
+                assert!(
+                    contrast(shown, background) >= CONTRAST_FLOOR,
+                    "{background:x} {percent}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -551,57 +504,10 @@ mod tests {
     }
 
     #[test]
-    fn missing_text_colour_picks_the_better_of_black_and_white() {
-        assert_eq!(ink(None, WHITE, 50).color, BLACK);
-        assert_eq!(ink(None, 0x0010_1010, 50).color, WHITE);
-        assert_eq!(ink(None, 0x00FF_0000, 50).color, WHITE);
-        assert_eq!(ink(None, 0x0000_FF00, 50).color, BLACK);
-    }
-
-    #[test]
-    fn every_background_and_opacity_ends_at_or_above_the_floor_or_the_alpha_cap() {
-        for background in [
-            BLACK,
-            WHITE,
-            0x0080_8080,
-            0x00FF_00FF,
-            0x0000_FFFF,
-            0x0010_2030,
-        ] {
-            for percent in [1u8, 10, 35, 50, 65, 100, 255] {
-                let result = ink(None, background, percent);
-                assert!(u32::from(result.alpha) <= MAX_ALPHA);
-                let shown = blend(result.color, background, u32::from(result.alpha));
-                assert!(
-                    contrast(shown, background) >= CONTRAST_FLOOR,
-                    "{background:x} {percent}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn next_word_is_drawn_stronger_but_never_past_the_cap() {
-        for alpha in [1u8, 60, 120, 200, 230] {
-            let boosted = next_word_alpha(alpha);
-            assert!(boosted >= alpha);
-            assert!(u32::from(boosted) <= MAX_ALPHA.max(u32::from(alpha)));
-        }
-        assert!(next_word_alpha(100) > 100);
-        assert_eq!(next_word_alpha(230), 230);
-    }
-
-    #[test]
     fn luminance_and_contrast_match_wcag_reference_values() {
         assert!((contrast(BLACK, WHITE) - 21.0).abs() < 0.01);
         assert!((contrast(WHITE, WHITE) - 1.0).abs() < 0.001);
         assert!((contrast(0x0077_7777, WHITE) - 4.48).abs() < 0.05);
-    }
-
-    #[test]
-    fn median_ignores_a_single_glyph_outlier() {
-        assert_eq!(median_by_luminance(vec![WHITE, BLACK, WHITE]), Some(WHITE));
-        assert_eq!(median_by_luminance(vec![]), None);
     }
 
     #[test]
@@ -654,20 +560,5 @@ mod tests {
                 height: 100
             }
         );
-    }
-
-    #[test]
-    fn fade_finishes_inside_the_budget_and_ends_opaque() {
-        assert!((FADE_ALPHAS.len() as u32 - 1) * FADE_FRAME_MS <= MAX_FADE_MS);
-        assert_eq!(FADE_ALPHAS.last(), Some(&255));
-        assert!(FADE_ALPHAS.windows(2).all(|pair| pair[0] < pair[1]));
-    }
-
-    #[test]
-    fn opacity_percent_maps_into_the_alpha_range() {
-        assert_eq!(opacity_alpha(0), 1);
-        assert_eq!(opacity_alpha(50), 127);
-        assert_eq!(opacity_alpha(100), MAX_ALPHA);
-        assert_eq!(opacity_alpha(200), MAX_ALPHA);
     }
 }

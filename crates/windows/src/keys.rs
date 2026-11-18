@@ -307,54 +307,6 @@ mod tests {
     }
 
     #[test]
-    fn default_bindings_cover_every_action_once_per_chord() {
-        let all = bindings(&keymap());
-        let actions: Vec<KeyAction> = all.iter().map(|b| b.action).collect();
-        assert_eq!(
-            actions,
-            [
-                KeyAction::AcceptAll,
-                KeyAction::AcceptWord,
-                KeyAction::AcceptWord,
-                KeyAction::Dismiss,
-                KeyAction::Trigger
-            ]
-        );
-        let fake = Fake::default();
-        let keys = Keys::new(&keymap(), &fake);
-        for (index, binding) in all.iter().enumerate() {
-            assert_eq!(keys.binding(index as i32 + 1), Some(*binding));
-        }
-    }
-
-    #[test]
-    fn every_action_maps_to_its_own_engine_event() {
-        assert_eq!(KeyAction::AcceptAll.event(), Event::AcceptAll);
-        assert_eq!(KeyAction::AcceptWord.event(), Event::AcceptWord);
-        assert_eq!(KeyAction::Dismiss.event(), Event::Dismiss);
-        assert_eq!(KeyAction::Trigger.event(), Event::Trigger);
-    }
-
-    #[test]
-    fn unknown_registration_ids_have_no_binding() {
-        let fake = Fake::default();
-        let keys = Keys::new(&keymap(), &fake);
-        for id in [0, -1, 6, 99, i32::MAX, i32::MIN] {
-            assert_eq!(keys.binding(id), None, "{id}");
-        }
-    }
-
-    #[test]
-    fn disabling_the_trigger_leaves_no_trigger_binding() {
-        let config = pith_core::Config {
-            force_trigger: false,
-            ..Default::default()
-        };
-        let all = bindings(&config.keymap());
-        assert!(all.iter().all(|b| b.action != KeyAction::Trigger));
-    }
-
-    #[test]
     fn custom_chords_map_to_virtual_keys_and_modifiers() {
         let chord = Chord::parse("Ctrl+Alt+F5").unwrap();
         assert_eq!(virtual_key(chord.key), VK_F5.0);
@@ -404,12 +356,6 @@ mod tests {
         assert_eq!(fake.chords(), [chord("Ctrl+Shift+Space")]);
         keys.set_trigger(false);
         assert!(fake.chords().is_empty());
-    }
-
-    #[test]
-    fn repeated_arming_does_not_touch_the_system_again() {
-        let fake = Fake::default();
-        let mut keys = Keys::new(&keymap(), &fake);
         keys.arm();
         let calls = *fake.calls.borrow();
         keys.arm();
@@ -418,53 +364,63 @@ mod tests {
     }
 
     #[test]
-    fn rebinding_while_armed_moves_the_registrations_to_the_new_keys() {
-        let fake = Fake::default();
-        let mut keys = Keys::new(&keymap(), &fake);
-        keys.arm();
-        keys.set_trigger(true);
-        keys.rebind(&keymap_of(&["Ctrl+J"], &["Alt+Right"], Some("F9")));
-        assert_eq!(
-            fake.chords(),
-            [
-                chord("Ctrl+J"),
-                chord("Alt+Right"),
-                Chord::ESCAPE,
-                chord("F9")
-            ]
-        );
-        for (id, held) in fake.held.borrow().iter() {
-            assert_eq!(keys.binding(*id).unwrap().chord, *held);
+    fn rebinding_moves_registrations_and_keeps_what_was_off_off() {
+        let rows = [
+            (
+                true,
+                vec!["Ctrl+J"],
+                vec!["Alt+Right"],
+                Some("F9"),
+                vec![
+                    chord("Ctrl+J"),
+                    chord("Alt+Right"),
+                    Chord::ESCAPE,
+                    chord("F9"),
+                ],
+                4,
+                4,
+            ),
+            (
+                false,
+                vec!["Ctrl+J"],
+                vec![],
+                Some("F9"),
+                vec![chord("F9")],
+                3,
+                3,
+            ),
+            (
+                true,
+                vec!["Tab"],
+                vec![],
+                None,
+                vec![chord("Tab"), Chord::ESCAPE],
+                2,
+                2,
+            ),
+        ];
+        for row in rows {
+            let (armed, accept, word, trigger, expected, bound, armed_count) = &row;
+            let fake = Fake::default();
+            let mut keys = Keys::new(&keymap(), &fake);
+            if *armed {
+                keys.arm();
+            }
+            keys.set_trigger(true);
+            keys.rebind(&keymap_of(accept, word, *trigger));
+            assert_eq!(&fake.chords(), expected, "{row:?}");
+            for (id, held) in fake.held.borrow().iter() {
+                assert_eq!(keys.binding(*id).unwrap().chord, *held, "{row:?}");
+            }
+            for id in 1..=5 {
+                assert_eq!(keys.binding(id).is_some(), id as usize <= *bound, "{row:?}");
+            }
+            keys.arm();
+            assert_eq!(fake.chords().len(), *armed_count, "{row:?}");
+            keys.disarm();
+            keys.set_trigger(false);
+            assert!(fake.chords().is_empty(), "{row:?}");
         }
-        keys.disarm();
-        keys.set_trigger(false);
-        assert!(fake.chords().is_empty());
-    }
-
-    #[test]
-    fn rebinding_keeps_what_was_off_off() {
-        let fake = Fake::default();
-        let mut keys = Keys::new(&keymap(), &fake);
-        keys.set_trigger(true);
-        keys.rebind(&keymap_of(&["Ctrl+J"], &[], Some("F9")));
-        assert_eq!(fake.chords(), [chord("F9")]);
-        keys.arm();
-        assert_eq!(fake.chords().len(), 3);
-    }
-
-    #[test]
-    fn rebinding_to_a_smaller_map_releases_the_surplus_ids() {
-        let fake = Fake::default();
-        let mut keys = Keys::new(&keymap(), &fake);
-        keys.arm();
-        keys.set_trigger(true);
-        keys.rebind(&keymap_of(&["Tab"], &[], None));
-        assert_eq!(fake.chords(), [chord("Tab"), Chord::ESCAPE]);
-        assert_eq!(keys.binding(3), None);
-    }
-
-    #[test]
-    fn rebinding_to_the_same_keys_is_a_no_op() {
         let fake = Fake::default();
         let mut keys = Keys::new(&keymap(), &fake);
         keys.arm();

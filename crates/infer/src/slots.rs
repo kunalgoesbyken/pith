@@ -65,23 +65,26 @@ mod tests {
     }
 
     #[test]
-    fn same_key_reuses_its_slot() {
-        let mut slots = Slots::new(2);
-        let mut created = 0;
-        slots.acquire(7, make(&mut created)).unwrap().push(1);
-        assert_eq!(slots.acquire(7, make(&mut created)).unwrap(), &vec![1]);
-        assert_eq!(created, 1);
-    }
-
-    #[test]
-    fn fields_keep_separate_slots_up_to_capacity() {
-        let mut slots = Slots::new(2);
-        let mut created = 0;
-        slots.acquire(1, make(&mut created)).unwrap().push(1);
-        slots.acquire(2, make(&mut created)).unwrap().push(2);
-        assert_eq!(slots.acquire(1, make(&mut created)).unwrap(), &vec![1]);
-        assert_eq!(slots.acquire(2, make(&mut created)).unwrap(), &vec![2]);
-        assert_eq!(created, 2);
+    fn slots_are_reused_per_key_and_capacity_is_at_least_one() {
+        let rows: [(usize, &[u32], usize, &[u32]); 4] = [
+            (2, &[7, 7], 1, &[7, 7]),
+            (2, &[1, 2, 1, 2], 2, &[2, 2]),
+            (1, &[1, 2, 2], 1, &[1, 2, 2]),
+            (0, &[1, 2], 1, &[1, 2]),
+        ];
+        for row in rows {
+            let (capacity, keys, created_expected, contents) = row;
+            let mut slots = Slots::new(capacity);
+            let mut created = 0;
+            let mut last = Vec::new();
+            for &key in keys {
+                let slot = slots.acquire(u64::from(key), make(&mut created)).unwrap();
+                slot.push(key);
+                last = slot.clone();
+            }
+            assert_eq!(created, created_expected, "{row:?}");
+            assert_eq!(&last, contents, "{row:?}");
+        }
     }
 
     #[test]
@@ -97,30 +100,11 @@ mod tests {
     }
 
     #[test]
-    fn recycled_slot_belongs_to_the_new_key() {
-        let mut slots = Slots::new(1);
-        let mut created = 0;
-        slots.acquire(1, make(&mut created)).unwrap().push(1);
-        slots.acquire(2, make(&mut created)).unwrap().push(2);
-        assert_eq!(slots.acquire(2, make(&mut created)).unwrap(), &vec![1, 2]);
-        assert_eq!(created, 1);
-    }
-
-    #[test]
     fn failed_creation_leaves_the_pool_unchanged() {
         let mut slots: Slots<Vec<u32>> = Slots::new(2);
         assert!(slots.acquire(1, || Err("boom".into())).is_err());
         let mut created = 0;
         slots.acquire(1, make(&mut created)).unwrap();
-        assert_eq!(created, 1);
-    }
-
-    #[test]
-    fn zero_capacity_still_serves_one_slot() {
-        let mut slots = Slots::new(0);
-        let mut created = 0;
-        slots.acquire(1, make(&mut created)).unwrap();
-        slots.acquire(2, make(&mut created)).unwrap();
         assert_eq!(created, 1);
     }
 }

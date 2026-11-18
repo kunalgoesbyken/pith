@@ -207,92 +207,118 @@ mod tests {
 
     #[test]
     fn controls_reflect_the_config_and_emit_matching_settings() {
-        let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
-        let window = SettingsWindow::open(&config, true, "Ready", &StatsView::default()).unwrap();
-        assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, on");
-        assert_eq!(name(&window, ID_START), "Start with Windows, on");
-        assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
-        assert_eq!(name(&window, ID_FEWER), "Fewer");
-        assert_eq!(
-            name(&window, ID_REMOVE_FIRST + 1),
-            "Remove \u{540d}\u{524d}"
-        );
-        assert!(shown(&window, ID_REMOVE_FIRST + 1));
-        assert!(!shown(&window, ID_REMOVE_FIRST + 2));
-        take_events();
+        {
+            let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
+            let window =
+                SettingsWindow::open(&config, true, "Ready", &StatsView::default()).unwrap();
+            assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, on");
+            assert_eq!(name(&window, ID_START), "Start with Windows, on");
+            assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
+            assert_eq!(name(&window, ID_FEWER), "Fewer");
+            assert_eq!(
+                name(&window, ID_REMOVE_FIRST + 1),
+                "Remove \u{540d}\u{524d}"
+            );
+            assert!(shown(&window, ID_REMOVE_FIRST + 1));
+            assert!(!shown(&window, ID_REMOVE_FIRST + 2));
+            take_events();
 
-        click(&window, ID_ENABLED);
-        click(&window, ID_MORE);
-        click(&window, ID_START);
-        click(&window, ID_OPEN_DATA);
-        click(&window, ID_DELETE_DATA);
-        assert_eq!(
-            take_events(),
-            [
-                UiEvent::Apply(Setting::Enabled(false)),
-                UiEvent::Apply(Setting::Suggestions(Suggestions::More)),
-                UiEvent::StartWithWindows(false),
-                UiEvent::OpenDataFolder,
-                UiEvent::DeleteData,
-            ]
-        );
-        assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
-        assert_eq!(name(&window, ID_MORE), "More, selected");
-        assert_eq!(name(&window, ID_NORMAL), "Normal");
+            click(&window, ID_ENABLED);
+            click(&window, ID_MORE);
+            click(&window, ID_START);
+            click(&window, ID_OPEN_DATA);
+            click(&window, ID_DELETE_DATA);
+            assert_eq!(
+                take_events(),
+                [
+                    UiEvent::Apply(Setting::Enabled(false)),
+                    UiEvent::Apply(Setting::Suggestions(Suggestions::More)),
+                    UiEvent::StartWithWindows(false),
+                    UiEvent::OpenDataFolder,
+                    UiEvent::DeleteData,
+                ]
+            );
+            assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
+            assert_eq!(name(&window, ID_MORE), "More, selected");
+            assert_eq!(name(&window, ID_NORMAL), "Normal");
+        }
+        {
+            let config = Config {
+                ghost_opacity: 90,
+                ..Config::default()
+            };
+            let window =
+                SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
+            assert_eq!(name(&window, ID_NORMAL_LENGTH), "Normal, selected");
+            assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
+            take_events();
+
+            click(&window, ID_LONG);
+            click(&window, ID_SHORT);
+            click(&window, ID_OPACITY_UP);
+            click(&window, ID_OPACITY_UP);
+            click(&window, ID_OPACITY_DOWN);
+            assert_eq!(
+                take_events(),
+                [
+                    UiEvent::Apply(Setting::Length(Length::Long)),
+                    UiEvent::Apply(Setting::Length(Length::Short)),
+                    UiEvent::Apply(Setting::GhostOpacity(100)),
+                    UiEvent::Apply(Setting::GhostOpacity(90)),
+                ]
+            );
+            assert_eq!(name(&window, ID_SHORT), "Short, selected");
+            assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
+            assert_eq!(current().map(|model| model.opacity), Some(90));
+        }
     }
 
     #[test]
-    fn length_and_opacity_controls_emit_matching_settings() {
-        let config = Config {
-            ghost_opacity: 90,
-            ..Config::default()
-        };
-        let window = SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
-        assert_eq!(name(&window, ID_NORMAL_LENGTH), "Normal, selected");
-        assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
-        take_events();
-
-        click(&window, ID_LONG);
-        click(&window, ID_SHORT);
-        click(&window, ID_OPACITY_UP);
-        click(&window, ID_OPACITY_UP);
-        click(&window, ID_OPACITY_DOWN);
-        assert_eq!(
-            take_events(),
-            [
-                UiEvent::Apply(Setting::Length(Length::Long)),
-                UiEvent::Apply(Setting::Length(Length::Short)),
-                UiEvent::Apply(Setting::GhostOpacity(100)),
-                UiEvent::Apply(Setting::GhostOpacity(90)),
-            ]
-        );
-        assert_eq!(name(&window, ID_SHORT), "Short, selected");
-        assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
-        assert_eq!(current().map(|model| model.opacity), Some(90));
-    }
-
-    #[test]
-    fn reset_stats_asks_the_host_and_stats_follow_refresh() {
-        let window =
-            SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
-                .unwrap();
-        assert_eq!(name(&window, ID_RESET_STATS), "Reset stats");
-        take_events();
-        click(&window, ID_RESET_STATS);
-        assert_eq!(take_events(), [UiEvent::ResetStats]);
-        let stats = StatsView {
-            today: Counts {
-                shown: 3,
-                ..Counts::default()
-            },
-            total: Counts {
-                shown: 12,
-                ..Counts::default()
-            },
-        };
-        window.refresh(&Config::default(), false, "Ready", &stats);
-        let model = current().unwrap();
-        assert_eq!((model.today.shown, model.total.shown), (3, 12));
+    fn reset_stats_asks_the_host_and_refresh_follows_the_config_and_stats() {
+        {
+            let window =
+                SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
+                    .unwrap();
+            assert_eq!(name(&window, ID_RESET_STATS), "Reset stats");
+            take_events();
+            click(&window, ID_RESET_STATS);
+            assert_eq!(take_events(), [UiEvent::ResetStats]);
+            let stats = StatsView {
+                today: Counts {
+                    shown: 3,
+                    ..Counts::default()
+                },
+                total: Counts {
+                    shown: 12,
+                    ..Counts::default()
+                },
+            };
+            window.refresh(&Config::default(), false, "Ready", &stats);
+            let model = current().unwrap();
+            assert_eq!((model.today.shown, model.total.shown), (3, 12));
+        }
+        {
+            let mut config = with_apps(&["Slack"]);
+            let window =
+                SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
+            assert!(shown(&window, ID_REMOVE_FIRST));
+            config.blocked_apps.clear();
+            config.enabled = false;
+            config.min_mean_logprob = -1.234;
+            window.refresh(&config, true, "Turned off", &StatsView::default());
+            assert!(!shown(&window, ID_REMOVE_FIRST));
+            assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
+            assert_eq!(name(&window, ID_START), "Start with Windows, on");
+            for (id, choice, label) in segments() {
+                let selected = matches!(choice, Choice::Length(Length::Normal));
+                let expected = if selected {
+                    format!("{label}, selected")
+                } else {
+                    label.to_string()
+                };
+                assert_eq!(name(&window, *id), expected, "{choice:?}");
+            }
+        }
     }
 
     #[test]
@@ -310,29 +336,6 @@ mod tests {
     }
 
     #[test]
-    fn refresh_follows_the_config() {
-        let mut config = with_apps(&["Slack"]);
-        let window = SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
-        assert!(shown(&window, ID_REMOVE_FIRST));
-        config.blocked_apps.clear();
-        config.enabled = false;
-        config.min_mean_logprob = -1.234;
-        window.refresh(&config, true, "Turned off", &StatsView::default());
-        assert!(!shown(&window, ID_REMOVE_FIRST));
-        assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
-        assert_eq!(name(&window, ID_START), "Start with Windows, on");
-        for (id, choice, label) in segments() {
-            let selected = matches!(choice, Choice::Length(Length::Normal));
-            let expected = if selected {
-                format!("{label}, selected")
-            } else {
-                label.to_string()
-            };
-            assert_eq!(name(&window, *id), expected, "{choice:?}");
-        }
-    }
-
-    #[test]
     fn a_long_list_scrolls_in_whole_rows() {
         let config = with_apps(&["a", "b", "c", "d", "e"]);
         let window = SettingsWindow::open(&config, false, "Ready", &StatsView::default()).unwrap();
@@ -347,26 +350,17 @@ mod tests {
 
     #[test]
     fn closing_reports_once_and_drop_is_safe_after_close() {
-        let window =
-            SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
-                .unwrap();
-        take_events();
-        send(window.hwnd, WM_CLOSE, 0, 0);
-        assert!(!window.is_open());
-        assert_eq!(take_events(), [UiEvent::Closed]);
-        drop(window);
-        assert_eq!(take_events(), []);
-    }
-
-    #[test]
-    fn escape_closes_through_the_dialog_cancel_command() {
-        let window =
-            SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
-                .unwrap();
-        take_events();
-        send(window.hwnd, WM_COMMAND, IDCANCEL.0 as usize, 0);
-        assert!(!window.is_open());
-        assert_eq!(take_events(), [UiEvent::Closed]);
+        for (message, wparam) in [(WM_CLOSE, 0), (WM_COMMAND, IDCANCEL.0 as usize)] {
+            let window =
+                SettingsWindow::open(&Config::default(), false, "Ready", &StatsView::default())
+                    .unwrap();
+            take_events();
+            send(window.hwnd, message, wparam, 0);
+            assert!(!window.is_open(), "{message}");
+            assert_eq!(take_events(), [UiEvent::Closed], "{message}");
+            drop(window);
+            assert_eq!(take_events(), [], "{message}");
+        }
     }
 
     #[test]

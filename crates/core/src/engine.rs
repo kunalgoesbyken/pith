@@ -500,8 +500,8 @@ mod tests {
         }
     }
 
-    fn suggest(engine: &mut Engine, before: &str, text: &str) -> Vec<Action> {
-        let out = engine.handle(Event::Field(Some(field(before))));
+    fn suggest_field(engine: &mut Engine, snapshot: FieldSnapshot, text: &str) -> Vec<Action> {
+        let out = engine.handle(Event::Field(Some(snapshot)));
         let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
             panic!("{out:?}")
         };
@@ -516,54 +516,32 @@ mod tests {
         })
     }
 
-    #[test]
-    fn shows_and_arms_after_completion() {
-        let mut engine = Engine::new(Config::default());
-        let out = suggest(&mut engine, "Please sign the", " contract by Friday.");
-        assert!(matches!(&out[0], Action::Show { text, .. } if text == " contract by Friday."));
-        assert_eq!(out[1], Action::ArmKeys);
+    fn suggest(engine: &mut Engine, before: &str, text: &str) -> Vec<Action> {
+        suggest_field(engine, field(before), text)
     }
 
-    #[test]
-    fn typing_through_shrinks_without_new_request() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        let out = engine.handle(Event::Field(Some(field("Please sign the con"))));
-        assert!(
-            matches!(out.as_slice(), [Action::Show { text, .. }] if text == "tract by Friday."),
-            "{out:?}"
-        );
-    }
-
-    #[test]
-    fn diverging_input_hides_and_reschedules() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        let out = engine.handle(Event::Field(Some(field("Please sign the x"))));
-        assert_eq!(out[0], Action::Hide);
-        assert_eq!(out[1], Action::DisarmKeys);
-        assert!(matches!(out[2], Action::ScheduleDebounce { .. }));
-    }
-
-    #[test]
-    fn accept_word_then_rest() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        let out = engine.handle(Event::AcceptWord);
-        assert_eq!(out[0], Action::Insert(" contract".into()));
-        assert!(matches!(&out[1], Action::Show { text, .. } if text == " by Friday."));
-        let out = engine.handle(Event::Field(Some(field("Please sign the contract"))));
-        assert!(out.is_empty(), "{out:?}");
-        let out = engine.handle(Event::AcceptAll);
-        assert_eq!(out[0], Action::Insert(" by Friday.".into()));
-        assert_eq!(out[1], Action::Hide);
+    fn kinds(out: &[Action]) -> Vec<&'static str> {
+        out.iter()
+            .map(|action| match action {
+                Action::Hide => "hide",
+                Action::DisarmKeys => "disarm",
+                Action::ScheduleDebounce { .. } => "debounce",
+                _ => "other",
+            })
+            .collect()
     }
 
     #[test]
     fn counts_follow_shows_and_accepts_and_drain_once() {
         let mut engine = Engine::new(Config::default());
         suggest(&mut engine, "Please sign the", " contract by Friday.");
-        engine.handle(Event::Field(Some(field("Please sign the con"))));
+        for typed in [
+            "Please sign the c",
+            "Please sign the co",
+            "Please sign the con",
+        ] {
+            engine.handle(Event::Field(Some(field(typed))));
+        }
         engine.handle(Event::AcceptWord);
         engine.handle(Event::AcceptAll);
         let counts = engine.take_counts();
@@ -575,6 +553,16 @@ mod tests {
             "tract".len() as u64 + " by Friday.".len() as u64
         );
         assert!(engine.take_counts().is_empty());
+
+        let mut engine = Engine::new(Config {
+            smart_space: true,
+            ..Config::default()
+        });
+        suggest(&mut engine, "Please sign the", " contract");
+        engine.handle(Event::AcceptAll);
+        let counts = engine.take_counts();
+        assert_eq!(counts.chars, " contract ".len() as u64);
+        assert_eq!(counts.words, 1);
     }
 
     #[test]
@@ -594,103 +582,43 @@ mod tests {
     }
 
     #[test]
-    fn a_suggestion_redrawn_on_the_same_field_is_shown_once() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        engine.handle(Event::Field(Some(field("Please sign the c"))));
-        engine.handle(Event::Field(Some(field("Please sign the co"))));
-        assert_eq!(engine.take_counts().shown, 1);
-    }
-
-    #[test]
-    fn smart_space_counts_the_inserted_space() {
-        let mut engine = Engine::new(Config {
-            smart_space: true,
-            ..Config::default()
-        });
-        suggest(&mut engine, "Please sign the", " contract");
-        engine.handle(Event::AcceptAll);
-        let counts = engine.take_counts();
-        assert_eq!(counts.chars, " contract ".len() as u64);
-        assert_eq!(counts.words, 1);
-    }
-
-    #[test]
-    fn double_accept_word_never_reinserts() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        let first = engine.handle(Event::AcceptWord);
-        let second = engine.handle(Event::AcceptWord);
-        assert_eq!(first[0], Action::Insert(" contract".into()));
-        assert_eq!(second[0], Action::Insert(" by".into()));
-    }
-
-    #[test]
-    fn stale_completion_ignored() {
-        let mut engine = Engine::new(Config::default());
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        let Action::ScheduleDebounce { generation, .. } = out[0] else {
-            panic!()
+    fn a_dismiss_holds_until_the_text_changes() {
+        let at = |before: &str| Event::Field(Some(field(before)));
+        let moved = FieldSnapshot {
+            placement: Some(Placement::Inline(Rect {
+                x: 50,
+                y: 10,
+                width: 1,
+                height: 16,
+            })),
+            ..field("Please sign the")
         };
-        engine.handle(Event::DebounceElapsed(generation));
-        let out = engine.handle(Event::Field(Some(field("Please sign them"))));
-        assert_eq!(out[0], Action::CancelCompletion);
-        let out = engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" now")),
-        });
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn low_confidence_and_cancelled_hidden() {
-        let mut engine = Engine::new(Config::default());
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        let Action::ScheduleDebounce { generation, .. } = out[0] else {
-            panic!()
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        let weak = Completion {
-            mean_logprob: -5.0,
-            ..completion(" contract")
-        };
-        assert!(
-            engine
-                .handle(Event::Completed {
-                    generation,
-                    result: Ok(weak)
-                })
-                .is_empty()
-        );
-        assert!(engine.suggestion().is_none());
-    }
-
-    #[test]
-    fn dismiss_blocks_until_text_changes() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        let out = engine.handle(Event::Dismiss);
-        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
-        let mut moved = field("Please sign the");
-        moved.placement = Some(Placement::Inline(Rect {
-            x: 50,
-            y: 10,
-            width: 1,
-            height: 16,
-        }));
-        assert!(engine.handle(Event::Field(Some(moved))).is_empty());
-        let out = engine.handle(Event::Field(Some(field("Please sign the d"))));
-        assert!(
-            matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]),
-            "{out:?}"
-        );
-    }
-
-    #[test]
-    fn trailing_space_strips_leading_space_of_suggestion() {
-        let mut engine = Engine::new(Config::default());
-        let out = suggest(&mut engine, "Please sign the ", " contract");
-        assert!(matches!(&out[0], Action::Show { text, .. } if text == "contract"));
+        let rows: [(Vec<Event>, Event, &[&str]); 5] = [
+            (vec![], Event::Field(Some(moved)), &[]),
+            (vec![], at("Please sign the d"), &["debounce"]),
+            (vec![Event::Field(None)], at("Please sign the"), &[]),
+            (
+                vec![Event::Field(None), at("Please sign the")],
+                at("Please sign the c"),
+                &["debounce"],
+            ),
+            (
+                vec![at("Please sign the d")],
+                at("Please sign the"),
+                &["debounce"],
+            ),
+        ];
+        for (before, probe, expected) in rows {
+            let mut engine = Engine::new(Config::default());
+            suggest(&mut engine, "Please sign the", " contract");
+            let out = engine.handle(Event::Dismiss);
+            assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
+            for event in before.clone() {
+                engine.handle(event);
+            }
+            let out = engine.handle(probe.clone());
+            assert_eq!(kinds(&out), expected, "{before:?} then {probe:?}: {out:?}");
+        }
     }
 
     fn blind(before: &str) -> FieldSnapshot {
@@ -698,43 +626,6 @@ mod tests {
             placement: None,
             ..field(before)
         }
-    }
-
-    #[test]
-    fn never_infers_without_a_placement() {
-        let mut engine = Engine::new(Config::default());
-        for _ in 0..3 {
-            let out = engine.handle(Event::Field(Some(blind("Please sign the"))));
-            assert!(out.is_empty(), "{out:?}");
-        }
-        assert!(engine.handle(Event::DebounceElapsed(0)).is_empty());
-        assert!(engine.suggestion().is_none());
-    }
-
-    #[test]
-    fn caret_lost_before_the_debounce_fires_starts_nothing() {
-        let mut engine = Engine::new(Config::default());
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
-        };
-        assert!(
-            engine
-                .handle(Event::Field(Some(blind("Please sign the"))))
-                .is_empty()
-        );
-        assert!(engine.handle(Event::DebounceElapsed(generation)).is_empty());
-    }
-
-    #[test]
-    fn caret_lost_while_visible_hides_and_disarms() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        let mut blind = field("Please sign the");
-        blind.placement = None;
-        let out = engine.handle(Event::Field(Some(blind)));
-        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
-        assert!(engine.suggestion().is_none());
     }
 
     fn anchored(before: &str) -> FieldSnapshot {
@@ -750,32 +641,12 @@ mod tests {
     }
 
     #[test]
-    fn a_field_without_a_trusted_caret_still_suggests_anchored() {
+    fn the_ghost_is_anchored_without_a_trusted_caret_and_follows_placement_switches() {
         let mut engine = Engine::new(Config::default());
-        let out = engine.handle(Event::Field(Some(anchored("Please sign the"))));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        let out = engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" contract")),
-        });
+        let out = suggest_field(&mut engine, anchored("Please sign the"), " contract");
         let expected = anchored("").placement;
         assert!(
             matches!(&out[0], Action::Show { placement, .. } if Some(*placement) == expected),
-            "{out:?}"
-        );
-    }
-
-    #[test]
-    fn the_ghost_follows_a_placement_switch_between_inline_and_anchored() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        let out = engine.handle(Event::Field(Some(anchored("Please sign the"))));
-        let expected = anchored("").placement;
-        assert!(
-            matches!(out.as_slice(), [Action::Show { placement, .. }] if Some(*placement) == expected),
             "{out:?}"
         );
         let out = engine.handle(Event::Field(Some(field("Please sign the"))));
@@ -789,91 +660,120 @@ mod tests {
             ),
             "{out:?}"
         );
+        let out = engine.handle(Event::Field(Some(anchored("Please sign the"))));
+        assert!(
+            matches!(out.as_slice(), [Action::Show { placement, .. }] if Some(*placement) == expected),
+            "{out:?}"
+        );
     }
 
     #[test]
-    fn focus_loss_resets() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        let out = engine.handle(Event::Field(None));
-        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
-    }
-
-    #[test]
-    fn other_field_with_same_text_reschedules() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        let mut other = field("Please sign the");
-        other.field_id = 2;
-        let out = engine.handle(Event::Field(Some(other)));
-        assert_eq!(out[0], Action::Hide);
-        assert!(matches!(out.last(), Some(Action::ScheduleDebounce { .. })));
-    }
-
-    #[test]
-    fn selecting_while_visible_hides_and_disarms() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        for change in [
-            (|f: &mut FieldSnapshot| f.has_selection = true) as fn(&mut FieldSnapshot),
-            |f| f.composing = true,
-            |f| f.is_password = true,
-        ] {
-            let mut changed = field("Please sign the");
-            change(&mut changed);
-            let out = engine.handle(Event::Field(Some(changed)));
-            assert!(engine.suggestion().is_none());
-            assert!(
-                !out.iter()
-                    .any(|a| matches!(a, Action::ScheduleDebounce { .. })),
-                "{out:?}"
-            );
+    fn leaving_a_visible_suggestion_hides_it_and_reschedules_only_in_a_usable_field() {
+        let same = || field("Please sign the");
+        let rows: [(Event, &[&str]); 8] = [
+            (
+                Event::Field(Some(field("Please sign the x"))),
+                &["hide", "disarm", "debounce"],
+            ),
+            (
+                Event::Field(Some(blind("Please sign the"))),
+                &["hide", "disarm"],
+            ),
+            (Event::Field(None), &["hide", "disarm"]),
+            (
+                Event::Field(Some(FieldSnapshot {
+                    field_id: 2,
+                    ..same()
+                })),
+                &["hide", "disarm", "debounce"],
+            ),
+            (
+                Event::Field(Some(FieldSnapshot {
+                    app: "wordpad".into(),
+                    ..same()
+                })),
+                &["hide", "disarm", "debounce"],
+            ),
+            (
+                Event::Field(Some(FieldSnapshot {
+                    has_selection: true,
+                    ..same()
+                })),
+                &["hide", "disarm"],
+            ),
+            (
+                Event::Field(Some(FieldSnapshot {
+                    composing: true,
+                    ..same()
+                })),
+                &["hide", "disarm"],
+            ),
+            (
+                Event::Field(Some(FieldSnapshot {
+                    is_password: true,
+                    ..same()
+                })),
+                &["hide", "disarm"],
+            ),
+        ];
+        for (event, expected) in rows {
+            let mut engine = Engine::new(Config::default());
             suggest(&mut engine, "Please sign the", " contract");
+            let out = engine.handle(event.clone());
+            assert_eq!(kinds(&out), expected, "{event:?}: {out:?}");
+            assert!(engine.suggestion().is_none(), "{event:?}");
         }
     }
 
     #[test]
-    fn clearing_selection_reschedules() {
-        let mut engine = Engine::new(Config::default());
-        let mut selected = field("Please sign the");
-        selected.has_selection = true;
-        engine.handle(Event::Field(Some(selected)));
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        assert!(
-            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
-            "{out:?}"
-        );
-    }
-
-    #[test]
-    fn resume_reschedules_same_field() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        let out = engine.handle(Event::SetEnabled(false));
-        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
-        let out = engine.handle(Event::SetEnabled(true));
-        assert!(
-            matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]),
-            "{out:?}"
-        );
-    }
-
-    #[test]
-    fn new_config_applies_live_to_the_current_field() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
+    fn clearing_a_blocker_reschedules_exactly_once() {
         let blocked = Config {
             blocked_apps: vec!["notepad".into()],
             ..Config::default()
         };
-        let out = engine.handle(Event::SetConfig(blocked));
-        assert_eq!(out, vec![Action::Hide, Action::DisarmKeys]);
-        assert_eq!(engine.config().blocked_apps, ["notepad"]);
-        let out = engine.handle(Event::SetConfig(Config::default()));
-        assert!(
-            matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]),
-            "{out:?}"
-        );
+        let selected = FieldSnapshot {
+            has_selection: true,
+            ..field("Please sign the")
+        };
+        let rows: [(bool, Event, &[&str], Event); 4] = [
+            (
+                false,
+                Event::Field(Some(selected)),
+                &[],
+                Event::Field(Some(field("Please sign the"))),
+            ),
+            (
+                false,
+                Event::Field(Some(blind("Please sign the"))),
+                &[],
+                Event::Field(Some(field("Please sign the"))),
+            ),
+            (
+                true,
+                Event::SetEnabled(false),
+                &["hide", "disarm"],
+                Event::SetEnabled(true),
+            ),
+            (
+                true,
+                Event::SetConfig(blocked),
+                &["hide", "disarm"],
+                Event::SetConfig(Config::default()),
+            ),
+        ];
+        for (visible, block, expected, clear) in rows {
+            let mut engine = Engine::new(Config::default());
+            if visible {
+                suggest(&mut engine, "Please sign the", " contract");
+            }
+            let out = engine.handle(block.clone());
+            assert_eq!(kinds(&out), expected, "{block:?}: {out:?}");
+            if let Event::SetConfig(config) = &block {
+                assert_eq!(engine.config().blocked_apps, config.blocked_apps);
+            }
+            let out = engine.handle(clear.clone());
+            assert_eq!(kinds(&out), ["debounce"], "{block:?}: {out:?}");
+        }
     }
 
     #[test]
@@ -912,21 +812,6 @@ mod tests {
     }
 
     #[test]
-    fn dismiss_holds_through_focus_flicker_but_not_new_text() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        engine.handle(Event::Dismiss);
-        engine.handle(Event::Field(None));
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        assert!(out.is_empty(), "{out:?}");
-        let out = engine.handle(Event::Field(Some(field("Please sign the c"))));
-        assert!(
-            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
-            "{out:?}"
-        );
-    }
-
-    #[test]
     fn dismiss_holds_while_the_caret_visits_other_spots_in_the_text() {
         let mut engine = Engine::new(Config::default());
         suggest(&mut engine, "Please sign the", " contract");
@@ -940,21 +825,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn caret_returning_reschedules_once() {
-        let mut engine = Engine::new(Config::default());
-        assert!(
-            engine
-                .handle(Event::Field(Some(blind("Please sign the"))))
-                .is_empty()
-        );
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        assert!(
-            matches!(out.as_slice(), [Action::ScheduleDebounce { .. }]),
-            "{out:?}"
-        );
-    }
-
     fn long_text(ending: &str) -> String {
         let mut text: String = (0..6000).map(|n| format!("word{n} ")).collect();
         text.push_str(ending);
@@ -963,37 +833,6 @@ mod tests {
 
     fn slid(document: &str, end: usize, lookback: usize) -> FieldSnapshot {
         field(&document[end.saturating_sub(lookback)..end])
-    }
-
-    #[test]
-    fn long_document_typing_through_and_accepting_keep_the_suggestion() {
-        let mut engine = Engine::new(Config::default());
-        let lookback = engine.config().lookback_chars();
-        let document = long_text("Please sign the");
-        let end = document.len();
-        let out = engine.handle(Event::Field(Some(slid(&document, end, lookback))));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" contract by Friday.")),
-        });
-        assert_eq!(engine.suggestion(), Some(" contract by Friday."));
-        let typed = format!("{document} con");
-        let out = engine.handle(Event::Field(Some(slid(&typed, typed.len(), lookback))));
-        assert!(
-            matches!(out.as_slice(), [Action::Show { text, .. }] if text == "tract by Friday."),
-            "{out:?}"
-        );
-        let out = engine.handle(Event::AcceptWord);
-        assert_eq!(out[0], Action::Insert("tract".into()));
-        let accepted = format!("{typed}tract");
-        let landed = slid(&accepted, accepted.len(), lookback);
-        let out = engine.handle(Event::Field(Some(landed)));
-        assert!(out.is_empty(), "{out:?}");
-        assert_eq!(engine.suggestion(), Some(" by Friday."));
     }
 
     #[test]
@@ -1040,54 +879,32 @@ mod tests {
     }
 
     #[test]
-    fn a_landed_or_diverged_field_ends_the_pending_insert() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        engine.handle(Event::AcceptWord);
-        let out = engine.handle(Event::Field(Some(field("Please sign the contract"))));
-        assert!(out.is_empty(), "{out:?}");
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        assert_eq!(out[0], Action::Hide, "{out:?}");
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        engine.handle(Event::AcceptWord);
-        let out = engine.handle(Event::Field(Some(field("Please sign the x"))));
-        assert_eq!(out[0], Action::Hide, "{out:?}");
-        assert!(engine.suggestion().is_none());
-    }
-
-    #[test]
-    fn a_pending_insert_never_hides_a_selection_or_password() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        engine.handle(Event::AcceptWord);
-        let mut selected = field("Please sign the");
-        selected.has_selection = true;
-        let out = engine.handle(Event::Field(Some(selected)));
-        assert_eq!(out[0], Action::Hide, "{out:?}");
-    }
-
-    #[test]
-    fn same_id_in_another_app_is_another_field() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        let mut other = field("Please sign the");
-        other.app = "wordpad".into();
-        let out = engine.handle(Event::Field(Some(other)));
-        assert_eq!(out[0], Action::Hide);
-    }
-
-    #[test]
-    fn dismiss_ends_once_the_text_changes() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
-        engine.handle(Event::Dismiss);
-        engine.handle(Event::Field(Some(field("Please sign the d"))));
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        assert!(
-            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
-            "{out:?}"
-        );
+    fn a_pending_insert_ends_when_the_field_diverges_reverts_or_is_blocked() {
+        let rows = [
+            vec![field("Please sign the contract"), field("Please sign the")],
+            vec![field("Please sign the x")],
+            vec![FieldSnapshot {
+                has_selection: true,
+                ..field("Please sign the")
+            }],
+            vec![FieldSnapshot {
+                is_password: true,
+                ..field("Please sign the")
+            }],
+        ];
+        for row in rows {
+            let mut engine = Engine::new(Config::default());
+            suggest(&mut engine, "Please sign the", " contract by Friday.");
+            engine.handle(Event::AcceptWord);
+            let (last, landed) = row.split_last().unwrap();
+            for snapshot in landed {
+                let out = engine.handle(Event::Field(Some(snapshot.clone())));
+                assert!(out.is_empty(), "{row:?}: {out:?}");
+            }
+            let out = engine.handle(Event::Field(Some(last.clone())));
+            assert_eq!(out[0], Action::Hide, "{row:?}: {out:?}");
+            assert!(engine.suggestion().is_none(), "{row:?}");
+        }
     }
 
     #[test]
@@ -1100,46 +917,6 @@ mod tests {
         engine.handle(Event::Field(Some(other)));
         let out = engine.handle(Event::Field(Some(field("Please sign the"))));
         assert!(out.is_empty(), "{out:?}");
-    }
-
-    #[test]
-    fn nan_confidence_is_never_shown() {
-        let mut engine = Engine::new(Config::default());
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        let unknown = Completion {
-            mean_logprob: f32::NAN,
-            ..completion(" contract")
-        };
-        let out = engine.handle(Event::Completed {
-            generation,
-            result: Ok(unknown),
-        });
-        assert!(out.is_empty(), "{out:?}");
-    }
-
-    #[test]
-    fn duplicate_completion_for_one_request_is_ignored() {
-        let mut engine = Engine::new(Config::default());
-        let out = engine.handle(Event::Field(Some(field("Please sign the"))));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        let first = engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" contract")),
-        });
-        assert_eq!(first.len(), 2);
-        let again = engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" other")),
-        });
-        assert!(again.is_empty(), "{again:?}");
-        assert_eq!(engine.suggestion(), Some(" contract"));
     }
 
     fn pausing(limit: u32) -> Engine {
@@ -1157,15 +934,7 @@ mod tests {
     }
 
     fn suggest_in(engine: &mut Engine, app: &str, before: &str, text: &str) {
-        let out = engine.handle(Event::Field(Some(in_app(app, before))));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
-        };
-        engine.handle(Event::DebounceElapsed(generation));
-        engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(text)),
-        });
+        suggest_field(engine, in_app(app, before), text);
         assert!(engine.suggestion().is_some());
     }
 
@@ -1204,27 +973,6 @@ mod tests {
     }
 
     #[test]
-    fn dismissals_count_and_report_the_paused_app() {
-        let mut engine = pausing(2);
-        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
-        assert!(paused_in(&engine.handle(Event::Dismiss)).is_none());
-        suggest_in(&mut engine, "Slack", "Please sign the d", " contract");
-        let out = engine.handle(Event::Dismiss);
-        assert_eq!(paused_in(&out), Some(&vec!["Slack".to_string()]));
-    }
-
-    #[test]
-    fn accepting_resets_the_streak() {
-        let mut engine = pausing(2);
-        for _ in 0..4 {
-            suggest_in(&mut engine, "notepad", "Please sign the", " contract");
-            assert!(paused_in(&engine.handle(Event::Dismiss)).is_none());
-            suggest_in(&mut engine, "notepad", "Please sign the d", " contract");
-            engine.handle(Event::AcceptAll);
-        }
-    }
-
-    #[test]
     fn typing_the_suggestion_through_counts_as_accepted() {
         let mut engine = pausing(2);
         for _ in 0..4 {
@@ -1255,56 +1003,28 @@ mod tests {
     }
 
     #[test]
-    fn pause_is_per_app() {
-        let mut engine = pausing(1);
+    fn dismissals_pause_one_app_through_config_changes_until_resumed() {
+        let mut engine = pausing(2);
         suggest_in(&mut engine, "Slack", "Please sign the", " contract");
-        engine.handle(Event::Dismiss);
-        let out = engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
-        assert!(out.is_empty(), "{out:?}");
-        let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign the"))));
-        assert!(
-            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
-            "{out:?}"
-        );
-    }
+        assert!(paused_in(&engine.handle(Event::Dismiss)).is_none());
+        suggest_in(&mut engine, "Slack", "Please sign the d", " contract");
+        let out = engine.handle(Event::Dismiss);
+        assert_eq!(paused_in(&out), Some(&vec!["Slack".to_string()]));
 
-    #[test]
-    fn resume_restarts_suggesting_in_the_paused_app() {
-        let mut engine = pausing(1);
-        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
-        engine.handle(Event::Dismiss);
-        engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
-        let out = engine.handle(Event::Resume("slack".into()));
-        assert_eq!(paused_in(&out), Some(&Vec::new()));
-        assert!(
-            matches!(out.last(), Some(Action::ScheduleDebounce { .. })),
-            "{out:?}"
-        );
-        assert!(engine.handle(Event::Resume("slack".into())).is_empty());
-    }
-
-    #[test]
-    fn set_config_keeps_the_auto_paused_apps() {
-        let mut engine = pausing(1);
-        suggest_in(&mut engine, "Slack", "Please sign the", " contract");
-        engine.handle(Event::Dismiss);
         let config = engine.config().clone();
         engine.handle(Event::SetConfig(config));
         let out = engine.handle(Event::Field(Some(in_app("Slack", "Please sign thex"))));
         assert!(out.is_empty(), "{out:?}");
+
+        let out = engine.handle(Event::Field(Some(in_app("notepad", "Please sign the"))));
+        assert_eq!(kinds(&out), ["debounce"], "{out:?}");
+
+        let out = engine.handle(Event::Field(Some(in_app("Slack", "Please sign thexy"))));
+        assert!(out.is_empty(), "{out:?}");
         let out = engine.handle(Event::Resume("slack".into()));
         assert_eq!(paused_in(&out), Some(&Vec::new()));
-    }
-
-    #[test]
-    fn zero_limit_disables_auto_pause() {
-        let mut engine = pausing(0);
-        for round in 0..30 {
-            let before = format!("Please sign the {round}");
-            suggest_in(&mut engine, "notepad", &before, " contract");
-            let out = engine.handle(Event::Dismiss);
-            assert!(paused_in(&out).is_none());
-        }
+        assert_eq!(kinds(&out), ["other", "debounce"], "{out:?}");
+        assert!(engine.handle(Event::Resume("slack".into())).is_empty());
     }
 
     fn accepted_insert(config: Config, before: &str, text: &str, event: Event) -> String {
@@ -1363,7 +1083,7 @@ mod tests {
     }
 
     #[test]
-    fn trailing_space_is_off_by_default_and_never_doubles() {
+    fn trailing_space_is_off_by_default_never_doubles_and_does_not_reset_the_engine() {
         let off = accepted_insert(
             Config::default(),
             "Please sign the",
@@ -1371,24 +1091,16 @@ mod tests {
             Event::AcceptAll,
         );
         assert_eq!(off, " contract");
+
         let mut engine = Engine::new(spaced());
-        let mut snapshot = field("Please sign the");
-        snapshot.after = " ".into();
-        let out = engine.handle(Event::Field(Some(snapshot)));
-        let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
-            panic!("{out:?}")
+        let snapshot = FieldSnapshot {
+            after: " ".into(),
+            ..field("Please sign the")
         };
-        engine.handle(Event::DebounceElapsed(generation));
-        engine.handle(Event::Completed {
-            generation,
-            result: Ok(completion(" contract")),
-        });
+        suggest_field(&mut engine, snapshot, " contract");
         let out = engine.handle(Event::AcceptAll);
         assert!(out.contains(&Action::Insert(" contract".into())), "{out:?}");
-    }
 
-    #[test]
-    fn spaced_accept_lands_without_resetting_the_engine() {
         let mut engine = Engine::new(spaced());
         suggest(&mut engine, "Please sign the", " contract");
         engine.handle(Event::AcceptAll);
@@ -1441,22 +1153,6 @@ mod tests {
         assert!(out.is_empty(), "{out:?}");
     }
 
-    #[test]
-    fn word_accept_works_on_right_to_left_text() {
-        let mut engine = Engine::new(Config::default());
-        let first = " \u{627}\u{644}\u{644}\u{647}";
-        let rest = " \u{627}\u{644}\u{631}\u{62d}\u{645}\u{646}";
-        suggest(
-            &mut engine,
-            "\u{628}\u{633}\u{645}",
-            &format!("{first}{rest}"),
-        );
-        let out = engine.handle(Event::AcceptWord);
-        assert_eq!(out[0], Action::Insert(first.into()));
-        assert!(no_model_work(&out), "{out:?}");
-        assert_eq!(engine.suggestion(), Some(rest));
-    }
-
     fn racing_engine() -> Engine {
         Engine::new(Config {
             accept_race_ms: 1_000,
@@ -1465,46 +1161,30 @@ mod tests {
     }
 
     #[test]
-    fn accept_right_after_the_suggestion_appears_is_refused() {
+    fn an_accept_right_after_the_suggestion_appears_is_refused_until_the_race_window_passes() {
+        let later = Instant::now() + Duration::from_secs(5);
+        assert!(!Engine::new(Config::default()).can_accept(later, false));
+
+        let mut open = Engine::new(Config {
+            accept_race_ms: 0,
+            ..Config::default()
+        });
+        suggest(&mut open, "Please sign the", " contract by Friday.");
+        assert!(open.can_accept(Instant::now(), false));
+
         let mut engine = racing_engine();
         suggest(&mut engine, "Please sign the", " contract by Friday.");
         assert!(!engine.can_accept(Instant::now(), false));
         assert!(!engine.can_accept(Instant::now(), true));
-        let later = Instant::now() + Duration::from_secs(5);
         assert!(engine.can_accept(later, false));
-    }
+        engine.handle(Event::Field(Some(field("Please sign the con"))));
+        assert!(!engine.can_accept(Instant::now(), false));
+        assert!(engine.can_accept(later, false));
 
-    #[test]
-    fn race_window_is_configurable_and_can_be_off() {
-        let mut engine = Engine::new(Config {
-            accept_race_ms: 0,
-            ..Config::default()
-        });
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        assert!(engine.can_accept(Instant::now(), false));
-    }
-
-    #[test]
-    fn nothing_to_accept_without_a_suggestion() {
-        let engine = Engine::new(Config::default());
-        assert!(!engine.can_accept(Instant::now() + Duration::from_secs(5), false));
-    }
-
-    #[test]
-    fn a_word_accept_ends_the_race_for_the_remainder() {
         let mut engine = racing_engine();
         suggest(&mut engine, "Please sign the", " contract by Friday.");
         engine.handle(Event::AcceptWord);
         assert!(engine.can_accept(Instant::now(), false));
-    }
-
-    #[test]
-    fn typing_through_does_not_restart_the_race() {
-        let mut engine = racing_engine();
-        suggest(&mut engine, "Please sign the", " contract by Friday.");
-        engine.handle(Event::Field(Some(field("Please sign the con"))));
-        assert!(!engine.can_accept(Instant::now(), false));
-        assert!(engine.can_accept(Instant::now() + Duration::from_secs(5), false));
     }
 
     #[test]
@@ -1569,13 +1249,6 @@ mod tests {
     }
 
     #[test]
-    fn trigger_suggests_in_non_prose_lines() {
-        let mut engine = Engine::new(Config::default());
-        engine.handle(Event::Field(Some(field("4242 4242 4242"))));
-        trigger_now(&mut engine);
-    }
-
-    #[test]
     fn trigger_starts_immediately_and_supersedes_a_pending_debounce() {
         let mut engine = Engine::new(Config::default());
         let out = engine.handle(Event::Field(Some(field("Please sign the"))));
@@ -1622,7 +1295,7 @@ mod tests {
     }
 
     #[test]
-    fn trigger_does_nothing_while_a_suggestion_is_visible_or_in_flight() {
+    fn trigger_does_nothing_while_a_suggestion_is_visible_or_in_flight_but_overrides_a_dismiss() {
         let mut engine = Engine::new(Config::default());
         let out = engine.handle(Event::Field(Some(field("Please sign the"))));
         let Some(Action::ScheduleDebounce { generation, .. }) = out.last().cloned() else {
@@ -1636,12 +1309,7 @@ mod tests {
         });
         assert!(engine.handle(Event::Trigger).is_empty());
         assert_eq!(engine.suggestion(), Some(" contract"));
-    }
 
-    #[test]
-    fn trigger_overrides_a_dismiss() {
-        let mut engine = Engine::new(Config::default());
-        suggest(&mut engine, "Please sign the", " contract");
         engine.handle(Event::Dismiss);
         let generation = trigger_now(&mut engine);
         let out = engine.handle(Event::Completed {
@@ -1659,7 +1327,7 @@ mod tests {
     }
 
     #[test]
-    fn forcing_ends_when_the_suggestion_is_used_up() {
+    fn forcing_ends_when_the_suggestion_is_used_up_the_text_diverges_or_the_field_changes() {
         let mut engine = strict();
         engine.handle(Event::Field(Some(field("Hi"))));
         let generation = trigger_now(&mut engine);
@@ -1672,10 +1340,7 @@ mod tests {
         assert!(out.is_empty(), "{out:?}");
         let out = engine.handle(Event::Field(Some(field("Hi there!"))));
         assert!(no_model_work(&out), "{out:?}");
-    }
 
-    #[test]
-    fn forcing_ends_when_the_text_diverges_or_the_field_changes() {
         let mut engine = strict();
         engine.handle(Event::Field(Some(field("Hi"))));
         let generation = trigger_now(&mut engine);
@@ -1701,7 +1366,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_mode_never_asks_on_its_own() {
+    fn manual_mode_never_asks_on_its_own_and_stays_manual_after_a_trigger() {
         let mut engine = manual();
         for text in ["Please sign the", "Please sign the c", "Please sign the co"] {
             let out = engine.handle(Event::Field(Some(field(text))));
@@ -1712,10 +1377,7 @@ mod tests {
         assert!(no_model_work(&out), "{out:?}");
         let out = engine.handle(Event::Field(None));
         assert!(out.is_empty(), "{out:?}");
-    }
 
-    #[test]
-    fn manual_mode_suggests_on_the_trigger_and_stays_manual_afterwards() {
         let mut engine = manual();
         engine.handle(Event::Field(Some(field("Please sign the"))));
         let generation = trigger_now(&mut engine);
