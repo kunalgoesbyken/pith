@@ -3,6 +3,7 @@ mod chord;
 mod color;
 mod config;
 mod engine;
+mod field;
 mod ghost;
 mod ignore;
 mod log;
@@ -26,6 +27,7 @@ pub use config::{
     Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, Reach, TriggerMode, app_name,
 };
 pub use engine::{Action, Engine, Event};
+pub use field::{AFTER_CHARS, FieldParts, Surrounding, is_redacted};
 pub use ghost::{
     FADE_ALPHAS, FADE_FRAME_MS, Flow, Ink, Line, fits, flow_bounds, ink, is_rtl, layout,
     lines_that_fit, median_by_luminance, next_word_alpha, opacity_alpha, strong_span,

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
-use pith_core::{Config, FieldSnapshot, place};
+use pith_core::{AFTER_CHARS, Config, FieldParts, FieldSnapshot, Surrounding, is_redacted, place};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -152,14 +152,6 @@ fn serve(
     }
 }
 
-fn normalize(text: String) -> String {
-    if text.contains('\r') {
-        text.replace("\r\n", "\n").replace('\r', "\n")
-    } else {
-        text
-    }
-}
-
 fn read(
     automation: &IUIAutomation,
     source: Source,
@@ -199,7 +191,6 @@ fn read(
             return Ok(None);
         }
         let app = process_name(owner);
-        let blocked = app.as_deref().is_none_or(|name| config.is_blocked(name));
         let is_password = element
             .CurrentIsPassword()
             .map(|b| b.as_bool())
@@ -207,25 +198,32 @@ fn read(
         let Ok(caret) = caret_range(&element) else {
             return Ok(None);
         };
-        let (before, after) = if is_password || blocked {
-            (String::new(), String::new())
+        let surrounding = if is_redacted(config, app.as_deref(), is_password) {
+            None
         } else {
             let lookback = config.lookback_chars();
-            text_around(&caret, i32::try_from(lookback).unwrap_or(i32::MAX), 200)?
+            let (before, after) = text_around(
+                &caret,
+                i32::try_from(lookback).unwrap_or(i32::MAX),
+                i32::try_from(AFTER_CHARS).unwrap_or(i32::MAX),
+            )?;
+            Some(Surrounding { before, after })
         };
         let style = font(&caret, GetDpiForWindow(root).max(96));
         let element_rect = element.CurrentBoundingRectangle().ok().map(rect_of);
-        Ok(Some(FieldSnapshot {
-            field_id: runtime_id(&element),
-            app: app.unwrap_or_default(),
-            window_title: window_title(root),
-            before: normalize(before),
-            after: normalize(after).into(),
-            has_selection: has_selection(&element),
-            is_password,
-            composing: composing(&element),
-            placement: place(caret_rect(&caret, foreground), element_rect, &work_areas()),
-            style,
-        }))
+        Ok(Some(FieldSnapshot::from_parts(
+            config,
+            FieldParts {
+                field_id: runtime_id(&element),
+                app,
+                window_title: window_title(root),
+                surrounding,
+                has_selection: has_selection(&element),
+                is_password,
+                composing: composing(&element),
+                placement: place(caret_rect(&caret, foreground), element_rect, &work_areas()),
+                style,
+            },
+        )))
     }
 }

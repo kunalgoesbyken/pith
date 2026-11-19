@@ -1,8 +1,10 @@
+use serde::Serialize;
+
 use crate::Rgb;
 use crate::placement::Placement;
 use crate::suffix::After;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -10,14 +12,14 @@ pub struct Rect {
     pub height: i32,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct TextStyle {
     pub family: Option<String>,
     pub px: Option<f32>,
     pub color: Option<Rgb>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct FieldSnapshot {
     pub field_id: u64,
     pub app: String,

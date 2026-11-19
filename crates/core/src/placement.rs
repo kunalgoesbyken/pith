@@ -1,6 +1,8 @@
+use serde::Serialize;
+
 use crate::types::Rect;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum Placement {
     Inline(Rect),
     Anchored(Rect),

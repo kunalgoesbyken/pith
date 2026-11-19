@@ -2,7 +2,7 @@ const CHANNEL_SHIFTS: [u32; 3] = [16, 8, 0];
 const BGR_SHIFTS: [u32; 3] = [0, 8, 16];
 const FULL: u32 = 255;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Rgb(pub u32);
 
 impl Rgb {
