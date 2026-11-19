@@ -29,6 +29,14 @@ const CI_ENVIRONMENT: [(&str, &str); 3] = [
 ];
 const NOT_INSTALLED: &str = "not installed on this runner";
 
+struct QuitOnDrop(Inbox);
+
+impl Drop for QuitOnDrop {
+    fn drop(&mut self) {
+        self.0.post(Inbound::Command(TrayCommand::Quit));
+    }
+}
+
 fn value(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .position(|arg| arg == name)
@@ -74,10 +82,18 @@ fn main() {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     if !target.exe.exists() {
+        let mut failed = false;
         for case in app.cases() {
-            record(&out, &Row::skipped(app, case, NOT_INSTALLED));
+            let mut row = Row::new(app, case);
+            if app.optional() {
+                row = Row::skipped(app, case, NOT_INSTALLED);
+            } else {
+                row.fail(NOT_INSTALLED);
+            }
+            failed |= row.failed();
+            record(&out, &row);
         }
-        return;
+        std::process::exit(i32::from(failed));
     }
     let config = Config {
         model: Some(ModelPreset::Small),
@@ -107,8 +123,9 @@ fn main() {
             let _ = probe_tx.send((snapshot, served));
         }),
     );
-    let quit = inbox.clone();
+    let quit = QuitOnDrop(inbox.clone());
     let driver = std::thread::spawn(move || {
+        let _quit = quit;
         let ready = ready_rx.recv_timeout(WORKER_READY_WAIT);
         let mut failures = 0;
         if matches!(ready, Ok(Ok(_))) {
@@ -127,7 +144,6 @@ fn main() {
             eprintln!("model did not load: {ready:?}");
             failures += 1;
         }
-        quit.post(Inbound::Command(TrayCommand::Quit));
         failures
     });
     let options = Options {

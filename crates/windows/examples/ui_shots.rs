@@ -15,7 +15,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 mod common;
 
-use common::{bgra_to_rgba, bitmap_info, png};
+use common::{bgra_to_rgba, bitmap_info, png, window_rect};
 
 const OUT_DIR: &str = "target/ui-shots";
 const DPIS: [u32; 2] = [96, 144];
@@ -58,10 +58,7 @@ fn save(name: &str, width: i32, height: i32, bgra: &[u8]) {
 
 fn capture(hwnd: HWND, name: &str, fallback: [u8; 3]) {
     pump();
-    let mut rect = RECT::default();
-    unsafe {
-        let _ = GetWindowRect(hwnd, &mut rect);
-    }
+    let rect = window_rect(hwnd);
     let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
     let info = bitmap_info(width, height);
     let mut bits = std::ptr::null_mut();
@@ -92,8 +89,7 @@ fn park(hwnd: HWND, dpi: u32) {
         );
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         if dpi != 96 {
-            let mut at = RECT::default();
-            let _ = GetWindowRect(hwnd, &mut at);
+            let at = window_rect(hwnd);
             SendMessageW(
                 hwnd,
                 WM_DPICHANGED,
@@ -156,10 +152,7 @@ fn onboarding(name: &str, events: &[OnboardingEvent], dpi: u32, fallback: [u8; 3
 }
 
 fn control_size(hwnd: HWND) -> (i32, i32) {
-    let mut rect = RECT::default();
-    unsafe {
-        let _ = GetWindowRect(hwnd, &mut rect);
-    }
+    let rect = window_rect(hwnd);
     (rect.right - rect.left, rect.bottom - rect.top)
 }
 

@@ -3,20 +3,17 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use pith_core::{Action, FieldSnapshot, Placement, Rect};
-use pith_windows::{OVERLAY_CLASS, Reader};
+use pith_windows::Reader;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
 use windows::Win32::UI::Accessibility::{CUIAutomation8, IUIAutomation, UIA_TextPatternId};
 use windows::Win32::UI::Input::KeyboardAndMouse::VK_TAB;
-use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetSystemMetrics, IsWindowVisible};
-use windows::Win32::UI::WindowsAndMessaging::{SM_CXSCREEN, SM_CYSCREEN};
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
-use crate::common::{screenshot, tail};
-use crate::input::{
-    POLL, focus_field, press, type_text, visible_titles, wait_for_window, window_rect,
-};
+use crate::common::{overlay_visible, screenshot, tail, window_rect};
+use crate::input::{POLL, focus_field, press, type_text, visible_titles, wait_for_window};
 use crate::launch::{Target, launch, marker};
 use crate::report::{Case, Row};
 
@@ -135,12 +132,9 @@ fn caret_cell(placement: Option<Placement>, window: RECT) -> String {
     match placement {
         Some(Placement::Inline(rect)) => rect_cell("inline", rect, window),
         Some(Placement::Anchored(rect)) => rect_cell("pill", rect, window),
+        Some(Placement::BelowCaret(rect)) => rect_cell("below caret", rect, window),
         None => "none".to_string(),
     }
-}
-
-fn overlay_visible() -> bool {
-    unsafe { FindWindowW(OVERLAY_CLASS, None).is_ok_and(|hwnd| IsWindowVisible(hwnd).as_bool()) }
 }
 
 fn whole_screen() -> RECT {
@@ -228,7 +222,7 @@ fn exercise(rig: &mut Rig, hwnd: HWND, out: &Path, shot: &str, row: &mut Row) {
         tail(&text, TAIL_CHARS),
         latency.as_millis(),
         if visible { "visible" } else { "not visible" },
-        if matches!(placement, Placement::Anchored(_)) {
+        if matches!(placement, Placement::Anchored(_) | Placement::BelowCaret(_)) {
             ", drawn as a pill"
         } else {
             ""

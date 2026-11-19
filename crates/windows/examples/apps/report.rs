@@ -26,6 +26,10 @@ impl App {
         }
     }
 
+    pub fn optional(self) -> bool {
+        matches!(self, App::Electron | App::Notepad)
+    }
+
     pub fn cases(self) -> Vec<Case> {
         match self {
             App::Notepad => vec![Case {

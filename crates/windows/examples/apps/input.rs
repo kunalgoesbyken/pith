@@ -1,18 +1,17 @@
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{HWND, LPARAM, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
     KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
     SendInput, VIRTUAL_KEY, VK_MENU,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowRect, IsWindowVisible, SW_MAXIMIZE, SetCursorPos, SetForegroundWindow,
-    ShowWindow,
+    EnumWindows, IsWindowVisible, SW_MAXIMIZE, SetCursorPos, SetForegroundWindow, ShowWindow,
 };
 use windows::core::BOOL;
 
-use crate::common::window_title;
+use crate::common::{window_rect, window_title};
 
 const KEY_GAP: Duration = Duration::from_millis(30);
 const WINDOW_WAIT: Duration = Duration::from_secs(25);
@@ -80,14 +79,6 @@ fn click(x: i32, y: i32) {
         let _ = SetCursorPos(x, y);
     }
     inject(&[mouse(MOUSEEVENTF_LEFTDOWN), mouse(MOUSEEVENTF_LEFTUP)]);
-}
-
-pub fn window_rect(hwnd: HWND) -> RECT {
-    let mut rect = RECT::default();
-    unsafe {
-        let _ = GetWindowRect(hwnd, &mut rect);
-    }
-    rect
 }
 
 unsafe extern "system" fn collect(hwnd: HWND, lparam: LPARAM) -> BOOL {

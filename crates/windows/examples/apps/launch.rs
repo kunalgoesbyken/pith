@@ -56,14 +56,16 @@ impl Drop for Profile {
 }
 
 pub struct Launched {
-    _job: Owned<HANDLE>,
-    _profile: Option<Profile>,
+    job: Owned<HANDLE>,
+    profile: Option<Profile>,
 }
 
 impl Launched {
     pub fn close(self, marker: &str) {
-        drop(self);
+        let Self { job, profile } = self;
+        drop(job);
         wait_until_gone(marker);
+        drop(profile);
     }
 }
 
@@ -238,8 +240,5 @@ pub fn launch(target: &Target, case: Case) -> Result<Launched, String> {
     };
     let args = arguments(target, case, profile.as_ref());
     let job = spawn_limited(&target.exe, &args)?;
-    Ok(Launched {
-        _job: job,
-        _profile: profile,
-    })
+    Ok(Launched { job, profile })
 }

@@ -10,8 +10,8 @@ use pith_core::{
 };
 use pith_infer::{Backend, Worker};
 use pith_windows::{
-    Inbound, Inbox, InsertMode, KeyAction, OVERLAY_CLASS, Onboarding, OnboardingEvent,
-    OnboardingStep, Options, Outcome, Reader, Source, TrayCommand, Trigger, paste, run,
+    Inbound, Inbox, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options,
+    Outcome, Reader, Source, TrayCommand, Trigger, paste, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -35,7 +35,7 @@ use windows::core::{PCWSTR, w};
 
 mod common;
 
-use common::{wide, window_title};
+use common::{overlay_visible, overlay_window, wide, window_rect, window_title};
 
 static TARGET: AtomicIsize = AtomicIsize::new(0);
 static THROUGH_CLIPBOARD: AtomicBool = AtomicBool::new(false);
@@ -299,14 +299,6 @@ fn caret_screen(edit: isize, index: usize) -> (i32, i32) {
     (point.x, point.y)
 }
 
-fn window_rect(hwnd: HWND) -> RECT {
-    let mut rect = RECT::default();
-    unsafe {
-        let _ = GetWindowRect(hwnd, &mut rect);
-    }
-    rect
-}
-
 fn monitor_of(hwnd: HWND) -> HMONITOR {
     unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL) }
 }
@@ -334,14 +326,6 @@ fn move_host(field: Field, left: i32, top: i32) {
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER,
         );
     }
-}
-
-fn overlay_window() -> Option<HWND> {
-    unsafe { FindWindowW(OVERLAY_CLASS, None).ok() }
-}
-
-fn overlay_visible() -> bool {
-    overlay_window().is_some_and(|hwnd| unsafe { IsWindowVisible(hwnd).as_bool() })
 }
 
 struct Memory {

@@ -3,13 +3,16 @@
 use std::ffi::c_void;
 use std::path::Path;
 
+use pith_windows::OVERLAY_CLASS;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
     CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC,
     SRCCOPY, SelectObject,
 };
-use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, GetWindowRect, GetWindowTextW, IsWindowVisible,
+};
 
 const TITLE_CHARS: usize = 1024;
 
@@ -26,6 +29,22 @@ pub fn window_title(hwnd: HWND) -> String {
     let mut buffer = [0u16; TITLE_CHARS];
     let length = unsafe { GetWindowTextW(hwnd, &mut buffer) } as usize;
     String::from_utf16_lossy(&buffer[..length])
+}
+
+pub fn window_rect(hwnd: HWND) -> RECT {
+    let mut rect = RECT::default();
+    unsafe {
+        let _ = GetWindowRect(hwnd, &mut rect);
+    }
+    rect
+}
+
+pub fn overlay_window() -> Option<HWND> {
+    unsafe { FindWindowW(OVERLAY_CLASS, None).ok() }
+}
+
+pub fn overlay_visible() -> bool {
+    overlay_window().is_some_and(|hwnd| unsafe { IsWindowVisible(hwnd).as_bool() })
 }
 
 pub fn png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
