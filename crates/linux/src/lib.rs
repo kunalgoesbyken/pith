@@ -3,6 +3,7 @@
 mod accessibility;
 mod bounded;
 mod caret;
+mod current;
 mod error;
 mod field;
 mod focus;

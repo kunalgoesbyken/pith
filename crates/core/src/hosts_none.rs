@@ -17,7 +17,3 @@ pub fn is_generic_entry(_stem: &str) -> bool {
 pub fn is_unlisted_id(_app: &str) -> bool {
     false
 }
-
-pub fn inserts_by_paste(_app: &str) -> bool {
-    false
-}

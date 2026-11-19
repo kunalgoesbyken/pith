@@ -157,6 +157,21 @@ const LINUX: Names = [
     ),
 ];
 
+#[cfg(target_os = "linux")]
+const PASTE_ONLY: &[&str] = &[
+    "firefox",
+    "firefox-bin",
+    "firefox-esr",
+    "firefox.real",
+    "librewolf",
+    "thunderbird",
+    "thunderbird-bin",
+    "tor-browser",
+];
+
+#[cfg(not(target_os = "linux"))]
+const PASTE_ONLY: &[&str] = &[];
+
 #[cfg(not(any(windows, target_os = "linux")))]
 const UNSUPPORTED: Names = [
     (Surface::Secure, &[]),
@@ -209,6 +224,10 @@ pub fn surface(app: &str) -> Option<(Surface, &'static str)> {
             .find(|name| same_app(name, app))
             .map(|name| (*surface, *name))
     })
+}
+
+pub fn inserts_by_paste(app: &str) -> bool {
+    PASTE_ONLY.iter().any(|name| same_app(name, app))
 }
 
 pub fn editor(app: &str) -> Option<&'static str> {

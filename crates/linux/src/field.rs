@@ -54,6 +54,17 @@ async fn around_caret(
     Ok((surrounding, text.caret_offset().await?))
 }
 
+async fn title_unless_redacted(
+    connection: &Connection,
+    target: &ObjectRefOwned,
+    redacted: bool,
+) -> String {
+    if redacted {
+        return String::new();
+    }
+    window::title(connection, target).await.unwrap_or_default()
+}
+
 async fn view(
     text: &TextProxy<'_>,
     redacted: bool,
@@ -131,11 +142,7 @@ pub(crate) async fn read(
         FieldParts {
             field_id: field_id(&target),
             app: Some(app.to_string()),
-            window_title: if redacted {
-                String::new()
-            } else {
-                window::title(connection, &target).await.unwrap_or_default()
-            },
+            window_title: title_unless_redacted(connection, &target, redacted).await,
             surrounding: view.surrounding,
             has_selection: caret::has_selection(&text).await,
             is_password,

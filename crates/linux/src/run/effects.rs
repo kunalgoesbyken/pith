@@ -101,15 +101,15 @@ impl Effects {
             Err(error) => {
                 log(&format!("insert through accessibility failed: {error}"));
                 if self.policy.falls_back() && current == Some(&pending.target) {
-                    self.paste(pending.text, pending.focus);
+                    self.paste(pending.text, pending.focus, pending.target);
                 }
             }
         }
     }
 
-    fn paste(&self, text: String, focus: Option<PasteTarget>) {
+    fn paste(&self, text: String, focus: Option<PasteTarget>, target: Target) {
         match (&self.clipboard, focus) {
-            (Some(clipboard), Some(focus)) => clipboard.paste(text, focus),
+            (Some(clipboard), Some(focus)) => clipboard.paste(text, focus, target),
             _ => log("no clipboard or no focused window to paste into"),
         }
     }
@@ -193,7 +193,7 @@ impl App {
     }
 
     fn insert(&mut self, text: String) {
-        let Some(target) = self.current.clone() else {
+        let Some(target) = self.current.get() else {
             log("no field is known, nothing was inserted");
             return;
         };
@@ -207,7 +207,7 @@ impl App {
             });
             self.reader.insert(text, target);
         } else {
-            self.effects.paste(text, focus);
+            self.effects.paste(text, focus, target);
         }
     }
 

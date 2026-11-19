@@ -32,7 +32,7 @@ mod text;
 mod types;
 mod typo;
 
-pub use apps::Access;
+pub use apps::{Access, inserts_by_paste};
 pub use chord::{Chord, Key};
 pub use color::{Rgb, argb};
 pub use config::{
@@ -45,7 +45,7 @@ pub use ghost::{
     FADE_ALPHAS, FADE_FRAME_MS, Flow, Ink, Line, fits, flow_bounds, ink, is_rtl, layout,
     lines_that_fit, median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
 };
-pub use hosts::{entry_of, inserts_by_paste, is_generic_entry, is_runtime, is_unlisted_id};
+pub use hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
 pub use log::{init_log, log};
 pub use pause::{Pause, PauseSpan, Pauses, clock_after};

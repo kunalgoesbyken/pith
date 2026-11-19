@@ -18,7 +18,8 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
 use crate::accessibility::Consent;
-use crate::error::{ReaderError, Target};
+use crate::current::Current;
+use crate::error::ReaderError;
 use crate::held::Held;
 use crate::overlay::Overlay;
 use crate::reader::Reader;
@@ -127,7 +128,7 @@ struct App {
     reader: Reader,
     worker: Worker,
     overlay: Overlay,
-    current: Option<Target>,
+    current: Current,
 }
 
 impl App {
@@ -194,10 +195,18 @@ pub fn run(
     let grabs = Grabs::new(display.clone())?;
     let held = Held::default();
     let overlay = Overlay::create(display.clone(), desktop.clone(), config.ghost_opacity)?;
-    let clipboard = Clipboard::spawn({
-        let failures = inbox.clone();
-        move |error| failures.post(Inbound::Failed(error))
-    })
+    let current = Current::default();
+    let clipboard = Clipboard::spawn(
+        current.clone(),
+        {
+            let unpasted = inbox.clone();
+            move || unpasted.post(Inbound::Unpasted)
+        },
+        {
+            let failures = inbox.clone();
+            move |error| failures.post(Inbound::Failed(error))
+        },
+    )
     .map_err(|error| log(&format!("clipboard unavailable: {error}")))
     .ok();
     let (keys, closed) = (inbox.clone(), inbox.clone());
@@ -236,7 +245,7 @@ pub fn run(
         reader,
         worker,
         overlay,
-        current: None,
+        current,
     };
     let outcome = app.serve(&inbound);
     app.shutdown();

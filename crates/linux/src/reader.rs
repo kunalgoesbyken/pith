@@ -100,6 +100,8 @@ impl Pending {
     }
 }
 
+const NO_PRESS: u64 = 0;
+
 impl Reader {
     pub fn spawn(
         config: Config,
@@ -162,6 +164,10 @@ impl Reader {
 
     pub fn request(&self, id: u64) {
         let _ = self.commands.try_send(Command::Read(id));
+    }
+
+    pub fn refresh(&self) {
+        let _ = self.commands.try_send(Command::Read(NO_PRESS));
     }
 
     pub fn insert(&self, text: String, target: Target) {

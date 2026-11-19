@@ -16,6 +16,8 @@ use x11rb::wrapper::ConnectionExt as _;
 
 use super::display::{Display, DisplayError};
 use super::keymap::Keyboard;
+use crate::current::Current;
+use crate::error::Target;
 
 const FETCH_WAIT: Duration = Duration::from_millis(300);
 const SAVE_WAIT: Duration = Duration::from_millis(2000);
@@ -37,6 +39,14 @@ x11rb::atom_manager! {
         SAVE_TARGETS,
         TEXT_PLAIN_UTF8: b"text/plain;charset=utf-8",
         TEXT_HTML: b"text/html",
+        TEXT_PLAIN: b"text/plain",
+        TEXT,
+        COMPOUND_TEXT,
+        TIMESTAMP,
+        MULTIPLE,
+        DELETE,
+        INSERT_SELECTION,
+        INSERT_PROPERTY,
     }
 }
 
@@ -48,6 +58,8 @@ struct Shared {
     atoms: Atoms,
     offer: Mutex<Option<Formats>>,
     owned: AtomicBool,
+    current: Current,
+    unpasted: Box<dyn Fn() + Send + Sync>,
 }
 
 struct Replies {
@@ -60,7 +72,8 @@ pub struct PasteTarget(Window);
 
 struct Request {
     text: String,
-    target: PasteTarget,
+    window: PasteTarget,
+    field: Target,
 }
 
 enum Job {
@@ -103,6 +116,27 @@ impl Shared {
         self.display.connection.flush()?;
         self.owned.store(owner != x11rb::NONE, Ordering::SeqCst);
         Ok(())
+    }
+
+    fn is_saved_or_protocol(&self, atom: Atom) -> bool {
+        let atoms = &self.atoms;
+        atom == u32::from(AtomEnum::STRING)
+            || [
+                atoms.UTF8_STRING,
+                atoms.TEXT_PLAIN_UTF8,
+                atoms.TEXT_HTML,
+                atoms.TEXT_PLAIN,
+                atoms.TEXT,
+                atoms.COMPOUND_TEXT,
+                atoms.TARGETS,
+                atoms.TIMESTAMP,
+                atoms.MULTIPLE,
+                atoms.SAVE_TARGETS,
+                atoms.DELETE,
+                atoms.INSERT_SELECTION,
+                atoms.INSERT_PROPERTY,
+            ]
+            .contains(&atom)
     }
 
     fn text_formats(&self, text: &str) -> Formats {
@@ -263,6 +297,12 @@ fn previous(
         .iter()
         .map(|bytes| Atom::from_ne_bytes(*bytes))
         .collect();
+    if !offered
+        .iter()
+        .all(|atom| shared.is_saved_or_protocol(*atom))
+    {
+        return Ok(Previous::Unreadable);
+    }
     let wanted: Vec<Atom> = [
         shared.atoms.UTF8_STRING,
         shared.atoms.TEXT_PLAIN_UTF8,
@@ -306,18 +346,22 @@ fn press_paste(shared: &Shared) -> Result<(), DisplayError> {
     Ok(())
 }
 
-fn deliver(shared: &Shared, replies: &Replies, target: PasteTarget) -> Result<(), DisplayError> {
+fn deliver(shared: &Shared, replies: &Replies, request: &Request) -> Result<bool, DisplayError> {
     std::thread::sleep(FOCUS_SETTLE);
-    if shared.display.input_focus() != Some(target.0) {
+    if shared.display.input_focus() != Some(request.window.0)
+        || shared.current.get().as_ref() != Some(&request.field)
+    {
         log("the focus moved before the paste, nothing was pasted");
-        return Ok(());
+        return Ok(false);
     }
     while replies.served.try_recv().is_ok() {}
     press_paste(shared)?;
-    if replies.served.recv_timeout(FIRST_REQUEST_WAIT).is_ok() {
-        while replies.served.recv_timeout(REQUEST_QUIET).is_ok() {}
+    if replies.served.recv_timeout(FIRST_REQUEST_WAIT).is_err() {
+        log("the application did not ask for the pasted text in time, nothing was pasted");
+        return Ok(false);
     }
-    Ok(())
+    while replies.served.recv_timeout(REQUEST_QUIET).is_ok() {}
+    Ok(true)
 }
 
 fn restore(shared: &Shared, before: Option<Formats>) -> Result<(), DisplayError> {
@@ -338,6 +382,7 @@ fn paste(shared: &Shared, replies: &Replies, request: Request) -> Result<(), Dis
     let before = match previous(shared, &replies.answers)? {
         Previous::Unreadable => {
             log("the clipboard holds data Pith cannot restore, nothing was pasted");
+            (shared.unpasted)();
             return Ok(());
         }
         Previous::Empty => None,
@@ -345,9 +390,12 @@ fn paste(shared: &Shared, replies: &Replies, request: Request) -> Result<(), Dis
     };
     shared.set_offer(Some(shared.text_formats(&request.text)));
     shared.own(shared.window)?;
-    let delivered = deliver(shared, replies, request.target);
+    let delivered = deliver(shared, replies, &request);
     restore(shared, before)?;
-    delivered
+    if !matches!(delivered, Ok(true)) {
+        (shared.unpasted)();
+    }
+    delivered.map(drop)
 }
 
 fn save(shared: &Shared, replies: &Replies) -> Result<(), DisplayError> {
@@ -376,7 +424,11 @@ fn save(shared: &Shared, replies: &Replies) -> Result<(), DisplayError> {
 }
 
 impl Clipboard {
-    pub fn spawn(on_closed: impl Fn(DisplayError) + Send + 'static) -> Result<Self, DisplayError> {
+    pub fn spawn(
+        current: Current,
+        on_unpasted: impl Fn() + Send + Sync + 'static,
+        on_closed: impl Fn(DisplayError) + Send + 'static,
+    ) -> Result<Self, DisplayError> {
         let display = Display::connect()?;
         let connection = &display.connection;
         let atoms = Atoms::new(connection)?.reply()?;
@@ -401,6 +453,8 @@ impl Clipboard {
             atoms,
             offer: Mutex::new(None),
             owned: AtomicBool::new(false),
+            current,
+            unpasted: Box::new(on_unpasted),
         });
         let (answers_in, answers) = channel();
         let (served_in, served) = channel();
@@ -431,8 +485,12 @@ impl Clipboard {
         self.shared.display.input_focus().map(PasteTarget)
     }
 
-    pub fn paste(&self, text: String, target: PasteTarget) {
-        let _ = self.jobs.send(Job::Paste(Request { text, target }));
+    pub fn paste(&self, text: String, window: PasteTarget, field: Target) {
+        let _ = self.jobs.send(Job::Paste(Request {
+            text,
+            window,
+            field,
+        }));
     }
 
     pub fn finish(self) {

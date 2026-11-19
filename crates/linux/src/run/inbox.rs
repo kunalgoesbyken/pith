@@ -18,6 +18,7 @@ pub enum Inbound {
     Preparing(Stage),
     Key(Stroke),
     Failed(DisplayError),
+    Unpasted,
     Quit,
 }
 
@@ -48,6 +49,7 @@ impl App {
             Inbound::Report(Ok(Report::Inserted(outcome))) => self.inserted(outcome),
             Inbound::Report(Err(error)) => return Flow::Fail(error.into()),
             Inbound::Failed(error) => return Flow::Fail(error.into()),
+            Inbound::Unpasted => self.reader.refresh(),
             Inbound::Quit => return Flow::Stop,
             Inbound::Done(generation, result) => self.completion_done(generation, result),
             Inbound::Ready(status) => match status {
@@ -70,10 +72,10 @@ impl App {
             Reading::Field(field) => Some(*field),
             Reading::Nothing => None,
         };
-        self.current = snapshot.as_ref().map(|field| Target {
+        self.current.set(snapshot.as_ref().map(|field| Target {
             field_id: field.field_id,
             app: field.app.clone(),
-        });
+        }));
         let config = self.engine.config();
         let usable = config.enabled
             && snapshot
@@ -87,7 +89,7 @@ impl App {
     }
 
     fn inserted(&mut self, outcome: Result<Inserted, InsertError>) {
-        self.effects.inserted(outcome, self.current.as_ref());
+        self.effects.inserted(outcome, self.current.get().as_ref());
         if !self.effects.inserting(HOLD_LIMIT) {
             self.keyboard.let_go();
             self.timers.clear_key_deadline();

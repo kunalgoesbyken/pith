@@ -1,4 +1,3 @@
-use crate::apps::same_app;
 use crate::config::app_name;
 
 const MIN_ID_DOTS: usize = 2;
@@ -143,12 +142,14 @@ const GENERIC_ENTRIES: &[&str] = &[
     "main", "app", "index", "__main__", "run", "start", "server", "cli",
 ];
 
-const PASTE_ONLY: &[&str] = &["firefox", "firefox-esr", "librewolf", "thunderbird"];
-
 const ALIASES: &[(&str, &str)] = &[
     ("org.mozilla.firefox", "firefox"),
     ("org.mozilla.Thunderbird", "thunderbird"),
+    ("io.gitlab.librewolf-community", "librewolf"),
+    ("org.torproject.torbrowser-launcher", "tor-browser"),
+    ("com.github.micahflee.torbrowser-launcher", "tor-browser"),
     ("snap.firefox", "firefox"),
+    ("snap.thunderbird", "thunderbird"),
     ("snap.keepassxc", "keepassxc"),
     ("snap.bitwarden", "bitwarden"),
     ("snap.code", "code"),
@@ -243,8 +244,4 @@ pub fn is_unlisted_id(app: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
         && alias_of(name).is_none()
-}
-
-pub fn inserts_by_paste(app: &str) -> bool {
-    PASTE_ONLY.iter().any(|known| same_app(known, app))
 }
