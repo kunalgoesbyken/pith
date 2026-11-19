@@ -246,6 +246,13 @@ Run `pith --allow-accessibility` in an X11 session. It refuses to start in a Way
 - **Draws** the suggestion in an override-redirect window that never takes the focus or the mouse. With a compositing manager it is inline at the caret, in the field's font and colour at reduced opacity. Without one it is a pill below the caret.
 - **Inserts** through the accessibility interface. It falls back to the clipboard only when the field has no editable text interface or refuses the insert. Once a field has accepted an insert Pith never pastes, even if the text cannot be confirmed; it re-reads the field once and takes whatever is there. Firefox, Thunderbird, LibreWolf and Tor Browser accept the insert call but ignore it, so Pith pastes in them from the start. Before either path Pith checks that the focused field and app are still the ones the suggestion was made for.
 - **Config and data** live in `~/.config/pith/config.toml` and `~/.local/share/pith/` (the model, `pith.log` and `style.toml` when `style_memory = true`), or under `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME`. `blocked_apps` and `allowed_apps` use the lower-case program name, for example `keepassxc`.
+- **Tray** is a StatusNotifier item, so it shows wherever the panel implements `org.kde.StatusNotifierWatcher`. It lists the status line, the pause choices, Resume, a switch for the app you last typed in, Start at login, Open settings and Quit. On GNOME it needs the AppIndicator extension (Ubuntu ships it; Fedora and stock GNOME do not). CI exercises the item against a stand-in watcher and notification server, not against a real KDE, Xfce or GNOME panel.
+- **Without a tray** (no watcher on the session bus) Pith still runs. It says so in a desktop notice the first time, and `pith --settings`, or simply starting `pith` again, reaches the running instance, opens the settings file and shows the current status as a notice.
+- **One instance per session**: Pith owns `org.pith.Pith` on the session bus. A second launch asks the running instance to open its settings and exits.
+- **Settings** has no window yet. Open settings opens `config.toml` with `xdg-open` (it is created with the defaults first if it is missing). Edits to the file apply the next time Pith starts; pausing and the per-app switch from the tray apply at once and are saved.
+- **Start at login** writes or removes `~/.config/autostart/pith.desktop` (under `$XDG_CONFIG_HOME`), with the path of the running binary and `--allow-accessibility` if you started with it. While the file exists Pith updates only its `Exec=` line to the current path at each start, and leaves an entry the desktop has disabled (`Hidden=true` or `X-GNOME-Autostart-enabled=false`) off.
+- **Notices** go through `org.freedesktop.Notifications`: first run, a model that fails to load, and the status when there is no tray.
+- **Install** from the release: `pith-linux-x86_64.tar.gz` with its `.sha256`, built on Ubuntu 22.04 so it runs on glibc 2.35 and newer. `sha256sum -c pith-linux-x86_64.tar.gz.sha256`, unpack, run `pith --allow-accessibility`.
 - **Build** with `cargo build --release -p pith`. CI runs the end-to-end suite on Xvfb with GTK 3 and Firefox.
 
 Which app is behind a window comes from the process that owns it. Programs run by an interpreter or a sandbox are named as follows, and Pith reads nothing from a window it cannot name:
@@ -258,7 +265,7 @@ Which app is behind a window comes from the process that owns it. Programs run b
 
 Known gaps:
 
-- No tray, settings window, autostart or packaging yet.
+- No settings window yet (Phase 2); no battery-saver pause, no rival-tool detection and no update notice on Linux.
 - GTK 4 does not report the caret position, so there is no placement in GTK 4 fields.
 - The inline ghost wraps against the monitor, not the field.
 
