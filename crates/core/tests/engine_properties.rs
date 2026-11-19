@@ -146,7 +146,9 @@ struct Harness {
     lagging: bool,
     offer: Option<Correction>,
     selecting: Option<(u64, Correction)>,
-    selecting_key: Option<(u64, String)>,
+    selecting_key: Option<(u64, String, String)>,
+    selecting_aborted: bool,
+    declined: Vec<String>,
     checking: Option<(u64, String)>,
     armed: bool,
     dismissed: Option<(u64, String)>,
@@ -214,6 +216,8 @@ impl Harness {
             offer: None,
             selecting: None,
             selecting_key: None,
+            selecting_aborted: false,
+            declined: Vec::new(),
             checking: None,
             armed: false,
             dismissed: None,
@@ -258,6 +262,7 @@ impl Harness {
             .map(|(_, correction)| correction);
         let replace_ended = self.replace_ends(&event);
         let blocked = self.selecting.is_some() && !replace_ended && answered.is_none();
+        let was_aborted = self.selecting_aborted;
         match &event {
             Event::Field(field) => self.sent = field.clone(),
             Event::SetConfig(config) => self.config = config.clone(),
@@ -343,6 +348,10 @@ impl Harness {
                         "spell check for a word that was not just finished",
                     );
                     self.expect(word.chars().count() >= 3, "spell check for a short word");
+                    self.expect(
+                        !self.declined.contains(word),
+                        "spell check for a declined word",
+                    );
                     self.stats.checks += 1;
                     self.checking = Some((*generation, word.clone()));
                 }
@@ -372,6 +381,10 @@ impl Harness {
                         "offer for text that is not before the caret",
                     );
                     self.expect(self.shown.is_none(), "offer over a suggestion");
+                    self.expect(
+                        !self.declined.contains(&correction.word),
+                        "offer for a declined word",
+                    );
                     self.expect(
                         self.offer.as_ref().is_none_or(|offer| offer == correction),
                         "offer changed while visible",
@@ -408,7 +421,15 @@ impl Harness {
                     self.stats.replaces += 1;
                     replacing = true;
                     self.selecting = Some((*id, correction.clone()));
-                    self.selecting_key = self.sent.as_ref().map(|f| (f.field_id, f.app.clone()));
+                    self.selecting_key = self.sent.as_ref().map(|f| {
+                        let prefix = f.before.strip_suffix(&correction.current());
+                        (
+                            f.field_id,
+                            f.app.clone(),
+                            prefix.unwrap_or_default().to_string(),
+                        )
+                    });
+                    self.selecting_aborted = false;
                 }
                 Action::Overwrite(text) => {
                     self.expect(
@@ -512,9 +533,23 @@ impl Harness {
                 "work started while a replace was pending",
             );
         }
+        if let (Some((_, correction)), Some((id, app, prefix))) =
+            (&self.selecting, &self.selecting_key)
+        {
+            match &event {
+                Event::Field(None) => self.selecting_aborted = true,
+                Event::Field(Some(field)) if field.field_id == *id && field.app == *app => {
+                    let expected = field.before.ends_with(&correction.current())
+                        || (field.has_selection && prefix.ends_with(&field.before));
+                    self.selecting_aborted |= !expected;
+                }
+                _ => {}
+            }
+        }
         if replace_ended || answered.is_some() {
             self.selecting = None;
             self.selecting_key = None;
+            self.selecting_aborted = false;
         }
         if let Event::Selected { outcome, .. } = &event {
             let selected = matches!(outcome, SelectOutcome::Selected { .. });
@@ -529,6 +564,18 @@ impl Harness {
                 !selected || answered.is_some() || actions.iter().any(is_collapse),
                 "a late selection was left in place",
             );
+            if let (true, Some(_)) = (selected, &answered) {
+                self.expect(
+                    was_aborted == actions.iter().any(is_collapse)
+                        && was_aborted != overwritten.is_some(),
+                    "a selection result neither overwrote nor collapsed correctly",
+                );
+            }
+            if let (SelectOutcome::Unsupported, Some(correction), false) =
+                (outcome, &answered, was_aborted)
+            {
+                self.declined.push(correction.word.clone());
+            }
         }
         self.expect(
             self.shown.as_deref() == self.engine.suggestion(),
@@ -719,7 +766,8 @@ impl Harness {
     }
 
     fn replace_ends(&self, event: &Event) -> bool {
-        let (Some((id, _)), Some((field_id, app))) = (&self.selecting, &self.selecting_key) else {
+        let (Some((id, _)), Some((field_id, app, _))) = (&self.selecting, &self.selecting_key)
+        else {
             return false;
         };
         match event {

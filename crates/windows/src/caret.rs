@@ -108,12 +108,10 @@ pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> Select
         if has_selection(element) {
             return SelectOutcome::Lost;
         }
-        let mut outcome = SelectOutcome::Lost;
         for units in unit_counts(text) {
             let Some(range) = range_covering(&caret, text, units) else {
                 continue;
             };
-            outcome = SelectOutcome::Unsupported;
             if range.Select().is_ok() && selected_text(element).is_ok_and(|now| now == text) {
                 return SelectOutcome::Selected {
                     field_id: runtime_id(element),
@@ -122,7 +120,7 @@ pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> Select
             }
             let _ = caret.Select();
         }
-        outcome
+        SelectOutcome::Unsupported
     }
 }
 

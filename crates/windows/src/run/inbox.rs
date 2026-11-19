@@ -58,7 +58,10 @@ impl App {
                     generation,
                     spelling,
                 }),
-                Inbound::Selected(id, outcome) => self.dispatch(Event::Selected { id, outcome }),
+                Inbound::Selected(id, outcome) => {
+                    self.selection_answered(id);
+                    self.dispatch(Event::Selected { id, outcome });
+                }
                 Inbound::Ready(status) => self.model_ready(status),
                 Inbound::Preparing(stage) => self.model_preparing(stage),
                 Inbound::Command(command) => quit |= self.command(command),

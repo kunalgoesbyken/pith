@@ -160,6 +160,12 @@ impl App {
         });
     }
 
+    pub(super) fn selection_answered(&mut self, id: u64) {
+        if self.effects.pending_replace == id {
+            self.kill_timer(TIMER_REPLACE);
+        }
+    }
+
     pub(super) fn replace_timed_out(&mut self) {
         self.kill_timer(TIMER_REPLACE);
         self.dispatch(Event::ReplaceTimedOut(self.effects.pending_replace));

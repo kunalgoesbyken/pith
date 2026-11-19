@@ -569,7 +569,7 @@ impl Engine {
                 }
             }
             SelectOutcome::Unsupported => {
-                if let Some(replacing) = replacing {
+                if let Some(replacing) = replacing.filter(|replacing| !replacing.aborted) {
                     self.declined.insert(&replacing.correction.word);
                 }
                 self.schedule(out);
