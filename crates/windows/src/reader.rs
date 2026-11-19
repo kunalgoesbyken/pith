@@ -272,7 +272,7 @@ fn read(
         };
         let title = window_title(root);
         let own_window = matches!(source, Source::Focused) && pid == own_pid;
-        let cues = if redacted || own_window || !config.uses_nearby() {
+        let cues = if redacted || own_window || pid != owner || !config.uses_nearby() {
             nearby.clear();
             Vec::new()
         } else {
@@ -280,10 +280,9 @@ fn read(
                 .as_ref()
                 .is_none_or(|text| text.before.trim().is_empty());
             let key = (runtime_id(&element), title.clone());
-            if nearby.stale(&key, before_empty) {
-                nearby.fill(key, nearby::read(automation, &element, root));
-            }
-            nearby.cues().to_vec()
+            nearby
+                .fresh(&key, before_empty)
+                .unwrap_or_else(|| nearby.store(key, nearby::read(automation, &element, root)))
         };
         let style = font(&caret, GetDpiForWindow(root).max(96));
         let element_rect = element.CurrentBoundingRectangle().ok().map(rect_of);

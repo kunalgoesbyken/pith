@@ -10,6 +10,7 @@ pub struct WalkLimits {
     pub deadline: Duration,
     pub levels: usize,
     pub siblings: usize,
+    pub message_lines: usize,
     pub raw_chars: usize,
     pub descent: usize,
 }
@@ -18,6 +19,7 @@ pub const WALK: WalkLimits = WalkLimits {
     deadline: Duration::from_millis(60),
     levels: 6,
     siblings: 12,
+    message_lines: 12,
     raw_chars: 600,
     descent: 3,
 };
@@ -133,6 +135,12 @@ fn echo_tail(before: &str) -> String {
     tail.into_iter().rev().collect::<String>().to_lowercase()
 }
 
+fn repeats(line: &str, cue: &str) -> bool {
+    let words: Vec<&str> = cue.unicode_words().collect();
+    let line: Vec<&str> = line.unicode_words().collect();
+    !words.is_empty() && line.windows(words.len()).any(|window| window == words)
+}
+
 fn echoes(a: &str, b: &str) -> bool {
     let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
     short.graphemes(true).count() >= ECHO_GRAPHEMES && long.contains(short)
@@ -150,19 +158,19 @@ impl NearbyCache {
         *self = Self::default();
     }
 
-    pub fn stale(&mut self, key: &(u64, String), before_empty: bool) -> bool {
+    pub fn fresh(&mut self, key: &(u64, String), before_empty: bool) -> Option<Vec<RawCue>> {
         let stale = self.key.as_ref() != Some(key) || (before_empty && !self.was_empty);
         self.was_empty = before_empty;
-        stale
+        (!stale).then(|| self.cues.clone())
     }
 
-    pub fn fill(&mut self, key: (u64, String), cues: Vec<RawCue>) {
+    pub fn store(&mut self, key: (u64, String), walked: Option<Vec<RawCue>>) -> Vec<RawCue> {
+        let Some(cues) = walked else {
+            return Vec::new();
+        };
         self.key = Some(key);
-        self.cues = cues;
-    }
-
-    pub fn cues(&self) -> &[RawCue] {
-        &self.cues
+        self.cues.clone_from(&cues);
+        cues
     }
 }
 
@@ -175,7 +183,7 @@ impl Nearby {
         for cue in raw {
             let text = plain(&cue.text);
             let folded = text.to_lowercase();
-            let repeated = seen.iter().any(|line| line.contains(&folded));
+            let repeated = seen.iter().any(|line| repeats(line, &folded));
             if text.is_empty() || !is_prose(&text) || repeated || echoes(&folded, &tail) {
                 continue;
             }

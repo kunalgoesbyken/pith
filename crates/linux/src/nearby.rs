@@ -17,27 +17,29 @@ pub(crate) async fn cues(
     key: (u64, String),
     before_empty: bool,
 ) -> Vec<RawCue> {
-    if cache.stale(&key, before_empty) {
-        cache.fill(key, read(connection, field).await);
+    if let Some(cues) = cache.fresh(&key, before_empty) {
+        return cues;
     }
-    cache.cues().to_vec()
+    let walked = read(connection, field).await;
+    cache.store(key, walked)
 }
 
-async fn read(connection: &Connection, field: &ObjectRefOwned) -> Vec<RawCue> {
+async fn read(connection: &Connection, field: &ObjectRefOwned) -> Option<Vec<RawCue>> {
     let started = Instant::now();
     let mut walk = Walk {
         connection,
         started,
         cues: Vec::new(),
         thread_found: false,
+        cut: false,
     };
-    let _ = within(WALK.deadline * 2, walk.run(field)).await;
+    let finished = within(WALK.deadline * 2, walk.run(field)).await.is_some();
     log(&format!(
         "nearby: {} cues, {} ms",
         walk.cues.len(),
         started.elapsed().as_millis()
     ));
-    walk.cues
+    (finished && !walk.cut).then_some(walk.cues)
 }
 
 struct Walk<'a> {
@@ -45,11 +47,13 @@ struct Walk<'a> {
     started: Instant,
     cues: Vec<RawCue>,
     thread_found: bool,
+    cut: bool,
 }
 
 impl Walk<'_> {
-    fn spent(&self) -> bool {
-        self.started.elapsed() >= WALK.deadline
+    fn spent(&mut self) -> bool {
+        self.cut |= self.started.elapsed() >= WALK.deadline;
+        self.cut
     }
 
     async fn run(&mut self, field: &ObjectRefOwned) {
@@ -91,14 +95,13 @@ impl Walk<'_> {
         let (_, labels) = relations
             .into_iter()
             .find(|(kind, _)| *kind == RelationType::LabelledBy)?;
-        let label = labels.first()?;
-        label
+        let label = labels
+            .first()?
             .as_accessible_proxy(self.connection)
             .await
-            .ok()?
-            .name()
-            .await
-            .ok()
+            .ok()?;
+        readable_role(&label).await?;
+        label.name().await.ok()
     }
 
     async fn siblings(&mut self, parent: &ObjectRefOwned, current: &ObjectRefOwned) {
@@ -124,12 +127,9 @@ impl Walk<'_> {
         let Ok(node) = sibling.as_accessible_proxy(self.connection).await else {
             return;
         };
-        let (Ok(role), Ok(state)) = (node.get_role().await, node.get_state().await) else {
+        let Some(role) = readable_role(&node).await else {
             return;
         };
-        if !state.contains(State::Showing) {
-            return;
-        }
         match role {
             Role::Label | Role::Heading | Role::Static | Role::Caption => {
                 if let Ok(name) = node.name().await {
@@ -193,6 +193,7 @@ impl Walk<'_> {
         let count = node.child_count().await.ok()?;
         let child = node.get_child_at_index(count.checked_sub(1)?).await.ok()?;
         let proxy = child.as_accessible_proxy(self.connection).await.ok()?;
+        readable_role(&proxy).await?;
         let name = proxy.name().await.unwrap_or_default();
         let text = if name.trim().is_empty() {
             self.text_of(&proxy).await.unwrap_or_default()
@@ -201,4 +202,11 @@ impl Walk<'_> {
         };
         Some((child, text))
     }
+}
+
+async fn readable_role(node: &AccessibleProxy<'_>) -> Option<Role> {
+    let (Ok(role), Ok(state)) = (node.get_role().await, node.get_state().await) else {
+        return None;
+    };
+    (role != Role::PasswordText && state.contains(State::Showing)).then_some(role)
 }

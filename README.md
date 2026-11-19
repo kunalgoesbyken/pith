@@ -11,7 +11,7 @@ Status: Windows MVP. Linux (X11) is experimental, see the Linux section. macOS i
 | | |
 |---|---|
 | Text you type | Read from the focused field only, held in memory for the prompt, never written to disk or sent anywhere |
-| Nearby text | The label of the box, the subject and recipient fields and the last message around it, read only to build the prompt. Held in memory, never written to disk or logged, and never sent when `remote_url` is set. Never read for password fields, password managers, blocked apps or Pith's own windows. `nearby_context = false` turns it off |
+| Nearby text | The label of the box, the subject and recipient fields and the last message around it, read only to build the prompt. Held in memory, never written to disk or logged, and never sent to a server outside this PC. Never read for password fields, password managers, blocked apps or Pith's own windows. `nearby_context = false` turns it off |
 | Network | Two things, and only these. One download of the model from Hugging Face (pinned revision, SHA-256 checked). One request to `api.github.com` for the releases of this repository, only when you click Check for updates in the tray; it sends no text and no identifier, and nothing is downloaded or installed. Nothing else, unless you set `remote_url` |
 | Telemetry | None |
 | Keystrokes | Never seen. Windows has no keyboard hook. Linux grabs only the accept keys and Esc while a suggestion is shown, and the force-suggestion key while a field Pith may read is focused; every other key goes straight to the app |
@@ -109,7 +109,7 @@ When you type a space after a word the Windows spell checker does not know, Pith
 
 Pith adds a few lines from around the box you type in to the start of the prompt, so a reply knows what it replies to: the box's own label, the subject and recipient fields above it, the headings and captions near it and the last message of the conversation above it. Lines are the app's own words in any language, with no labels added by Pith.
 
-- Windows walks the UI Automation tree upwards from the field (at most 6 levels, 12 siblings each, 60 ms in total) and Linux walks the AT-SPI tree the same way. The result is cached per field and window title, so typing costs nothing extra, and a new walk happens when the field or the title changes or when the box is cleared after a send.
+- Windows walks the UI Automation tree upwards from the field (at most 6 levels, 12 siblings each, about 60 ms) and Linux walks the AT-SPI tree the same way. The result is cached per field and window title, so typing costs nothing extra, and a new walk happens when the field or the title changes or when the box is cleared after a send.
 - Password boxes, hidden and off-screen items and lines that are mostly symbols or numbers are skipped, and so is anything the title or your own last 200 characters already say.
 - The lines go before the text you typed, so the model's cache is reused while you type. They are capped at `nearby_tokens` (300) and by what is left of `context_tokens` after the text you typed. The first suggestion in a field takes a little longer because the lines are read by the model once.
 - With `remote_url` set nothing from around the box is sent, only the text you typed as before. The Use nearby text switch in Settings, Privacy, or `nearby_context = false`, turns the whole feature off.

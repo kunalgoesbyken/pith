@@ -44,22 +44,23 @@ impl Node {
     }
 }
 
-struct Walk<'a> {
-    automation: &'a IUIAutomation,
+struct Walk {
     walker: IUIAutomationTreeWalker,
     request: IUIAutomationCacheRequest,
-    anything: IUIAutomationCondition,
     texts: IUIAutomationCondition,
     root: HWND,
     started: Instant,
     calls: u32,
+    cut: bool,
 }
 
-pub fn read(automation: &IUIAutomation, field: &IUIAutomationElement, root: HWND) -> Vec<RawCue> {
+pub fn read(
+    automation: &IUIAutomation,
+    field: &IUIAutomationElement,
+    root: HWND,
+) -> Option<Vec<RawCue>> {
     let started = Instant::now();
-    let Ok(mut walk) = Walk::new(automation, root) else {
-        return Vec::new();
-    };
+    let mut walk = Walk::new(automation, root).ok()?;
     let cues = walk.run(field);
     log(&format!(
         "nearby: {} cues, {} calls, {} ms",
@@ -67,11 +68,11 @@ pub fn read(automation: &IUIAutomation, field: &IUIAutomationElement, root: HWND
         walk.calls,
         started.elapsed().as_millis()
     ));
-    cues
+    (!walk.cut).then_some(cues)
 }
 
-impl<'a> Walk<'a> {
-    fn new(automation: &'a IUIAutomation, root: HWND) -> Result<Self> {
+impl Walk {
+    fn new(automation: &IUIAutomation, root: HWND) -> Result<Self> {
         unsafe {
             let request = automation.CreateCacheRequest()?;
             for property in [
@@ -83,27 +84,25 @@ impl<'a> Walk<'a> {
                 UIA_RuntimeIdPropertyId,
                 UIA_BoundingRectanglePropertyId,
                 UIA_NativeWindowHandlePropertyId,
-                UIA_ValueValuePropertyId,
             ] {
                 request.AddProperty(property)?;
             }
-            request.AddPattern(UIA_ValuePatternId)?;
             let text_type = VARIANT::from(UIA_TextControlTypeId.0);
             Ok(Self {
-                automation,
                 walker: automation.ControlViewWalker()?,
                 request,
-                anything: automation.CreateTrueCondition()?,
                 texts: automation.CreatePropertyCondition(UIA_ControlTypePropertyId, &text_type)?,
                 root,
                 started: Instant::now(),
                 calls: 0,
+                cut: false,
             })
         }
     }
 
     fn step(&mut self) -> bool {
         if self.started.elapsed() >= WALK.deadline {
+            self.cut = true;
             return false;
         }
         self.calls += 1;
@@ -124,7 +123,7 @@ impl<'a> Walk<'a> {
             let Some(parent) = self.parent(&current) else {
                 break;
             };
-            for sibling in self.preceding(&parent, &current) {
+            for sibling in self.preceding(&current) {
                 if !thread_found && sibling.is_thread_above(&field_rect) {
                     thread_found = true;
                     cues.extend(self.latest_message(&sibling));
@@ -162,25 +161,34 @@ impl<'a> Walk<'a> {
         .ok()
     }
 
-    fn node(&self, element: &IUIAutomationElement) -> Option<Node> {
+    fn node(&mut self, element: &IUIAutomationElement) -> Option<Node> {
         unsafe {
             if element.CachedIsPassword().ok()?.as_bool()
                 || element.CachedIsOffscreen().ok()?.as_bool()
             {
                 return None;
             }
-            let value = element
-                .GetCachedPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
-                .and_then(|pattern| pattern.CachedValue())
-                .map(|value| value.to_string())
-                .unwrap_or_default();
+            let kind = element.CachedControlType().ok()?;
             Some(Node {
                 element: element.clone(),
-                kind: element.CachedControlType().ok()?,
+                kind,
                 name: element.CachedName().ok()?.to_string(),
-                value,
+                value: self.value(element, kind),
                 rect: element.CachedBoundingRectangle().ok()?,
             })
+        }
+    }
+
+    fn value(&mut self, element: &IUIAutomationElement, kind: UIA_CONTROLTYPE_ID) -> String {
+        if !VALUE_KINDS.contains(&kind) || !self.step() {
+            return String::new();
+        }
+        unsafe {
+            element
+                .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+                .and_then(|pattern| pattern.CurrentValue())
+                .map(|value| value.to_string())
+                .unwrap_or_default()
         }
     }
 
@@ -210,38 +218,23 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    fn preceding(
-        &mut self,
-        parent: &IUIAutomationElement,
-        current: &IUIAutomationElement,
-    ) -> Vec<Node> {
-        if !self.step() {
-            return Vec::new();
-        }
-        unsafe {
-            let Ok(children) =
-                parent.FindAllBuildCache(TreeScope_Children, &self.anything, &self.request)
-            else {
-                return Vec::new();
-            };
-            let count = children.Length().unwrap_or(0);
-            let all: Vec<IUIAutomationElement> = (0..count)
-                .filter_map(|index| children.GetElement(index).ok())
-                .collect();
-            let Some(position) = all.iter().position(|child| {
-                self.automation
-                    .CompareElements(current, child)
-                    .is_ok_and(|same| same.as_bool())
+    fn preceding(&mut self, current: &IUIAutomationElement) -> Vec<Node> {
+        let mut nodes = Vec::new();
+        let mut cursor = current.clone();
+        for _ in 0..WALK.siblings {
+            if !self.step() {
+                break;
+            }
+            let Ok(previous) = (unsafe {
+                self.walker
+                    .GetPreviousSiblingElementBuildCache(&cursor, &self.request)
             }) else {
-                return Vec::new();
+                break;
             };
-            all[..position]
-                .iter()
-                .rev()
-                .take(WALK.siblings)
-                .filter_map(|child| self.node(child))
-                .collect()
+            nodes.extend(self.node(&previous));
+            cursor = previous;
         }
+        nodes
     }
 
     fn latest_message(&mut self, thread: &Node) -> Option<RawCue> {
@@ -267,16 +260,14 @@ impl<'a> Walk<'a> {
                 .ok()?;
             (0..found.Length().unwrap_or(0))
                 .filter_map(|index| found.GetElement(index).ok())
-                .filter_map(|text| text.CachedName().ok())
-                .map(|name| name.to_string())
+                .filter_map(|text| self.node(&text))
+                .map(|node| node.name)
                 .collect::<Vec<_>>()
         };
-        let own_name = unsafe { latest.CachedName() }
-            .map(|name| name.to_string())
-            .unwrap_or_default();
+        let own_name = self.node(&latest).map(|node| node.name).unwrap_or_default();
         let text = match lines.len() {
             0 => own_name,
-            count => lines[count.saturating_sub(WALK.siblings)..].join(" "),
+            count => lines[count.saturating_sub(WALK.message_lines)..].join(" "),
         };
         Some(RawCue::new(CueKind::Message, None, &text))
     }
