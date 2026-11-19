@@ -1,0 +1,170 @@
+version = 1
+
+[[entry]]
+text = "Vielen Dank für Ihre schnelle Rückmeldung."
+app = "bench"
+
+[[entry]]
+text = "Ich hoffe, es geht Ihnen gut."
+app = "bench"
+
+[[entry]]
+text = "Anbei sende ich Ihnen die gewünschten Unterlagen."
+app = "bench"
+
+[[entry]]
+text = "Bitte lassen Sie mich wissen, ob Sie noch Fragen haben."
+app = "bench"
+
+[[entry]]
+text = "Wir würden uns freuen, Sie bald persönlich kennenzulernen."
+app = "bench"
+
+[[entry]]
+text = "Könnten wir einen Termin für nächste Woche vereinbaren?"
+app = "bench"
+
+[[entry]]
+text = "Leider kann ich an dem Treffen nicht teilnehmen."
+app = "bench"
+
+[[entry]]
+text = "Ich melde mich in den nächsten Tagen noch einmal bei Ihnen."
+app = "bench"
+
+[[entry]]
+text = "Haben Sie vielen Dank für Ihre Unterstützung."
+app = "bench"
+
+[[entry]]
+text = "Ich habe den Vertrag geprüft und habe noch eine Anmerkung."
+app = "bench"
+
+[[entry]]
+text = "Die Lieferung sollte bis Ende der Woche bei Ihnen eintreffen."
+app = "bench"
+
+[[entry]]
+text = "Gerne stehe ich Ihnen für Rückfragen zur Verfügung."
+app = "bench"
+
+[[entry]]
+text = "Vielen Dank, dass Sie sich die Zeit genommen haben."
+app = "bench"
+
+[[entry]]
+text = "Wir haben Ihre Anfrage erhalten und bearbeiten sie umgehend."
+app = "bench"
+
+[[entry]]
+text = "Ich wünsche Ihnen noch einen angenehmen Tag."
+app = "bench"
+
+[[entry]]
+text = "Bitte entschuldigen Sie die späte Antwort."
+app = "bench"
+
+[[entry]]
+text = "Das Projekt läuft nach Plan und wir liegen im Zeitrahmen."
+app = "bench"
+
+[[entry]]
+text = "Ich schicke Ihnen morgen die aktualisierte Version zu."
+app = "bench"
+
+[[entry]]
+text = "Wir sollten die Details am besten telefonisch klären."
+app = "bench"
+
+[[entry]]
+text = "Dazu müsste ich noch einmal Rücksprache mit dem Team halten."
+app = "bench"
+
+[[entry]]
+text = "Ich freue mich auf die weitere Zusammenarbeit."
+app = "bench"
+
+[[entry]]
+text = "Die Rechnung wurde gestern an Ihre Buchhaltung geschickt."
+app = "bench"
+
+[[entry]]
+text = "Falls es Probleme gibt, melden Sie sich einfach bei mir."
+app = "bench"
+
+[[entry]]
+text = "Ich würde vorschlagen, dass wir das Meeting verschieben."
+app = "bench"
+
+[[entry]]
+text = "Vielen Dank für das nette Gespräch von gestern."
+app = "bench"
+
+[[entry]]
+text = "Anbei finden Sie unser Angebot für das neue Projekt."
+app = "bench"
+
+[[entry]]
+text = "Ich bin den ganzen Tag im Büro erreichbar."
+app = "bench"
+
+[[entry]]
+text = "Das klingt gut, ich bin mit dem Vorschlag einverstanden."
+app = "bench"
+
+[[entry]]
+text = "Bitte bestätigen Sie mir kurz den Eingang dieser Nachricht."
+app = "bench"
+
+[[entry]]
+text = "Wir prüfen die Angelegenheit und geben Ihnen Bescheid."
+app = "bench"
+
+[[entry]]
+text = "Es tut mir leid, dass es zu dieser Verzögerung gekommen ist."
+app = "bench"
+
+[[entry]]
+text = "Könnten Sie mir bitte die Adresse noch einmal schicken?"
+app = "bench"
+
+[[entry]]
+text = "Ich habe die Präsentation für Montag schon vorbereitet."
+app = "bench"
+
+[[entry]]
+text = "Vielen Dank für die Einladung, ich komme sehr gerne."
+app = "bench"
+
+[[entry]]
+text = "Die Besprechung findet wie geplant im großen Raum statt."
+app = "bench"
+
+[[entry]]
+text = "Ich bitte um Verständnis für die kurzfristige Änderung."
+app = "bench"
+
+[[entry]]
+text = "Wir melden uns, sobald wir mehr Informationen haben."
+app = "bench"
+
+[[entry]]
+text = "Das Dokument liegt jetzt im gemeinsamen Ordner für Sie bereit."
+app = "bench"
+
+[[entry]]
+text = "Ich habe noch zwei kleine Fragen zum Zeitplan."
+app = "bench"
+
+[[entry]]
+text = "Herzlichen Dank für Ihre Geduld und Ihr Verständnis."
+app = "bench"
+
+[[held_out]]
+text = "Sehr geehrte Frau Becker, vielen Dank für Ihre Nachricht. Ich habe die Unterlagen geprüft und würde gerne noch einen Termin für ein kurzes Gespräch vereinbaren."
+
+[[held_out]]
+text = "Hallo Herr Weber, anbei sende ich Ihnen den aktualisierten Zeitplan. Bitte lassen Sie mich wissen, ob die Termine für Sie passen, damit wir rechtzeitig planen können."
+
+[[held_out]]
+text = "Leider müssen wir das Treffen auf nächste Woche verschieben. Ich bitte um Entschuldigung für die Unannehmlichkeiten und melde mich morgen mit einem neuen Vorschlag."

@@ -1,5 +1,5 @@
 pub struct Sample {
-    pub name: &'static str,
+    pub name: String,
     pub title: &'static str,
     pub text: String,
     pub start: usize,
@@ -45,8 +45,19 @@ const LONG_PARAGRAPHS: [&str; 7] = [
 
 fn plain(name: &'static str, title: &'static str, text: &str) -> Sample {
     Sample {
-        name,
+        name: name.to_string(),
         title,
+        text: text.to_string(),
+        start: 12,
+        corrections: false,
+        suffix: "",
+    }
+}
+
+pub fn notes(name: String, text: &str) -> Sample {
+    Sample {
+        name,
+        title: "Notes",
         text: text.to_string(),
         start: 12,
         corrections: false,

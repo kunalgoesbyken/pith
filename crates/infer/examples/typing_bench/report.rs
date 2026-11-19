@@ -1,4 +1,6 @@
-use pith_core::{After, Completion, Config, next_word, split_partial, suggestion};
+use pith_core::{
+    After, Completion, Config, Primer, exceeds_words, next_word, split_partial, suggestion,
+};
 
 pub const MISS_TOKENS: usize = 16;
 
@@ -17,6 +19,7 @@ pub struct Record {
     pub ms: f64,
     pub evaluated: usize,
     pub prompt: Prompt,
+    pub primer: Primer,
 }
 
 pub struct Shown {
@@ -61,6 +64,11 @@ pub fn show(record: &Record, config: &Config) -> Option<Shown> {
     })
 }
 
+fn copies(suggestion: &str, primer: &Primer) -> bool {
+    let text = suggestion.trim();
+    exceeds_words(text, 1) && primer.lines().iter().any(|line| line.contains(text))
+}
+
 fn at_word_start(before: &str) -> bool {
     !before.is_empty() && split_partial(before).1.trim().is_empty()
 }
@@ -99,6 +107,7 @@ pub struct Stats {
     partial: usize,
     wrong: usize,
     held: usize,
+    copied: usize,
     prompts: usize,
     undercounts: usize,
     tightest: Option<f64>,
@@ -153,6 +162,7 @@ impl Stats {
             return;
         };
         self.shown += 1;
+        self.copied += usize::from(copies(&shown.text, &record.primer));
         if shown.wrong() {
             self.wrong += 1;
         } else if shown.exact() {
@@ -181,6 +191,7 @@ impl Stats {
         self.partial += other.partial;
         self.wrong += other.wrong;
         self.held += other.held;
+        self.copied += other.copied;
         self.prompts += other.prompts;
         self.undercounts += other.undercounts;
         self.tightest = match (self.tightest, other.tightest) {
@@ -192,7 +203,7 @@ impl Stats {
 
 pub fn print_header() {
     println!(
-        "{:<14} {:>4} {:>11} {:>7} {:>6} {:>6} {:>7} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
+        "{:<14} {:>4} {:>11} {:>7} {:>6} {:>6} {:>7} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
         "sample",
         "req",
         "word hit",
@@ -210,13 +221,14 @@ pub fn print_header() {
         "evp90",
         "evmax",
         "miss",
-        "bksp"
+        "bksp",
+        "copied"
     );
 }
 
 pub fn print_row(name: &str, stats: &Stats) {
     println!(
-        "{:<14} {:>4} {:>4}/{:<4}{:>2.0}% {:>6.1} {:>6} {:>6} {:>7} {:>6} {:>6.1} {:>5} {:>5.0} {:>5.0} {:>5.1} {:>5.0} {:>5.0} {:>5.0} {:>5} {:>5.0}",
+        "{:<14} {:>4} {:>4}/{:<4}{:>2.0}% {:>6.1} {:>6} {:>6} {:>7} {:>6} {:>6.1} {:>5} {:>5.0} {:>5.0} {:>5.1} {:>5.0} {:>5.0} {:>5.0} {:>5} {:>5.0} {:>6}",
         name,
         stats.requests,
         stats.word_hits,
@@ -237,6 +249,7 @@ pub fn print_row(name: &str, stats: &Stats) {
         percentile(&stats.evaluated, 1.0),
         stats.misses.len(),
         percentile(&stats.after_backspace, 0.5),
+        stats.copied,
     );
 }
 

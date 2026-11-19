@@ -1,4 +1,5 @@
 mod cues;
+mod personas;
 mod report;
 mod samples;
 
@@ -6,9 +7,10 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use cues::Mode;
+use personas::Style;
 use pith_core::{
-    After, Completer, Completion, Config, FieldParts, FieldSnapshot, RawCue, Surrounding, build,
-    estimate_tokens,
+    After, Completer, Completion, Config, FieldParts, FieldSnapshot, Primer, RawCue, StyleMemory,
+    Surrounding, build, estimate_tokens,
 };
 use pith_infer::{LlamaModelHandle, LlamaSession};
 use report::{
@@ -22,6 +24,7 @@ const SAMPLE_FIELD: u64 = 0;
 const DISTRACTION_FIELD: u64 = 1;
 const DISTRACTION_SPAN: usize = 40;
 const DISTRACTION_TITLE: &str = "Notes";
+const LEAVE_ONE_OUT_EVERY: usize = 4;
 const DISTRACTION_TEXT: &str = "Remember to book the venue for the offsite and send the agenda to the whole team before Friday. Also ask finance whether the budget for travel has been approved yet so we can";
 
 struct Options {
@@ -32,6 +35,8 @@ struct Options {
     stride: Option<usize>,
     distract_every: usize,
     nearby: Mode,
+    style: Style,
+    eval: Style,
     sweep: bool,
     verbose: bool,
 }
@@ -52,6 +57,8 @@ fn options() -> Options {
         stride: None,
         distract_every: 0,
         nearby: Mode::Off,
+        style: Style::Off,
+        eval: Style::Off,
         sweep: false,
         verbose: false,
     };
@@ -74,12 +81,15 @@ fn options() -> Options {
             "distract" => options.distract_every = parse(key, value),
             "nearby" => options.nearby = parse(key, value),
             "nearby_tokens" => config.nearby_tokens = parse(key, value),
+            "style" => options.style = parse(key, value),
+            "eval" => options.eval = parse(key, value),
             "sweep" => options.sweep = parse(key, value),
             "verbose" => options.verbose = parse(key, value),
             _ => panic!("unknown option {key}"),
         }
     }
     options.config.nearby_context = options.nearby != Mode::Off;
+    options.config.style_memory = options.style != Style::Off;
     options
 }
 
@@ -91,7 +101,12 @@ struct Query<'a> {
     cues: &'a [RawCue],
 }
 
-fn ask(session: &mut LlamaSession, config: &Config, query: Query) -> (Completion, f64, Prompt) {
+fn ask(
+    session: &mut LlamaSession,
+    config: &Config,
+    memory: &StyleMemory,
+    query: Query,
+) -> (Completion, f64, Prompt, Primer) {
     let field = FieldSnapshot::from_parts(
         config,
         FieldParts {
@@ -111,14 +126,20 @@ fn ask(session: &mut LlamaSession, config: &Config, query: Query) -> (Completion
             nearby: query.cues.to_vec(),
         },
     );
-    let request = build(&field, config);
+    let primer = Primer::select(memory, &field, config);
+    let request = build(&field, config, &primer);
     let prompt = Prompt {
         tokens: session.count_tokens(&request.prompt),
         estimate: estimate_tokens(&request.prompt),
     };
     let started = Instant::now();
     let completion = session.complete(&request, &|| false).expect("complete");
-    (completion, started.elapsed().as_secs_f64() * 1e3, prompt)
+    (
+        completion,
+        started.elapsed().as_secs_f64() * 1e3,
+        prompt,
+        primer,
+    )
 }
 
 fn advance(shown: Option<&Shown>, step: usize, stride: Option<usize>) -> (usize, usize) {
@@ -134,12 +155,12 @@ fn advance(shown: Option<&Shown>, step: usize, stride: Option<usize>) -> (usize,
 fn replay(
     session: &mut LlamaSession,
     options: &Options,
-    sample: &Sample,
+    (sample, memory): (&Sample, &StyleMemory),
     all: &mut Vec<Record>,
 ) -> Stats {
     let chars: Vec<char> = sample.text.chars().collect();
     let config = &options.config;
-    let cues = cues::raw(sample.name, options.nearby);
+    let cues = cues::raw(&sample.name, options.nearby);
     let mut stats = Stats::default();
     let mut position = sample.start.min(chars.len().saturating_sub(1));
     stats.add_chars(chars.len() - position);
@@ -148,9 +169,10 @@ fn replay(
         let prefix: String = chars[..position].iter().collect();
         if sample.corrections && step % CORRECTION_EVERY == 2 {
             let junk = format!("{prefix}{}", JUNK[step / CORRECTION_EVERY % JUNK.len()]);
-            let (completion, ms, prompt) = ask(
+            let (completion, ms, prompt, primer) = ask(
                 session,
                 config,
+                memory,
                 Query {
                     field_id: SAMPLE_FIELD,
                     title: sample.title,
@@ -168,6 +190,7 @@ fn replay(
                 completion,
                 ms,
                 prompt,
+                primer,
             });
             after_junk = true;
         }
@@ -176,9 +199,10 @@ fn replay(
             let typed = DISTRACTION_TEXT.len() - DISTRACTION_SPAN
                 + (step / options.distract_every) % DISTRACTION_SPAN;
             let text = &DISTRACTION_TEXT[..typed];
-            let (completion, ms, prompt) = ask(
+            let (completion, ms, prompt, primer) = ask(
                 session,
                 config,
+                memory,
                 Query {
                     field_id: DISTRACTION_FIELD,
                     title: DISTRACTION_TITLE,
@@ -196,11 +220,13 @@ fn replay(
                 completion,
                 ms,
                 prompt,
+                primer,
             });
         }
-        let (completion, ms, prompt) = ask(
+        let (completion, ms, prompt, primer) = ask(
             session,
             config,
+            memory,
             Query {
                 field_id: SAMPLE_FIELD,
                 title: sample.title,
@@ -218,6 +244,7 @@ fn replay(
             completion,
             ms,
             prompt,
+            primer,
         };
         let shown = show(&record, config);
         let (moved, saved) = advance(shown.as_ref(), step, options.stride);
@@ -263,6 +290,52 @@ fn replay(
     stats
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Group {
+    Standard,
+    HeldOut,
+    LeaveOneOut,
+}
+
+struct Case {
+    sample: Sample,
+    memory: StyleMemory,
+    group: Group,
+}
+
+fn cases(options: &Options) -> Vec<Case> {
+    let memory = options.style.memory();
+    let mut cases: Vec<Case> = samples::all()
+        .into_iter()
+        .map(|sample| Case {
+            sample,
+            memory: memory.clone(),
+            group: Group::Standard,
+        })
+        .collect();
+    let Some(persona) = options.eval.persona() else {
+        return cases;
+    };
+    for (index, text) in persona.held_out.iter().enumerate() {
+        cases.push(Case {
+            sample: samples::notes(format!("held-{index}"), text),
+            memory: memory.clone(),
+            group: Group::HeldOut,
+        });
+    }
+    let every = persona.memory.entries().iter().enumerate();
+    for (index, entry) in every.step_by(LEAVE_ONE_OUT_EVERY) {
+        let mut without = memory.clone();
+        without.forget(&entry.app, entry.sentence.as_str());
+        cases.push(Case {
+            sample: samples::notes(format!("loo-{index}"), entry.sentence.as_str()),
+            memory: without,
+            group: Group::LeaveOneOut,
+        });
+    }
+    cases
+}
+
 fn main() {
     let options = options();
     let started = Instant::now();
@@ -271,7 +344,7 @@ fn main() {
         .session(options.threads, options.config.context_tokens)
         .expect("session");
     println!(
-        "model {} threads {} load {:.0} ms\nconfig: min_mean {} min_token {} max_words {} max_tokens {} context_chars {} context_tokens {} nearby {:?} nearby_tokens {}\n",
+        "model {} threads {} load {:.0} ms\nconfig: min_mean {} min_token {} max_words {} max_tokens {} context_chars {} context_tokens {} nearby {:?} nearby_tokens {} style {:?} eval {:?}\n",
         options.model.file_name().unwrap().to_string_lossy(),
         options.threads,
         started.elapsed().as_secs_f64() * 1e3,
@@ -283,13 +356,18 @@ fn main() {
         options.config.context_tokens,
         options.nearby,
         options.config.nearby_tokens,
+        options.style,
+        options.eval,
     );
     let mut total = Stats::default();
     let mut midline = Stats::default();
+    let mut held = Stats::default();
+    let mut left_out = Stats::default();
     let mut overall = Stats::default();
     let mut rows = Vec::new();
     let mut records = Vec::new();
-    for sample in samples::all() {
+    for case in cases(&options) {
+        let sample = &case.sample;
         if options
             .only
             .as_ref()
@@ -297,14 +375,16 @@ fn main() {
         {
             continue;
         }
-        let stats = replay(&mut session, &options, &sample, &mut records);
-        if sample.suffix.is_empty() {
-            total.merge(&stats);
-        } else {
-            midline.merge(&stats);
-        }
+        let stats = replay(&mut session, &options, (sample, &case.memory), &mut records);
+        let group = match (case.group, sample.suffix.is_empty()) {
+            (Group::Standard, true) => &mut total,
+            (Group::Standard, false) => &mut midline,
+            (Group::HeldOut, _) => &mut held,
+            (Group::LeaveOneOut, _) => &mut left_out,
+        };
+        group.merge(&stats);
         overall.merge(&stats);
-        rows.push((sample.name, stats));
+        rows.push((sample.name.clone(), stats));
     }
     println!();
     print_header();
@@ -313,6 +393,8 @@ fn main() {
     }
     print_row("TOTAL", &total);
     print_row("MID-LINE", &midline);
+    print_row("HELD-OUT", &held);
+    print_row("LEAVE-ONE-OUT", &left_out);
     print_estimator("ALL", &overall);
     for (name, stats) in &rows {
         print_estimator(name, stats);

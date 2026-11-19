@@ -125,6 +125,7 @@ fn park(hwnd: HWND, dpi: u32) {
 
 fn sample_overview() -> Overview {
     Overview {
+        style: Vec::new(),
         status: "Ready".into(),
         stats: StatsView {
             today: Counts {
