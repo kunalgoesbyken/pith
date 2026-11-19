@@ -1410,7 +1410,7 @@ mod tests {
             (|f: &mut FieldSnapshot| f.is_password = true) as fn(&mut FieldSnapshot),
             |f| f.composing = true,
             |f| f.has_selection = true,
-            |f| f.app = "WindowsTerminal".into(),
+            |f| f.app = crate::apps::sample(crate::apps::Surface::Terminal).into(),
             |f| f.after = " tail".into(),
             |f| f.before = "  ".into(),
         ] {

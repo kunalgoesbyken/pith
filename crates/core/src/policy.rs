@@ -102,8 +102,12 @@ mod tests {
         let mut f = field("Hello the", "");
         f.has_selection = true;
         assert_eq!(check(&f, &config), Err(SkipReason::Selection));
+        let terminal = format!(
+            "{}.exe",
+            crate::apps::sample(crate::apps::Surface::Terminal)
+        );
         for app in [
-            "WindowsTerminal.exe",
+            terminal.as_str(),
             "code",
             "Code.exe",
             "1Password.exe",
@@ -156,7 +160,10 @@ mod tests {
             ),
             (|f| f.composing = true, SkipReason::Composing),
             (|f| f.has_selection = true, SkipReason::Selection),
-            (|f| f.app = "cmd".into(), SkipReason::BlockedApp),
+            (
+                |f| f.app = crate::apps::sample(crate::apps::Surface::Terminal).into(),
+                SkipReason::BlockedApp,
+            ),
             (|f| f.after = " tail".into(), SkipReason::TextAfterCaret),
         ] {
             let mut f = field("Hi", "");

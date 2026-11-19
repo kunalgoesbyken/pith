@@ -7,7 +7,9 @@ pub enum Surface {
     Editor,
 }
 
-const SURFACES: [(Surface, &[&str]); 3] = [
+type Names = [(Surface, &'static [&'static str]); 3];
+
+const WINDOWS: Names = [
     (
         Surface::Secure,
         &[
@@ -48,6 +50,126 @@ const SURFACES: [(Surface, &[&str]); 3] = [
     ),
 ];
 
+const LINUX: Names = [
+    (
+        Surface::Secure,
+        &[
+            "1password",
+            "keepass",
+            "keepass2",
+            "keepassx",
+            "keepassxc",
+            "bitwarden",
+            "enpass",
+            "dashlane",
+            "lastpass",
+            "gcr-prompter",
+            "seahorse",
+            "pinentry",
+            "pinentry-curses",
+            "pinentry-emacs",
+            "pinentry-gnome3",
+            "pinentry-gtk",
+            "pinentry-gtk-2",
+            "pinentry-gtk2",
+            "pinentry-qt",
+            "pinentry-qt4",
+            "pinentry-qt5",
+            "pinentry-tty",
+            "ssh-askpass",
+            "ksshaskpass",
+            "lxqt-openssh-askpass",
+            "polkit-gnome-authentication-agent-1",
+            "polkit-kde-authentication-agent-1",
+            "polkit-mate-authentication-agent-1",
+            "lxqt-policykit-agent",
+            "xfce-polkit",
+            "hyprpolkitagent",
+            "swaylock",
+            "i3lock",
+            "hyprlock",
+            "gtklock",
+            "xsecurelock",
+            "xscreensaver",
+        ],
+    ),
+    (
+        Surface::Terminal,
+        &[
+            "alacritty",
+            "contour",
+            "cool-retro-term",
+            "foot",
+            "footclient",
+            "ghostty",
+            "gnome-console",
+            "gnome-terminal-server",
+            "guake",
+            "kgx",
+            "kitty",
+            "konsole",
+            "lxterminal",
+            "mate-terminal",
+            "ptyxis",
+            "qterminal",
+            "rxvt",
+            "sakura",
+            "st",
+            "terminator",
+            "terminology",
+            "tilda",
+            "tilix",
+            "urxvt",
+            "uxterm",
+            "wezterm",
+            "wezterm-gui",
+            "xfce4-terminal",
+            "xterm",
+            "yakuake",
+        ],
+    ),
+    (
+        Surface::Editor,
+        &[
+            "code",
+            "code-oss",
+            "codium",
+            "vscodium",
+            "cursor",
+            "windsurf",
+            "zed",
+            "zeditor",
+            "zed-editor",
+            "idea",
+            "pycharm",
+            "webstorm",
+            "clion",
+            "goland",
+            "rider",
+            "rubymine",
+            "phpstorm",
+            "datagrip",
+            "studio",
+        ],
+    ),
+];
+
+const UNSUPPORTED: Names = [
+    (Surface::Secure, &[]),
+    (Surface::Terminal, &[]),
+    (Surface::Editor, &[]),
+];
+
+fn surfaces() -> &'static Names {
+    if cfg!(windows) {
+        &WINDOWS
+    } else if cfg!(target_os = "linux") {
+        &LINUX
+    } else {
+        &UNSUPPORTED
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     On,
@@ -67,7 +189,7 @@ pub fn same_app(a: &str, b: &str) -> bool {
 }
 
 pub fn surface(app: &str) -> Option<(Surface, &'static str)> {
-    SURFACES.iter().find_map(|(surface, names)| {
+    surfaces().iter().find_map(|(surface, names)| {
         names
             .iter()
             .find(|name| same_app(name, app))
@@ -87,4 +209,14 @@ pub fn editors_among(apps: &[String]) -> Vec<String> {
         }
     }
     kept
+}
+
+#[cfg(test)]
+pub(crate) fn sample(wanted: Surface) -> &'static str {
+    surfaces()
+        .iter()
+        .find(|(surface, _)| *surface == wanted)
+        .and_then(|(_, names)| names.first())
+        .copied()
+        .unwrap_or_default()
 }

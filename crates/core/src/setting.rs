@@ -232,7 +232,8 @@ mod tests {
         for again in ["slack", "Slack.exe", r"D:\x\SLACK.exe"] {
             assert!(!config.block_app(again), "{again}");
         }
-        for always in ["cmd", "KeePass.exe", "Code"] {
+        let terminal = crate::apps::sample(crate::apps::Surface::Terminal);
+        for always in [terminal, "KeePass.exe", "Code"] {
             assert!(!config.block_app(always), "{always}");
         }
         for empty in ["", "  ", ".exe", r"C:\dir\"] {
@@ -258,8 +259,9 @@ mod tests {
         assert!(config.unblock_app("foo.bar"));
         assert!(!config.unblock_app("Foo"));
         assert_eq!(config.blocked_apps, ["zoom"]);
-        assert!(!config.unblock_app("cmd"));
-        assert!(config.is_blocked("cmd"));
+        let terminal = crate::apps::sample(crate::apps::Surface::Terminal);
+        assert!(!config.unblock_app(terminal));
+        assert!(config.is_blocked(terminal));
     }
 
     #[test]
