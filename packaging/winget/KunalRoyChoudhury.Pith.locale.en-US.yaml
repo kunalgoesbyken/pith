@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: KunalRoyChoudhury.Pith
+PackageVersion: {{version}}
+PackageLocale: en-US
+Publisher: Kunal Roy Choudhury
+PublisherUrl: https://github.com/kunalgoesbyken
+PublisherSupportUrl: https://github.com/kunalgoesbyken/pith/issues
+PackageName: Pith
+PackageUrl: https://github.com/kunalgoesbyken/pith
+License: MIT
+LicenseUrl: https://github.com/kunalgoesbyken/pith/blob/master/LICENSE
+ShortDescription: Local autocomplete for every text box on Windows.
+Description: Pith shows the rest of your sentence in grey at the caret while you type, using a small language model that runs on your CPU. No account, no telemetry, and no network use after the one-time model download.
+Moniker: pith
+Tags:
+- autocomplete
+- ai
+- local
+- offline
+- productivity
+ReleaseNotesUrl: https://github.com/kunalgoesbyken/pith/releases/tag/v{{version}}
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

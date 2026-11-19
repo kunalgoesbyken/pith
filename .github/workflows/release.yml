@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,10 +11,16 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   LIBCLANG_PATH: C:\Program Files\LLVM\bin
+  DIST: dist
+  WINGET_TEMPLATES: packaging/winget
 
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -21,21 +28,83 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - run: cargo test --workspace
       - run: cargo build --release
-      - name: Checksum
+      - name: Version
+        id: version
         shell: pwsh
         run: |
-          Copy-Item target/release/pith.exe pith.exe
-          $hash = (Get-FileHash pith.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  pith.exe" | Out-File -Encoding ascii pith.exe.sha256
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object name -eq pith).version
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "tag $env:GITHUB_REF_NAME does not match the crate version v$version"
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+      - name: Package
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          New-Item -ItemType Directory $env:DIST | Out-Null
+          Copy-Item target/release/pith.exe $env:DIST/pith.exe
+          $stage = "pith-$env:VERSION-x64-portable"
+          New-Item -ItemType Directory $stage | Out-Null
+          Copy-Item target/release/pith.exe, LICENSE, README.md $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "$env:DIST/$stage.zip"
+          $sums = Get-ChildItem $env:DIST -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          [IO.File]::WriteAllText("$env:DIST/SHA256SUMS", ($sums -join "`n") + "`n")
+          $sums
+      - name: Fill the winget manifests
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $sha256 = (Get-FileHash "$env:DIST/pith.exe" -Algorithm SHA256).Hash
+          $date = Get-Date -Format "yyyy-MM-dd"
+          $target = "winget/$env:VERSION"
+          New-Item -ItemType Directory $target | Out-Null
+          foreach ($template in Get-ChildItem $env:WINGET_TEMPLATES -File) {
+            $filled = (Get-Content $template.FullName -Raw).Replace("{{version}}", $env:VERSION).Replace("{{date}}", $date).Replace("{{sha256}}", $sha256)
+            Out-File -Encoding utf8NoBOM -InputObject $filled -NoNewline "$target/$($template.Name)"
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pith
-          path: |
-            pith.exe
-            pith.exe.sha256
+          path: ${{ env.DIST }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: winget
+          path: winget
+
+  attest:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pith
+          path: ${{ env.DIST }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: |
+            ${{ env.DIST }}/pith.exe
+            ${{ env.DIST }}/*.zip
+      - name: Verify the attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          for file in "$DIST/pith.exe" "$DIST"/*.zip; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-ref "refs/tags/v$VERSION"
+          done
 
   publish:
-    needs: build
+    needs: [build, attest]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -46,4 +115,4 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" pith.exe pith.exe.sha256 --repo "$GITHUB_REPOSITORY" --title "Pith $TAG" --generate-notes
+        run: gh release create "$TAG" pith.exe pith-*-portable.zip SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "Pith $TAG" --generate-notes

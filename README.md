@@ -57,7 +57,7 @@ Hindi and Spanish are the slowest because they take more tokens per word. Japane
 
 ## Use it
 
-Download `pith.exe` from [Releases](https://github.com/kunalgoesbyken/pith/releases) and run it; `pith.exe.sha256` next to it lets you check the file. The exe is not code-signed yet, so Windows SmartScreen may ask you to confirm the first start. On first start Pith downloads the model into `%LOCALAPPDATA%\Pith\data\models`, then shows a tray icon.
+Download `pith.exe` from [Releases](https://github.com/kunalgoesbyken/pith/releases) and run it, or take the portable zip, which also holds the license and this readme. The exe is not code-signed, so Windows SmartScreen may ask you to confirm the first start; [Verify your download](#verify-your-download) shows how to check it first. On first start Pith downloads the model into `%LOCALAPPDATA%\Pith\data\models`, then shows a tray icon.
 
 | `model` | File | Download | RAM loaded | Median / p90 per keystroke | Keystrokes saved | Exact next word | Notes |
 |---|---|---|---|---|---|---|---|
@@ -91,6 +91,31 @@ When an app reports no caret, or a caret Pith cannot trust, the suggestion shows
 The pill is also used when the only text after the caret on the line is closing punctuation, such as `)`, `]`, `"`, `.`, `?`, `」` or `）。` (closing brackets and quotes, and terminal punctuation in any script, by Unicode property). Pith suggests the words that belong before it and shows them in a pill that starts at the caret, just below its line, so the suggestion never sits on top of the punctuation. In a field with several lines the pill covers the start of the line under the caret while it is shown. The pill spans from the caret to the right edge of the field (or of the screen when the app does not report a field) and wraps up to four lines. When the suggestion does not fit, Pith cuts it to the longest run of whole words that does and still fits the rules above, and accepting inserts only those; when not even one word fits on the first row, nothing is shown, the tray says "Skipped: no room for the suggestion", and Pith tries once more when the window or the caret moves and again whenever you edit the text. Resizing a field without moving the caret does not count as a move unless the pill is anchored to the field itself, so Pith usually waits until you type. This applies to every pill and to the ghost text, so what you accept is always what you saw. A suggestion that repeats the punctuation after the caret is dropped (`could you send it` before `?`, not `could you send it?`), and so is one that ends in a comma, semicolon or colon (or the equivalent in another script), ends a sentence in front of punctuation that already ends one (`soon.` before `).`), closes a bracket it did not open or runs over more than one sentence (an abbreviation such as `Dr. Smith` counts as a sentence break, so suggestions containing one are dropped). Accepting inserts at the caret and leaves the punctuation where it is. Any other text after the caret on the line (a word, an opening bracket, a symbol) still skips the suggestion.
 
 Pith pauses and frees the model while Windows battery saver is on.
+
+## Verify your download
+
+Every release carries `pith.exe`, a portable zip and `SHA256SUMS`. GitHub Actions also signs a build provenance attestation for `pith.exe` and for the zip (not for `SHA256SUMS`). It says which commit and which workflow of this repository built the file.
+
+Check where the file came from (needs the [GitHub CLI](https://cli.github.com)):
+
+```
+gh attestation verify pith.exe --repo kunalgoesbyken/pith --signer-workflow kunalgoesbyken/pith/.github/workflows/release.yml
+```
+
+Use the same command with the zip's file name to check the zip.
+
+Check the file was not damaged or swapped in transit, with tools Windows already has:
+
+```
+certutil -hashfile pith.exe SHA256
+certutil -hashfile pith-0.1.0-x64-portable.zip SHA256
+```
+
+Each hash must equal that file's own line in `SHA256SUMS` from the same release (use your version in the zip's name). The checksum alone proves less than the attestation: `SHA256SUMS` sits on the same release page, so whoever could replace the exe could replace the list too.
+
+**About SmartScreen and Smart App Control.** `pith.exe` is not code-signed. Signing certificates cost money every year, and Pith is a free MIT project. SmartScreen judges an unsigned program by how many people have already run that exact file, so a new release shows "Windows protected your PC", and it can show again on the next release because each build is a new file. The warning means "not known yet", not "known bad". After the attestation or the hash checks out, choose More info, then Run anyway. Extracting the zip with Windows Explorer copies the download's mark of the web onto `pith.exe`, so the same prompt appears for the extracted file.
+
+Windows 11 with Smart App Control turned on is stricter: it blocks unsigned programs and offers no Run anyway. Then your choices are to build Pith from source (see Build and test), or to turn Smart App Control off, which Windows only lets you undo by resetting the PC. We have not verified how Smart App Control treats a binary you built yourself.
 
 ## Config
 
