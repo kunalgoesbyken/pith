@@ -1,21 +1,26 @@
 use std::pin::pin;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use async_channel::{Receiver, Sender, unbounded};
-use atspi::AccessibilityConnection;
+use async_io::Timer;
 use atspi::events::Event;
 use atspi::events::object::{
     StateChangedEvent, TextCaretMovedEvent, TextChangedEvent, TextSelectionChangedEvent,
 };
+use atspi::{AccessibilityConnection, ObjectRefOwned};
 use futures_lite::future::{block_on, or, poll_once};
 use futures_lite::{Stream, StreamExt};
 use pith_core::{Config, FieldSnapshot};
+use zbus::Connection;
 
 use crate::accessibility::{Accessibility, Lease};
 use crate::error::ReaderError;
 use crate::field::read;
 use crate::focus::Tracker;
+
+const READ_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>) + Send>;
 
@@ -100,7 +105,7 @@ impl Session {
                 continue;
             }
             let snapshot = match tracker.focused() {
-                Some(target) if config.enabled => read(bus, target, config).await.unwrap_or(None),
+                Some(target) if config.enabled => read_within(bus, target, config).await,
                 _ => None,
             };
             if last.as_ref() != Some(&snapshot) {
@@ -119,6 +124,21 @@ async fn next_event(
         let _ = stopped.recv().await;
         None
     })
+    .await
+}
+
+async fn read_within(
+    bus: &Connection,
+    target: &ObjectRefOwned,
+    config: &Config,
+) -> Option<FieldSnapshot> {
+    or(
+        async { read(bus, target, config).await.unwrap_or(None) },
+        async {
+            Timer::after(READ_TIMEOUT).await;
+            None
+        },
+    )
     .await
 }
 

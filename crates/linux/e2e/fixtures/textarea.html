@@ -6,5 +6,10 @@
 </head>
 <body>
 <textarea autofocus rows="6" cols="60"></textarea>
+<script>
+const field = document.querySelector("textarea");
+field.value = decodeURIComponent(location.hash.slice(1));
+field.setSelectionRange(field.value.length, field.value.length);
+</script>
 </body>
 </html>

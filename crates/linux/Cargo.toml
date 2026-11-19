@@ -10,6 +10,7 @@ atspi.workspace = true
 zbus.workspace = true
 futures-lite.workspace = true
 async-channel.workspace = true
+async-io.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 serde_json.workspace = true

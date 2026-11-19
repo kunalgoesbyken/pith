@@ -49,14 +49,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: >
           sudo apt-get install -y --no-install-recommends
-          xvfb xdotool openbox dbus-x11 at-spi2-core zenity
-          python3-gi gir1.2-gtk-4.0
+          xvfb xdotool openbox dbus-x11 at-spi2-core
+          python3-gi gir1.2-gtk-3.0 gir1.2-gtk-4.0
       - run: cargo build -p pith-linux --example probe
       - name: GTK 4
         run: xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- sh crates/linux/e2e/session.sh gtk4
       - name: GTK 3
         if: ${{ !cancelled() }}
-        run: xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- sh crates/linux/e2e/session.sh zenity
+        run: xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- sh crates/linux/e2e/session.sh gtk3
       - name: Firefox
         if: ${{ !cancelled() }}
         run: xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- sh crates/linux/e2e/session.sh firefox
+
