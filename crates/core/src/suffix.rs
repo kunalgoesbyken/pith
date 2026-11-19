@@ -5,6 +5,7 @@ use icu_properties::props::{
 use icu_properties::{
     CodePointMapData, CodePointMapDataBorrowed, CodePointSetData, CodePointSetDataBorrowed,
 };
+use serde::{Serialize, Serializer};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::LINE_BREAKS;
@@ -53,6 +54,12 @@ impl After {
 
     pub fn ends_text(&self) -> bool {
         self.text.chars().all(is_skippable)
+    }
+}
+
+impl Serialize for After {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.text)
     }
 }
 
