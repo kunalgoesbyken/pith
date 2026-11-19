@@ -1,84 +1,41 @@
-use std::path::PathBuf;
-
-use pith_core::{Config, init_log, log};
-use pith_infer::{Worker, resolve_backend};
+use pith_core::{Completion, init_log, log};
+use pith_infer::Stage;
 use pith_windows::{Inbound, Inbox, InsertMode, Options, Source, hardware, run, single_instance};
+
+use crate::setup::{Paths, WorkerEvents, directories, load_config, recommend, spawn_worker};
 
 const SINGLE_INSTANCE_NAME: &str = "Local\\PithSingleInstance";
 const POLL_MS: u32 = 250;
+const ONBOARDED_MARKER: &str = "onboarded";
 
-struct Paths {
-    config: PathBuf,
-    data: PathBuf,
-    models: PathBuf,
-    log: PathBuf,
-    onboarded: PathBuf,
-}
+impl WorkerEvents for Inbox {
+    fn preparing(&self, stage: Stage) {
+        self.post(Inbound::Preparing(stage));
+    }
 
-fn paths() -> Paths {
-    let dirs = directories::ProjectDirs::from("", "", "Pith").expect("home directory");
-    Paths {
-        config: dirs.config_dir().join("config.toml"),
-        data: dirs.data_local_dir().to_path_buf(),
-        models: dirs.data_local_dir().join("models"),
-        log: dirs.data_local_dir().join("pith.log"),
-        onboarded: dirs.data_local_dir().join("onboarded"),
+    fn ready(&self, status: Result<String, String>) {
+        self.post(Inbound::Ready(status));
+    }
+
+    fn done(&self, generation: u64, result: Result<Completion, String>) {
+        self.post(Inbound::Done(generation, result));
     }
 }
 
-fn flag(args: &[String], name: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1).cloned())
-}
-
-fn load_config(paths: &Paths) -> (Config, Option<String>) {
-    let args: Vec<String> = std::env::args().collect();
-    let (mut config, error) = match Config::load(&paths.config) {
-        Ok(config) => (config, None),
-        Err(error) => {
-            log(&format!("settings error, using defaults: {error}"));
-            (Config::default(), Some(error))
-        }
-    };
-    if let Some(model) = flag(&args, "--model") {
-        config.model_path = Some(PathBuf::from(model));
-    }
-    if let Some(threads) = flag(&args, "--threads").and_then(|t| t.parse().ok()) {
-        config.threads = threads;
-    }
-    (config, error)
-}
-
-pub fn launch() {
-    let paths = paths();
+fn start() -> Result<(), String> {
+    let dirs = directories()?;
+    let paths = Paths::of(&dirs);
     init_log(&paths.log);
-    let (config, config_error) = load_config(&paths);
+    let args: Vec<String> = std::env::args().collect();
+    let (config, config_error) = load_config(&paths.config, &args)?;
     if !single_instance(SINGLE_INSTANCE_NAME) {
         log("another instance is running");
-        return;
+        return Ok(());
     }
     let (inbox, receiver) = Inbox::channel();
-    let machine = hardware();
-    let recommended = machine.recommended_model();
-    log(&format!(
-        "{} MiB memory, {} cores, recommended model: {}",
-        machine.ram_mib,
-        machine.cores,
-        recommended.label()
-    ));
-    let models = paths.models.clone();
-    let (preparing, ready, done) = (inbox.clone(), inbox.clone(), inbox.clone());
-    let worker = Worker::spawn(
-        config.clone(),
-        Box::new(move |config, superseded| {
-            resolve_backend(config, recommended, &models, superseded, &|stage| {
-                preparing.post(Inbound::Preparing(stage))
-            })
-        }),
-        Box::new(move |status| ready.post(Inbound::Ready(status))),
-        Box::new(move |generation, result| done.post(Inbound::Done(generation, result))),
-    );
+    let recommended = recommend(hardware());
+    let worker = spawn_worker(&config, recommended, paths.models.clone(), inbox.clone());
+    let onboarded = dirs.data_local_dir().join(ONBOARDED_MARKER);
     let options = Options {
         source: Source::Focused,
         insert: InsertMode::Paste,
@@ -87,13 +44,18 @@ pub fn launch() {
         config_path: Some(paths.config.clone()),
         observer: None,
         global_keys: true,
-        onboarding: (!paths.onboarded.exists()).then(|| paths.onboarded.clone()),
-        data_dir: Some(paths.data.clone()),
+        onboarding: (!onboarded.exists()).then_some(onboarded),
+        data_dir: Some(dirs.data_local_dir().to_path_buf()),
         notice: config_error,
         recommended,
     };
     log("pith starting");
-    if let Err(error) = run(config, worker, inbox, receiver, options) {
+    run(config, worker, inbox, receiver, options).map_err(|error| error.to_string())
+}
+
+pub fn launch() {
+    if let Err(error) = start() {
+        eprintln!("{error}");
         log(&format!("fatal: {error}"));
     }
 }

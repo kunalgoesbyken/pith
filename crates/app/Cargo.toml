@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+e2e = ["pith-linux/e2e", "dep:serde_json"]
+
 [dependencies]
 pith-core.workspace = true
 pith-infer.workspace = true
@@ -11,6 +14,10 @@ directories.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 pith-windows.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pith-linux.workspace = true
+serde_json = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource.workspace = true

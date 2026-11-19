@@ -12,6 +12,7 @@ repository = "https://github.com/kunalgoesbyken/pith"
 pith-core = { path = "crates/core" }
 pith-infer = { path = "crates/infer" }
 pith-windows = { path = "crates/windows" }
+pith-linux = { path = "crates/linux" }
 icu_properties = "~2.4"
 serde = { version = "1", features = ["derive"] }
 toml_edit = { version = "0.25", features = ["serde"] }
@@ -32,6 +33,9 @@ zbus = { version = "5", default-features = false, features = ["async-io"] }
 futures-lite = "2"
 async-channel = "2"
 async-io = "2"
+x11rb = { version = "0.14", default-features = false, features = ["randr", "resource_manager", "shape", "xfixes", "xkb", "xtest"] }
+cosmic-text = "0.19"
+signal-hook = "0.3"
 
 [profile.release]
 lto = "thin"
