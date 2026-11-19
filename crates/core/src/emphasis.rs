@@ -1,9 +1,7 @@
 use std::ops::Range;
 
-use pith_core::{Line, strong_span};
-use windows::Win32::Foundation::POINT;
-
-use super::face::Face;
+use crate::scene::{Placed, Point};
+use crate::{Line, strong_span};
 
 pub struct Emphasis(Vec<Option<(i32, i32)>>);
 
@@ -11,18 +9,23 @@ impl Emphasis {
     pub fn of(
         text: &str,
         strong: &Range<usize>,
-        lines: &[Line],
+        placed: &Placed,
         rtl: bool,
-        face: &Face,
-        origin: POINT,
-        height: i32,
+        line_height: i32,
+        measure: &dyn Fn(&str) -> i32,
     ) -> Self {
-        let measure = |segment: &str| face.measure(segment);
-        let spans: Vec<_> = lines
+        let spans: Vec<_> = placed
+            .lines
             .iter()
-            .map(|line| strong_span(text, line, strong.clone(), rtl, &measure))
+            .map(|line| strong_span(text, line, strong.clone(), rtl, measure))
             .collect();
-        row_spans(lines, &spans, origin, face.line_height, height)
+        row_spans(
+            &placed.lines,
+            &spans,
+            placed.origin,
+            line_height,
+            placed.size.height,
+        )
     }
 
     pub fn covers(&self, column: i32, row: i32) -> bool {
@@ -33,7 +36,7 @@ impl Emphasis {
 fn row_spans(
     lines: &[Line],
     spans: &[Option<(i32, i32)>],
-    origin: POINT,
+    origin: Point,
     line_height: i32,
     height: i32,
 ) -> Emphasis {
@@ -114,7 +117,7 @@ mod tests {
                 row_spans(
                     &lines,
                     &spans,
-                    POINT { x: left, y: first },
+                    Point { x: left, y: first },
                     line_height,
                     height
                 )

@@ -1,24 +1,12 @@
 use windows::Win32::Foundation::RECT;
 
-pub const BASE_DPI: u32 = 96;
+pub use pith_core::{BASE_DPI, Scale};
+
 pub const CARD_RADIUS: i32 = 8;
 pub const CONTROL_RADIUS: i32 = 4;
 pub const FOCUS_RING: i32 = 2;
 pub const FOCUS_GAP: i32 = 1;
 pub const STROKE: i32 = 1;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Scale(pub u32);
-
-impl Scale {
-    pub fn px(self, logical: i32) -> i32 {
-        (logical * self.0 as i32 + BASE_DPI as i32 / 2) / BASE_DPI as i32
-    }
-
-    pub fn size(self, logical: f32) -> f32 {
-        logical * self.0 as f32 / BASE_DPI as f32
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {

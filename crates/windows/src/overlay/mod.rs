@@ -1,5 +1,4 @@
 mod anchored;
-mod emphasis;
 mod face;
 mod fade;
 mod inline;
@@ -7,15 +6,17 @@ mod pill;
 mod raster;
 mod scene;
 mod screen;
-mod shading;
 mod window;
 
-use pith_core::{Drawn, Label, Placement, Rgb, TextStyle, fits, is_rtl, next_word};
+use pith_core::{
+    Drawn, Form, Label, PillStyle, Placed, Placement, Rgb, Surface, TextStyle, fit_cuts,
+    inline_anchor, is_rtl,
+};
+use windows::Win32::Foundation::POINT;
 
 use inline::Backdrop;
-use pill::Style;
 use raster::Raster;
-use scene::{Frame, Placed, Scene};
+use scene::{Frame, Scene};
 use screen::{Monitor, ScreenDc, focused_field, sample_background};
 use window::Layered;
 pub use window::OVERLAY_CLASS;
@@ -25,7 +26,7 @@ use crate::ui::Theme;
 pub struct Overlay {
     window: Layered,
     background: Rgb,
-    style: Style,
+    style: PillStyle,
     opacity: u8,
 }
 
@@ -34,7 +35,7 @@ impl Overlay {
         Ok(Self {
             window: Layered::create()?,
             background: Rgb::WHITE,
-            style: Style::of(&Theme::detect()),
+            style: pill::style(&Theme::detect()),
             opacity,
         })
     }
@@ -44,13 +45,7 @@ impl Overlay {
     }
 
     pub fn show(&mut self, cuts: &[String], placement: Placement, style: &TextStyle) -> Drawn {
-        let labels: Vec<Label> = cuts
-            .iter()
-            .map(|text| Label {
-                strong: 0..next_word(text).len(),
-                text: text.clone(),
-            })
-            .collect();
+        let labels: Vec<Label> = cuts.iter().map(|text| Label::cut(text)).collect();
         self.draw(&labels, placement, style)
     }
 
@@ -67,35 +62,32 @@ impl Overlay {
     }
 
     fn draw(&mut self, labels: &[Label], placement: Placement, style: &TextStyle) -> Drawn {
-        let (Placement::Inline(target)
-        | Placement::Anchored(target)
-        | Placement::BelowCaret(target)) = placement;
+        let form = Form::of(placement, true);
         let screen = ScreenDc::get();
-        let monitor = Monitor::nearest(target);
-        let face = match placement {
-            Placement::Inline(caret) => inline::face(&screen, monitor, caret, style),
-            Placement::Anchored(_) | Placement::BelowCaret(_) => anchored::face(&screen, monitor),
+        let monitor = Monitor::nearest(form.target());
+        let face = match form {
+            Form::Ghost(caret) => inline::face(&screen, monitor, caret, style),
+            Form::UnderCaret(_) | Form::UnderField(_) => anchored::face(&screen, monitor),
         };
-        let field = focused_field();
-        let frame = |text, strong| Frame {
-            text,
-            strong,
-            rtl: is_rtl(text),
-            screen: &screen,
-            monitor,
-            face: &face,
-            field,
+        let measure = |segment: &str| face.measure(segment);
+        let surface = Surface {
+            work: monitor.work,
+            scale: monitor.scale,
+            field: focused_field(),
+            line_height: face.line_height,
+            measure: &measure,
         };
-        for (index, Label { text, strong }) in labels.iter().enumerate() {
-            let frame = frame(text, strong);
-            let placed = match placement {
-                Placement::Inline(caret) => inline::place(&frame, caret),
-                Placement::Anchored(element) => anchored::under_field(&frame, element),
-                Placement::BelowCaret(caret) => anchored::under_caret(&frame, caret),
+        if let Some((index, placed)) = fit_cuts(labels, form, &surface) {
+            let Label { text, strong } = &labels[index];
+            let frame = Frame {
+                text,
+                strong,
+                rtl: is_rtl(text),
+                screen: &screen,
+                monitor,
+                face: &face,
             };
-            if let Some(placed) = placed.filter(|placed| fits(text, &placed.lines)) {
-                return self.present(&frame, placement, style, placed, index);
-            }
+            return self.present(&frame, placement, style, placed, index);
         }
         self.window.hide();
         Drawn::Nothing
@@ -111,11 +103,11 @@ impl Overlay {
         }
         match placement {
             Placement::Inline(caret) => {
-                let anchor = inline::anchor(caret, frame.rtl);
+                let anchor = inline_anchor(caret, frame.rtl);
                 self.background = sample_background(frame.screen, caret, anchor, frame.rtl);
             }
             Placement::Anchored(_) | Placement::BelowCaret(_) => {
-                self.style = Style::of(&Theme::detect());
+                self.style = pill::style(&Theme::detect());
             }
         }
     }
@@ -141,7 +133,10 @@ impl Overlay {
                 anchored::shading(frame, &placed, self.style)
             }
         };
-        let destination = placed.destination;
+        let destination = POINT {
+            x: placed.destination.x,
+            y: placed.destination.y,
+        };
         let scene = Scene::new(frame, placed, shading);
         match Raster::render(&scene) {
             Some(raster) => {

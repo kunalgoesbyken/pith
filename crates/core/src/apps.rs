@@ -1,4 +1,5 @@
 use crate::config::app_name;
+use crate::hosts::alias_of;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
@@ -193,7 +194,12 @@ impl Access {
 }
 
 pub fn same_app(a: &str, b: &str) -> bool {
-    app_name(a).eq_ignore_ascii_case(app_name(b))
+    canonical(a).eq_ignore_ascii_case(canonical(b))
+}
+
+fn canonical(app: &str) -> &str {
+    let name = app_name(app);
+    alias_of(name).unwrap_or(name)
 }
 
 pub fn surface(app: &str) -> Option<(Surface, &'static str)> {

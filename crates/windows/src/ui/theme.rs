@@ -12,6 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 pub use pith_core::Rgb;
+use pith_core::Scheme;
 
 use crate::registry::apps_use_dark_theme;
 
@@ -43,13 +44,13 @@ pub struct Accent {
 
 impl Accent {
     const LIGHT: Accent = Accent {
-        base: Rgb(0xCC4C08),
+        base: Scheme::LIGHT.accent,
         hover: Rgb(0xB84407),
         pressed: Rgb(0xA33C06),
         on: WHITE,
     };
     const DARK: Accent = Accent {
-        base: AMBER,
+        base: Scheme::DARK.accent,
         hover: Rgb(0xF7AC5E),
         pressed: Rgb(0xE8913A),
         on: INK,
@@ -89,10 +90,10 @@ impl Palette {
     fn light() -> Self {
         Self {
             page: Rgb(0xF3F3F3),
-            card: WHITE,
+            card: Scheme::LIGHT.card,
             card_stroke: Rgb(0xE5E5E5),
-            text: Rgb(0x1A1A1A),
-            text_secondary: Rgb(0x5D5D5D),
+            text: Scheme::LIGHT.text,
+            text_secondary: Scheme::LIGHT.text_secondary,
             control: Rgb(0xFBFBFB),
             control_hover: Rgb(0xF3F3F3),
             control_pressed: Rgb(0xEAEAEA),
@@ -109,10 +110,10 @@ impl Palette {
     fn dark() -> Self {
         Self {
             page: Rgb(0x202020),
-            card: Rgb(0x2B2B2B),
+            card: Scheme::DARK.card,
             card_stroke: Rgb(0x3A3A3A),
-            text: WHITE,
-            text_secondary: Rgb(0xC5C5C5),
+            text: Scheme::DARK.text,
+            text_secondary: Scheme::DARK.text_secondary,
             control: Rgb(0x373737),
             control_hover: Rgb(0x3F3F3F),
             control_pressed: Rgb(0x323232),

@@ -1,40 +1,27 @@
 use std::time::Instant;
 
-use pith_core::{Chord, Key, Keymap};
+use pith_core::{Keymap, PressQueue};
 use windows::Win32::Foundation::HWND;
 
 use super::{App, TIMER_REARM};
-use crate::keys::{Binding, KeyAction, Keys, replay};
+use crate::keys::{Binding, Hotkeys, Keys, replay};
 
 const REARM_MS: u32 = 60;
 
-#[derive(Clone, Copy)]
-struct Press {
-    action: KeyAction,
-    chord: Chord,
-    at: Instant,
-}
-
-impl Press {
-    fn moves_caret(&self) -> bool {
-        self.chord.key == Key::Right
-    }
-}
+type Press = pith_core::Press<()>;
 
 pub struct Keyboard {
-    keys: Keys<HWND>,
+    keys: Keys<Hotkeys>,
     global: bool,
-    awaiting_read: Vec<Press>,
-    read: u64,
+    queue: PressQueue<()>,
 }
 
 impl Keyboard {
     pub fn new(keymap: &Keymap, control: HWND, global: bool) -> Self {
         Self {
-            keys: Keys::new(keymap, control),
+            keys: Keys::new(keymap, Hotkeys(control)),
             global,
-            awaiting_read: Vec::new(),
-            read: 0,
+            queue: PressQueue::default(),
         }
     }
 
@@ -64,13 +51,7 @@ impl Keyboard {
     }
 
     pub fn serves(&self, served: Option<u64>) -> bool {
-        served.is_some_and(|id| id >= self.read)
-    }
-
-    fn queue(&mut self, press: Press) -> u64 {
-        self.awaiting_read.push(press);
-        self.read += 1;
-        self.read
+        self.queue.serves(served)
     }
 }
 
@@ -83,29 +64,22 @@ impl App {
             action,
             chord,
             at: Instant::now(),
+            origin: (),
         });
     }
 
     fn hotkey(&mut self, press: Press) {
-        let needs_field = press.action == KeyAction::Trigger;
-        if !needs_field && !self.engine.is_visible() && self.keyboard.awaiting_read.is_empty() {
+        if self.keyboard.queue.passes_through(&press, &self.engine) {
             self.pass_through(press);
             return;
         }
-        let read = self.keyboard.queue(press);
+        let read = self.keyboard.queue.push(press);
         self.reader.request(read);
     }
 
     pub(super) fn release_keys(&mut self) {
-        for press in std::mem::take(&mut self.keyboard.awaiting_read) {
-            let handled = match press.action {
-                KeyAction::Trigger => true,
-                KeyAction::Dismiss => self.engine.is_visible(),
-                KeyAction::AcceptAll | KeyAction::AcceptWord => {
-                    self.engine.can_accept(press.at, press.moves_caret())
-                }
-            };
-            if handled {
+        for press in self.keyboard.queue.take() {
+            if press.handled_by(&self.engine) {
                 self.dispatch(press.action.event());
             } else {
                 self.pass_through(press);

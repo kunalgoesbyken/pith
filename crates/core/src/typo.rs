@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::is_rtl;
 use crate::suffix::{CATEGORIES, OPENING, SENTENCE, joins_previous};
-use crate::text::{LINE_BREAKS, is_inline_space};
+use crate::text::{LINE_BREAKS, is_inline_space, next_word};
 
 const MIN_WORD_GRAPHEMES: usize = 3;
 const MAX_WORD_GRAPHEMES: usize = 32;
@@ -31,6 +31,15 @@ pub struct Correction {
 pub struct Label {
     pub text: String,
     pub strong: Range<usize>,
+}
+
+impl Label {
+    pub fn cut(text: &str) -> Self {
+        Self {
+            strong: 0..next_word(text).len(),
+            text: text.to_string(),
+        }
+    }
 }
 
 impl Correction {

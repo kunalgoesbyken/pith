@@ -1,12 +1,9 @@
 use std::ops::Range;
 
-use pith_core::{Line, Rect};
-use windows::Win32::Foundation::{POINT, SIZE};
+use pith_core::{Emphasis, Placed, Shading};
 
-use super::emphasis::Emphasis;
 use super::face::Face;
 use super::screen::{Monitor, ScreenDc};
-use super::shading::Shading;
 
 #[derive(Clone, Copy)]
 pub struct Frame<'a> {
@@ -16,14 +13,6 @@ pub struct Frame<'a> {
     pub screen: &'a ScreenDc,
     pub monitor: Monitor,
     pub face: &'a Face,
-    pub field: Option<Rect>,
-}
-
-pub struct Placed {
-    pub lines: Vec<Line>,
-    pub origin: POINT,
-    pub destination: POINT,
-    pub size: SIZE,
 }
 
 pub struct Scene<'a> {
@@ -41,11 +30,10 @@ impl<'a> Scene<'a> {
         let emphasis = Emphasis::of(
             frame.text,
             frame.strong,
-            &placed.lines,
+            &placed,
             frame.rtl,
-            face,
-            placed.origin,
-            placed.size.cy,
+            face.line_height,
+            &|segment| face.measure(segment),
         );
         Self {
             text: frame.text,
