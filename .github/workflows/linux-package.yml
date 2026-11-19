@@ -1,0 +1,56 @@
+name: Linux package
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  LIBCLANG_PATH: /usr/lib/llvm-14/lib
+  DEBIAN_FRONTEND: noninteractive
+  DIST: dist
+  NAME: pith-linux-x86_64
+  GLIBC_LIMIT: GLIBC_2.35
+  GLIBCXX_LIMIT: GLIBCXX_3.4.30
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    timeout-minutes: 60
+    steps:
+      - run: >
+          apt-get update && apt-get install -y --no-install-recommends
+          ca-certificates curl git build-essential cmake pkg-config clang libclang-dev
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo build --locked --release -p pith
+      - name: Check the glibc and libstdc++ floor
+        run: |
+          highest() {
+            objdump -T target/release/pith | grep -o "$1_[0-9.]*" | sort -uV | tail -n 1
+          }
+          within() {
+            [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" = "$2" ]
+          }
+          glibc=$(highest GLIBC)
+          glibcxx=$(highest GLIBCXX)
+          echo "highest symbols: $glibc $glibcxx"
+          within "$glibc" "$GLIBC_LIMIT"
+          within "$glibcxx" "$GLIBCXX_LIMIT"
+          ldd target/release/pith
+      - name: Package
+        run: |
+          mkdir -p "$DIST" "$NAME"
+          cp target/release/pith LICENSE README.md "$NAME"
+          tar -czf "$DIST/$NAME.tar.gz" "$NAME"
+          (cd "$DIST" && sha256sum "$NAME.tar.gz" | tee "$NAME.tar.gz.sha256")
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pith-linux
+          path: ${{ env.DIST }}
