@@ -61,7 +61,9 @@ impl App {
     fn apply(&mut self, actions: Vec<Action>) {
         let mut drawn = None;
         for action in actions {
-            self.effects.observe(&action);
+            if !matches!(action, Action::Show { .. }) {
+                self.effects.observe(&action);
+            }
             match action {
                 Action::ScheduleDebounce {
                     generation,
@@ -84,9 +86,11 @@ impl App {
                     style,
                 } => {
                     let outcome = self.overlay.show(&cuts, placement, &style);
-                    if let Drawn::Shown(index) = outcome {
+                    if let Drawn::Shown(index) = outcome
+                        && let Some(cut) = cuts.into_iter().nth(index)
+                    {
                         self.effects.observe(&Action::Show {
-                            cuts: vec![cuts[index].clone()],
+                            cuts: vec![cut],
                             placement,
                             style,
                         });
