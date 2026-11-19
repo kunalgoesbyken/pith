@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
-use pith_core::{Access, Pause, PauseSpan, Reach};
-use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use pith_core::{PauseSpan, Reach, TrayCommand, TrayView, auto_paused_label, menu_line};
+use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::{
@@ -11,68 +11,27 @@ use windows::Win32::UI::Shell::{
 
 use crate::appearance::Appearance;
 use crate::brand;
-use crate::command::{ForegroundApp, TrayCommand};
 use crate::reach::tooltip;
 use crate::ui::Taskbar;
 use crate::update::Update;
 
 pub const POWER_TOOLTIP: &str = "Pith \u{b7} paused while battery saver is on";
-const MENU_TEXT_CHARS: usize = 100;
 
 fn menu_text(text: &str) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut shown: String = flat.chars().take(MENU_TEXT_CHARS).collect();
-    if flat.chars().count() > MENU_TEXT_CHARS {
-        shown.push('\u{2026}');
-    }
-    shown.replace('&', "&&")
+    menu_line(text).replace('&', "&&")
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
-pub struct TrayView {
-    pub status: String,
-    pub active: bool,
+pub struct TrayFace {
+    pub view: TrayView,
     pub taskbar: Taskbar,
     pub icon_px: u32,
-    pub pause: Option<Pause>,
-    pub foreground: Option<ForegroundApp>,
     pub update: Update,
 }
 
-impl TrayView {
-    fn app_label(&self) -> String {
-        match &self.foreground {
-            Some(ForegroundApp {
-                name,
-                access: Access::Off,
-                switch: Some(_),
-            }) => format!("Turn on in {name}"),
-            Some(ForegroundApp {
-                name,
-                access: Access::Off,
-                ..
-            }) => format!("Turned off in {name}"),
-            Some(ForegroundApp {
-                name,
-                access: Access::OffByDefault,
-                ..
-            }) => format!("Allow Pith in {name}"),
-            Some(ForegroundApp { name, .. }) => format!("Turn off in {name}"),
-            None => "Turn off in this app".to_string(),
-        }
-    }
-
-    fn can_change_app(&self) -> bool {
-        matches!(&self.foreground, Some(app) if app.switch.is_some())
-    }
-
-    fn resumable(&self) -> bool {
-        matches!(self.pause, Some(Pause::Until(_) | Pause::UntilResumed))
-    }
-
-    fn power_paused(&self) -> bool {
-        self.pause == Some(Pause::BatterySaver)
-    }
+pub enum TrayEvent {
+    Command(TrayCommand),
+    Update,
 }
 
 fn fill(target: &mut [u16], text: &str) {
@@ -106,7 +65,7 @@ pub struct Tray {
     open: MenuItem,
     quit: MenuItem,
     resting_tooltip: String,
-    shown: RefCell<Option<TrayView>>,
+    shown: RefCell<Option<TrayFace>>,
 }
 
 fn tooltip_for<'a>(view: &TrayView, resting: &'a str) -> &'a str {
@@ -178,7 +137,7 @@ impl Tray {
             let _ = self.menu.remove(&item);
         }
         for (position, app) in apps.iter().enumerate() {
-            let label = format!("Paused in {} (ignored) \u{2014} Resume", menu_text(app));
+            let label = auto_paused_label(app).replace('&', "&&");
             let item = MenuItem::new(label, true, None);
             if self.menu.insert(&item, 1 + position).is_ok() {
                 resumes.push((item, app.clone()));
@@ -186,38 +145,39 @@ impl Tray {
         }
     }
 
-    pub fn show(&self, view: TrayView) {
+    pub fn show(&self, face: TrayFace) {
         let mut shown = self.shown.borrow_mut();
         let before = shown.as_ref();
-        if before == Some(&view) {
+        if before == Some(&face) {
             return;
         }
-        if before.is_none_or(|old| old.status != view.status) {
+        let view = &face.view;
+        if before.is_none_or(|old| old.view.status != view.status) {
             self.status.set_text(menu_text(&view.status));
         }
         let icon_changed = before.is_none_or(|old| {
-            (old.active, old.taskbar, old.icon_px) != (view.active, view.taskbar, view.icon_px)
+            (old.view.active, old.taskbar, old.icon_px) != (view.active, face.taskbar, face.icon_px)
         });
-        if icon_changed && let Some(icon) = glyph(view.active, view.taskbar, view.icon_px) {
+        if icon_changed && let Some(icon) = glyph(view.active, face.taskbar, face.icon_px) {
             let _ = self.icon.set_icon(Some(icon));
         }
-        if before.is_none_or(|old| old.power_paused() != view.power_paused()) {
+        if before.is_none_or(|old| old.view.power_paused() != view.power_paused()) {
             let _ = self
                 .icon
-                .set_tooltip(Some(tooltip_for(&view, &self.resting_tooltip)));
+                .set_tooltip(Some(tooltip_for(view, &self.resting_tooltip)));
         }
-        if before.is_none_or(|old| old.resumable() != view.resumable()) {
+        if before.is_none_or(|old| old.view.resumable() != view.resumable()) {
             self.resume.set_enabled(view.resumable());
         }
-        if before.is_none_or(|old| old.foreground != view.foreground) {
+        if before.is_none_or(|old| old.view.foreground != view.foreground) {
             self.app.set_text(menu_text(&view.app_label()));
             self.app.set_enabled(view.can_change_app());
         }
-        if before.is_none_or(|old| old.update != view.update) {
-            self.update.set_text(menu_text(&view.update.label()));
-            self.update.set_enabled(view.update.can_act());
+        if before.is_none_or(|old| old.update != face.update) {
+            self.update.set_text(menu_text(&face.update.label()));
+            self.update.set_enabled(face.update.can_act());
         }
-        *shown = Some(view);
+        *shown = Some(face);
     }
 
     pub fn balloon(&self, title: &str, text: &str) {
@@ -253,30 +213,35 @@ impl Tray {
         left_clicked
     }
 
-    pub fn poll(&self) -> Option<TrayCommand> {
+    pub fn poll(&self) -> Option<TrayEvent> {
         if self.clicked() {
-            return Some(TrayCommand::Open);
+            return Some(TrayEvent::Command(TrayCommand::Open));
         }
         let event = MenuEvent::receiver().try_recv().ok()?;
+        if event.id == *self.update.id() {
+            return Some(TrayEvent::Update);
+        }
+        self.command_of(&event.id).map(TrayEvent::Command)
+    }
+
+    fn command_of(&self, id: &MenuId) -> Option<TrayCommand> {
         if let Some((_, app)) = self
             .resumes
             .borrow()
             .iter()
-            .find(|(item, _)| event.id == *item.id())
+            .find(|(item, _)| id == item.id())
         {
             return Some(TrayCommand::ResumeApp(app.clone()));
         }
-        if let Some((_, span)) = self.pauses.iter().find(|(item, _)| event.id == *item.id()) {
+        if let Some((_, span)) = self.pauses.iter().find(|(item, _)| id == item.id()) {
             Some(TrayCommand::Pause(*span))
-        } else if event.id == *self.resume.id() {
+        } else if id == self.resume.id() {
             Some(TrayCommand::Resume)
-        } else if event.id == *self.app.id() {
+        } else if id == self.app.id() {
             Some(TrayCommand::ChangeApp)
-        } else if event.id == *self.update.id() {
-            Some(TrayCommand::Update)
-        } else if event.id == *self.open.id() {
+        } else if id == self.open.id() {
             Some(TrayCommand::Open)
-        } else if event.id == *self.quit.id() {
+        } else if id == self.quit.id() {
             Some(TrayCommand::Quit)
         } else {
             None
@@ -287,35 +252,9 @@ impl Tray {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pith_core::Setting;
 
     #[test]
-    fn app_item_names_the_app_and_arms_for_any_app_the_user_can_change() {
-        let mut view = TrayView::default();
-        assert_eq!(view.app_label(), "Turn off in this app");
-        assert!(!view.can_change_app());
-        for (access, label, armed) in [
-            (Access::On, "Turn off in Slack", true),
-            (Access::OptedIn, "Turn off in Slack", true),
-            (Access::OffByDefault, "Allow Pith in Slack", true),
-            (Access::Off, "Turned off in Slack", false),
-        ] {
-            view.foreground = Some(ForegroundApp {
-                name: "Slack".into(),
-                access,
-                switch: (access != Access::Off).then(|| Setting::Block("Slack".into())),
-            });
-            assert_eq!(view.app_label(), label);
-            assert_eq!(view.can_change_app(), armed);
-        }
-    }
-
-    #[test]
-    fn menu_text_escapes_ampersands_and_flattens_long_multiline_text() {
+    fn menu_text_escapes_ampersands() {
         assert_eq!(menu_text("Turn off in R&D"), "Turn off in R&&D");
-        assert_eq!(menu_text("a\n  |\n1 | b\tc"), "a | 1 | b c");
-        let long = "x".repeat(300);
-        assert_eq!(menu_text(&long).chars().count(), MENU_TEXT_CHARS + 1);
-        assert!(menu_text(&long).ends_with('\u{2026}'));
     }
 }

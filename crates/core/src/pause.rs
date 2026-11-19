@@ -116,6 +116,10 @@ impl Pauses {
         self.user.is_some()
     }
 
+    pub fn runs_out(&self) -> bool {
+        self.user.as_ref().is_some_and(|pause| pause.ends.is_some())
+    }
+
     fn by_power(&self, config: &Config) -> bool {
         config.enabled && config.pause_on_battery_saver && self.battery_saver
     }

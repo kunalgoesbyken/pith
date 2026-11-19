@@ -7,11 +7,11 @@ use super::super::page::Page;
 use super::super::{StatsView, UiEvent};
 use super::shortcuts::describe;
 use super::{backend_name, switch};
-use crate::command::{ForegroundApp, TrayCommand};
 use crate::format::{duration, number};
 use crate::reach;
 use crate::rival::Rival;
 use crate::ui::Tone;
+use pith_core::{ForegroundApp, TrayCommand};
 
 fn command(command: TrayCommand) -> Action {
     Action::Emit(UiEvent::Command(command))

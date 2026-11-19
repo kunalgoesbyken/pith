@@ -1,19 +1,19 @@
 use std::time::Duration;
 
-use pith_core::{Config, Counts, Day, Ledger, Model, SkipReason, Status, log};
+use pith_core::{
+    Config, Counts, Day, ForegroundApp, Ledger, Model, Preferences, SkipReason, TrayView, log,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
-use super::preferences::Preferences;
 use super::{App, Options, Start};
 use crate::appearance::Appearance;
-use crate::command::{ForegroundApp, TrayCommand};
 use crate::foreground::Foreground;
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::registry;
 use crate::rival;
 use crate::settings::{Overview, SettingsWindow, StatsView, StyleLine};
-use crate::tray::{Tray, TrayView};
+use crate::tray::{Tray, TrayEvent, TrayFace};
 use crate::update::Update;
 use crate::util::local_time;
 
@@ -140,7 +140,7 @@ impl Presenter {
             .is_some_and(|window| unsafe { IsDialogMessageW(window.hwnd(), message) }.as_bool())
     }
 
-    pub fn next_tray_command(&self) -> Option<TrayCommand> {
+    pub fn next_tray_event(&self) -> Option<TrayEvent> {
         self.tray.as_ref().and_then(Tray::poll)
     }
 
@@ -173,34 +173,25 @@ impl Presenter {
 
     fn show_tray(&self, prefs: &Preferences, app: Option<ForegroundApp>) {
         let Some(tray) = &self.tray else { return };
-        tray.show(TrayView {
-            status: self.status_line(prefs),
-            active: prefs.enabled(),
+        tray.show(TrayFace {
+            view: TrayView {
+                status: self.status_line(prefs),
+                active: prefs.enabled(),
+                pause: prefs.shown_pause(),
+                foreground: app,
+            },
             taskbar: self.appearance.taskbar,
             icon_px: self.appearance.icon_px,
-            pause: prefs.shown_pause(),
-            foreground: app,
             update: self.update.clone(),
         });
     }
 
     fn status_line(&self, prefs: &Preferences) -> String {
-        Status {
-            model: self.model.clone(),
-            pause: prefs.shown_pause(),
-            enabled: prefs.saved().enabled,
-            skip: self.skip,
-            notice: self.notice.clone(),
-        }
-        .line()
+        prefs.status_line(&self.model, self.skip, self.notice.as_deref())
     }
 
     fn foreground_view(&self, prefs: &Preferences) -> Option<ForegroundApp> {
-        self.foreground.app().map(|name| ForegroundApp {
-            name: name.to_string(),
-            access: prefs.saved().access(name),
-            switch: prefs.saved().switch_app(name),
-        })
+        self.foreground.app().map(|name| prefs.foreground_app(name))
     }
 
     fn stats_view(&self) -> StatsView {

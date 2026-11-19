@@ -4,7 +4,6 @@ mod appearance;
 pub mod brand;
 mod caret;
 mod clipboard;
-mod command;
 mod control;
 mod erase;
 mod events;
@@ -25,7 +24,6 @@ mod run;
 mod settings;
 mod shortcut;
 mod spell;
-mod trail;
 mod tray;
 mod ui;
 mod update;
@@ -33,7 +31,6 @@ mod util;
 mod vault;
 
 pub use clipboard::{Trigger, paste};
-pub use command::{ForegroundApp, TrayCommand};
 pub use control::reveal_running_instance;
 pub use keys::KeyAction;
 pub use onboarding::{
@@ -42,6 +39,7 @@ pub use onboarding::{
 pub use overlay::OVERLAY_CLASS;
 #[doc(hidden)]
 pub use overlay::{Picture, Sample, preview};
+pub use pith_core::{ForegroundApp, TrayCommand};
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use registry::{BACKGROUND_FLAG, refresh_start_with_windows};
 pub use rival::Rival;

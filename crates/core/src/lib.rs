@@ -16,10 +16,12 @@ mod ignore;
 mod keybind;
 mod keys;
 mod log;
+mod mark;
 mod nearby;
 mod pause;
 mod placement;
 mod policy;
+mod preferences;
 mod preset;
 mod prompt;
 mod replacing;
@@ -33,6 +35,7 @@ mod stored;
 mod style;
 mod suffix;
 mod text;
+mod tray;
 mod types;
 mod typo;
 
@@ -53,10 +56,14 @@ pub use ghost::{
 pub use hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
 pub use log::{init_log, log};
+pub use mark::{
+    Block, Look, MARK_HEIGHT, MARK_WIDTH, PAUSED_GREY, TRAIL, TRAY_FILL, render_mark, trail_colors,
+};
 pub use nearby::{CueKind, Nearby, NearbyCache, RawCue, WALK, WalkLimits};
 pub use pause::{Pause, PauseSpan, Pauses, clock_after};
 pub use placement::{Placement, anchor_pill, place};
 pub use policy::{SkipReason, check, check_forced};
+pub use preferences::Preferences;
 pub use preset::{Hardware, ModelPreset};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use replacing::SelectOutcome;
@@ -80,6 +87,7 @@ pub use text::{
     LINE_BREAKS, SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words,
     next_word, sentence_end, split_partial, tail_chars,
 };
+pub use tray::{ForegroundApp, TrayCommand, TrayView, auto_paused_label, menu_line};
 pub use types::{Completion, Drawn, FieldSnapshot, Rect, StopReason, TextStyle, average_logprob};
 pub use typo::{Correction, Label, Spelling};
 

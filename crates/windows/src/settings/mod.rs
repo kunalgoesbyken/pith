@@ -19,8 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, IsIconic, IsWindow, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
 };
 
-use crate::command::{ForegroundApp, TrayCommand};
 use crate::rival::Rival;
+use pith_core::{ForegroundApp, TrayCommand};
 
 pub use page::Page;
 

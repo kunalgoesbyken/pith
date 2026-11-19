@@ -1,90 +1,13 @@
-use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use pith_core::{Config, Event, Model, ModelPreset, Pause, PauseSpan, Pauses, Setting, log};
+use pith_core::{Event, Model, PauseSpan, Preferences, Setting};
 
 use super::App;
 use crate::power::Power;
 use crate::util::local_time;
 
-pub struct Preferences {
-    saved: Config,
-    pauses: Pauses,
-    config_path: Option<PathBuf>,
-    recommended: ModelPreset,
-    spelling: bool,
-}
-
-impl Preferences {
-    pub fn new(
-        saved: Config,
-        config_path: Option<PathBuf>,
-        recommended: ModelPreset,
-        spelling: bool,
-    ) -> Self {
-        let mut preferences = Self {
-            saved,
-            pauses: Pauses::default(),
-            config_path,
-            recommended,
-            spelling,
-        };
-        preferences.read_power();
-        preferences
-    }
-
-    pub fn saved(&self) -> &Config {
-        &self.saved
-    }
-
-    pub fn config_path(&self) -> Option<&Path> {
-        self.config_path.as_deref()
-    }
-
-    pub fn recommended(&self) -> ModelPreset {
-        self.recommended
-    }
-
-    pub fn paused(&self) -> bool {
-        self.pauses.active(&self.saved)
-    }
-
-    pub fn enabled(&self) -> bool {
-        self.saved.enabled && !self.paused()
-    }
-
-    pub fn shown_pause(&self) -> Option<Pause> {
-        self.pauses.shown(&self.saved)
-    }
-
-    pub fn effective(&self) -> Config {
-        Config {
-            enabled: self.enabled(),
-            typo_fix: self.saved.typo_fix && self.spelling,
-            ..self.saved.clone()
-        }
-    }
-
-    fn apply(&mut self, setting: &Setting) {
-        setting.apply(&mut self.saved);
-        let Some(path) = &self.config_path else {
-            return;
-        };
-        if let Err(error) = setting.persist(path) {
-            log(&format!("settings not saved: {error}"));
-        }
-    }
-
-    fn start_pause(&mut self, span: PauseSpan) {
-        let now = local_time();
-        let clock = (u32::from(now.wHour), u32::from(now.wMinute));
-        self.pauses.start(span, clock, SystemTime::now());
-    }
-
-    fn read_power(&mut self) -> bool {
-        self.pauses
-            .set_battery_saver(Power::read() == Power::BatterySaver)
-    }
+pub(super) fn read_power(prefs: &mut Preferences) -> bool {
+    prefs.set_battery_saver(Power::read() == Power::BatterySaver)
 }
 
 impl App {
@@ -96,7 +19,7 @@ impl App {
         let enabled = config.enabled;
         self.dispatch(Event::SetConfig(config));
         self.keyboard.set_trigger(enabled);
-        if self.prefs.pauses.release_model(&self.prefs.saved) {
+        if self.prefs.release_model() {
             self.worker.unload();
         }
         self.refresh();
@@ -124,24 +47,26 @@ impl App {
     }
 
     pub(super) fn pause(&mut self, span: PauseSpan) {
-        self.prefs.start_pause(span);
+        let now = local_time();
+        let clock = (u32::from(now.wHour), u32::from(now.wMinute));
+        self.prefs.start_pause(span, clock, SystemTime::now());
         self.sync();
     }
 
     pub(super) fn resume(&mut self) {
-        if self.prefs.pauses.resume() {
+        if self.prefs.resume() {
             self.sync();
         }
     }
 
     pub(super) fn expire_pause(&mut self) {
-        if self.prefs.pauses.expire(SystemTime::now()) {
+        if self.prefs.expire_pause(SystemTime::now()) {
             self.sync();
         }
     }
 
     pub(super) fn power_changed(&mut self) {
-        if self.prefs.read_power() {
+        if read_power(&mut self.prefs) {
             self.sync();
         }
     }

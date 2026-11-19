@@ -2,12 +2,13 @@ use pith_core::{Event, log};
 use pith_infer::UpdateCheck;
 
 use super::App;
-use crate::command::TrayCommand;
 use crate::registry;
 use crate::rival;
 use crate::settings::{UiEvent, take_events};
+use crate::tray::TrayEvent;
 use crate::update::Update;
 use crate::util::{open_path, open_target};
+use pith_core::TrayCommand;
 
 impl App {
     pub(super) fn ui_events(&mut self) -> bool {
@@ -58,9 +59,14 @@ impl App {
     }
 
     pub(super) fn tray_commands(&mut self) -> bool {
-        while let Some(command) = self.presenter.next_tray_command() {
-            if self.command(command) {
-                return true;
+        while let Some(event) = self.presenter.next_tray_event() {
+            match event {
+                TrayEvent::Command(command) => {
+                    if self.command(command) {
+                        return true;
+                    }
+                }
+                TrayEvent::Update => self.update_clicked(),
             }
         }
         false
@@ -72,7 +78,6 @@ impl App {
             TrayCommand::Resume => self.resume(),
             TrayCommand::ResumeApp(app) => self.dispatch(Event::Resume(app)),
             TrayCommand::ChangeApp => self.change_foreground_app(),
-            TrayCommand::Update => self.update_clicked(),
             TrayCommand::Open => self.presenter.open_settings(&self.prefs),
             TrayCommand::Quit => return true,
         }

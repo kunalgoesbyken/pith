@@ -9,7 +9,7 @@ mod style;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 
-use pith_core::{Action, Config, Engine, ModelPreset};
+use pith_core::{Action, Config, Engine, ModelPreset, Preferences};
 use pith_infer::Worker;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::HiDpi::{
@@ -18,7 +18,6 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::appearance::Appearance;
-use crate::command::TrayCommand;
 use crate::control::{Signal, control_window, next_signal};
 use crate::erase::erase;
 use crate::events::Hooks;
@@ -26,11 +25,12 @@ use crate::overlay::Overlay;
 use crate::power;
 use crate::reader::{Reader, Source};
 use crate::spell::Speller;
+use pith_core::TrayCommand;
 
 use effects::Effects;
 pub use inbox::{Inbound, Inbox};
 use keyboard::Keyboard;
-use preferences::Preferences;
+
 use presenter::Presenter;
 use style::Style;
 
@@ -98,12 +98,13 @@ impl App {
             move |generation, spelling| spelled.post(Inbound::Spelled(generation, spelling))
         });
         let presenter = Presenter::new(&config, &options, appearance);
-        let prefs = Preferences::new(
+        let mut prefs = Preferences::new(
             config.clone(),
             options.config_path,
             options.recommended,
             speller.is_some(),
         );
+        preferences::read_power(&mut prefs);
         let mut app = Self {
             control,
             overlay: Overlay::create(config.ghost_opacity, appearance)?,

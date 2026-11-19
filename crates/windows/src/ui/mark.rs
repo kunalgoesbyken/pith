@@ -4,7 +4,7 @@ use windows::core::PCWSTR;
 
 use super::canvas::Canvas;
 use super::theme::Rgb;
-use crate::trail::{Block, MARK_HEIGHT, MARK_WIDTH, TRAIL, trail_colors};
+use pith_core::{Block, MARK_HEIGHT, MARK_WIDTH, TRAIL, trail_colors};
 
 const APP_ICON_ID: usize = 1;
 
