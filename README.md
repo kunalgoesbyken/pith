@@ -112,7 +112,7 @@ Pith adds a few lines from around the box you type in to the start of the prompt
 - Windows walks the UI Automation tree upwards from the field (at most 6 levels, 12 siblings each, 60 ms in total) and Linux walks the AT-SPI tree the same way. The result is cached per field and window title, so typing costs nothing extra, and a new walk happens when the field or the title changes or when the box is cleared after a send.
 - Password boxes, hidden and off-screen items and lines that are mostly symbols or numbers are skipped, and so is anything the title or your own last 200 characters already say.
 - The lines go before the text you typed, so the model's cache is reused while you type. They are capped at `nearby_tokens` (300) and by what is left of `context_tokens` after the text you typed. The first suggestion in a field takes a little longer because the lines are read by the model once.
-- With `remote_url` set nothing from around the box is sent, only the text you typed as before. `nearby_context = false` turns the whole feature off.
+- With `remote_url` set nothing from around the box is sent, only the text you typed as before. The Use nearby text switch in Settings, Privacy, or `nearby_context = false`, turns the whole feature off.
 
 ## Verify your download
 
