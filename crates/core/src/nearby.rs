@@ -110,7 +110,7 @@ struct Cue {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Nearby(Vec<Cue>);
 
-fn plain(text: &str) -> String {
+pub(crate) fn plain(text: &str) -> String {
     text.chars()
         .filter(|c| JOINERS.contains(c) || !is_ignorable(*c))
         .collect::<String>()

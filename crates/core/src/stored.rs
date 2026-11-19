@@ -78,15 +78,68 @@ pub fn read(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
+fn beside(path: &Path, suffix: &str) -> PathBuf {
+    let mut named = path.as_os_str().to_owned();
+    named.push(suffix);
+    PathBuf::from(named)
+}
+
+pub(crate) fn aside_path(path: &Path) -> PathBuf {
+    beside(path, ".bad")
+}
+
+fn publish(temporary: &Path, path: &Path) -> io::Result<()> {
+    std::fs::rename(temporary, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(temporary);
+    })
+}
+
 pub fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut temporary = path.as_os_str().to_owned();
-    temporary.push(".tmp");
-    let temporary = PathBuf::from(temporary);
+    let temporary = beside(path, ".tmp");
     std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&temporary);
-    })
+    publish(&temporary, path)
+}
+
+#[cfg(unix)]
+fn private_directory(directory: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(directory)?;
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn private_directory(directory: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(directory)
+}
+
+#[cfg(unix)]
+fn private_file(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn private_file(path: &Path) -> io::Result<std::fs::File> {
+    std::fs::File::create(path)
+}
+
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        private_directory(parent)?;
+    }
+    let temporary = beside(path, ".tmp");
+    private_file(&temporary)?.write_all(bytes)?;
+    publish(&temporary, path)
 }

@@ -49,6 +49,7 @@ impl Engine {
             if self.config.smart_space && rest.is_empty() && closes_spaced_word(field, &accepted) {
                 accepted.push(' ');
             }
+            self.harvest.accepted(field, &self.config, &accepted);
         }
         self.counts.record_accept(&accepted, one_word);
         out.push(Action::Insert(accepted.clone()));

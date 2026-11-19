@@ -495,7 +495,7 @@ impl Harness {
                     );
                     self.armed = false;
                 }
-                Action::AutoPaused(_) => {}
+                Action::AutoPaused(_) | Action::Learn(_) => {}
                 Action::Insert(inserted_text) => {
                     self.expect(
                         self.shown.is_some() && self.armed,
@@ -648,6 +648,7 @@ impl Harness {
             | Event::Trigger
             | Event::Drawn(_)
             | Event::Spelled { .. }
+            | Event::Style(_)
             | Event::ReplaceTimedOut(_) => {}
         }
         self.check_dismissal(&event, scheduled_now);

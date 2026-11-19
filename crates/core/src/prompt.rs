@@ -1,4 +1,5 @@
 use crate::budget::{estimate_tokens, room};
+use crate::style::{Primer, STYLE_TOKENS};
 use crate::suffix::fit;
 use crate::{
     After, Completion, Config, FieldSnapshot, StopReason, clean_completion, split_partial,
@@ -31,16 +32,41 @@ fn cues<'a>(field: &'a FieldSnapshot, config: &Config, used_tokens: usize) -> Ve
     field.nearby.fit(allowed)
 }
 
-pub fn build(field: &FieldSnapshot, config: &Config) -> CompletionRequest {
+fn examples(primer: &Primer, config: &Config, used_tokens: usize) -> String {
+    if !config.uses_style() {
+        return String::new();
+    }
+    let allowed = room(config, used_tokens).min(STYLE_TOKENS);
+    primer.fit(allowed).join(
+        "
+",
+    )
+}
+
+pub fn build(field: &FieldSnapshot, config: &Config, primer: &Primer) -> CompletionRequest {
     let context = tail_chars(&field.before, config.context_chars);
     let (head, partial) = split_partial(context);
     let title = field.window_title.trim();
     let used_tokens = estimate_tokens(title) + estimate_tokens(head);
     let preface = preface(title, cues(field, config, used_tokens));
-    let prompt = if preface.is_empty() {
+    let used_tokens = estimate_tokens(&preface) + estimate_tokens(head);
+    let lead = [examples(primer, config, used_tokens), preface]
+        .into_iter()
+        .filter(|block| !block.is_empty())
+        .collect::<Vec<_>>()
+        .join(
+            "
+
+",
+        );
+    let prompt = if lead.is_empty() {
         head.to_string()
     } else {
-        format!("{preface}\n\n{head}")
+        format!(
+            "{lead}
+
+{head}"
+        )
     };
     CompletionRequest {
         field_id: field.field_id,
@@ -105,7 +131,7 @@ mod tests {
                 before: before.into(),
                 ..Default::default()
             };
-            let request = build(&field, &Config::default());
+            let request = build(&field, &Config::default(), &Primer::default());
             assert_eq!(
                 (request.prompt.as_str(), request.forced_prefix.as_str()),
                 (prompt, forced_prefix),

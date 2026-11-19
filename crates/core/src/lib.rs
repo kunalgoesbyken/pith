@@ -30,6 +30,7 @@ mod shading;
 mod stats;
 mod status;
 mod stored;
+mod style;
 mod suffix;
 mod text;
 mod types;
@@ -71,6 +72,9 @@ pub use setting::{
 pub use shading::{Pill, PillStyle, Scheme, Shading};
 pub use stats::{Counts, Day, HISTORY_DAYS, Ledger, Stats};
 pub use status::{Model, Status, skip_label};
+pub use style::{
+    PlainVault, Primer, STYLE_TOKENS, Sample, Sentence, StyleMemory, StyleStore, Vault,
+};
 pub use suffix::{After, Suffix};
 pub use text::{
     LINE_BREAKS, SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words,

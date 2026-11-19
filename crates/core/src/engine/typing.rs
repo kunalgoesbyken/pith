@@ -10,6 +10,7 @@ fn is_grapheme_boundary(text: &str, index: usize) -> bool {
 
 impl Engine {
     pub(super) fn on_field_lost(&mut self, out: &mut Vec<Action>) {
+        self.harvest.clear();
         if let Some(replacing) = &mut self.replacing {
             replacing.aborted = true;
         }
@@ -34,6 +35,9 @@ impl Engine {
                 &field.before,
                 self.config.lookback_chars(),
             );
+        }
+        if let Some(sample) = self.harvest.observe(&field, &self.config) {
+            out.push(Action::Learn(sample));
         }
         let finished = self.finished_word(&field);
         let suggestable = field.placement.is_some() && check(&field, &self.config).is_ok();

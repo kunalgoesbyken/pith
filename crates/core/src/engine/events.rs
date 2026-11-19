@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use crate::replacing::SelectOutcome;
 use crate::{
-    Completion, CompletionRequest, Config, Correction, Drawn, FieldSnapshot, Placement, Spelling,
-    TextStyle,
+    Completion, CompletionRequest, Config, Correction, Drawn, FieldSnapshot, Placement, Sample,
+    Spelling, StyleMemory, TextStyle,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,6 +29,7 @@ pub enum Event {
     ReplaceTimedOut(u64),
     Trigger,
     Resume(String),
+    Style(Arc<StyleMemory>),
     SetConfig(Config),
 }
 
@@ -74,4 +77,5 @@ pub enum Action {
     ArmKeys,
     DisarmKeys,
     AutoPaused(Vec<String>),
+    Learn(Sample),
 }

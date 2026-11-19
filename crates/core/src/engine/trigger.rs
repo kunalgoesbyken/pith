@@ -1,6 +1,6 @@
 use super::{Action, Engine, Phase};
 use crate::field::FieldKey;
-use crate::{FieldSnapshot, SkipReason, build, check, check_forced};
+use crate::{FieldSnapshot, Primer, SkipReason, build, check, check_forced};
 
 impl Engine {
     fn is_forced(&self, field: &FieldSnapshot) -> bool {
@@ -37,7 +37,11 @@ impl Engine {
         if let Some(field) = &self.field {
             out.push(Action::StartCompletion {
                 generation: self.generation,
-                request: build(field, &self.config),
+                request: build(
+                    field,
+                    &self.config,
+                    &Primer::select(&self.style, field, &self.config),
+                ),
             });
         }
     }

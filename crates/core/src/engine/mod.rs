@@ -10,12 +10,15 @@ mod tests;
 mod trigger;
 mod typing;
 
+use std::sync::Arc;
+
 use crate::field::FieldKey;
 use crate::ignore::IgnoreTracker;
 use crate::replacing::Replacing;
 use crate::stats::Counts;
+use crate::style::Harvest;
 use crate::typo::{Declined, Finished};
-use crate::{Config, FieldSnapshot};
+use crate::{Config, FieldSnapshot, StyleMemory};
 use correction::Offer;
 use dismissal::Dismissal;
 pub use events::{Action, Event};
@@ -44,6 +47,8 @@ pub struct Engine {
     replaced: u64,
     declined: Declined,
     counts: Counts,
+    style: Arc<StyleMemory>,
+    harvest: Harvest,
 }
 
 impl Engine {
@@ -63,6 +68,8 @@ impl Engine {
             replaced: 0,
             declined: Declined::default(),
             counts: Counts::default(),
+            style: Arc::default(),
+            harvest: Harvest::default(),
         }
     }
 
@@ -114,8 +121,10 @@ impl Engine {
             Event::ReplaceTimedOut(id) => self.on_replace_timeout(id, &mut out),
             Event::Trigger => self.on_trigger(&mut out),
             Event::Resume(app) => self.on_resume(&app, &mut out),
+            Event::Style(memory) => self.style = memory,
             Event::SetConfig(config) => {
                 self.config = config;
+                self.harvest.clear();
                 self.reset(&mut out);
                 self.schedule(&mut out);
             }

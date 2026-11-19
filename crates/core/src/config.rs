@@ -297,6 +297,7 @@ pub struct Config {
     pub typing_wpm: u32,
     pub nearby_context: bool,
     pub nearby_tokens: u32,
+    pub style_memory: bool,
 }
 
 impl Default for Config {
@@ -346,6 +347,7 @@ impl Default for Config {
             typing_wpm: 40,
             nearby_context: true,
             nearby_tokens: 300,
+            style_memory: false,
         }
     }
 }
@@ -532,6 +534,10 @@ impl Config {
 
     pub fn uses_nearby(&self) -> bool {
         self.nearby_context && self.reach() == Reach::ThisPc
+    }
+
+    pub fn uses_style(&self) -> bool {
+        self.style_memory && self.reach() == Reach::ThisPc
     }
 
     pub fn preset(&self, recommended: ModelPreset) -> ModelPreset {

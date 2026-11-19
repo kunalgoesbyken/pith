@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use super::show::Shown;
 use super::{Action, Engine, Phase};
-use crate::{Completion, TriggerMode, build, check, suggestion};
+use crate::{Completion, Primer, TriggerMode, build, check, suggestion};
 
 impl Engine {
     pub(super) fn schedule(&mut self, out: &mut Vec<Action>) {
@@ -45,7 +45,11 @@ impl Engine {
         self.phase = Phase::Requested;
         out.push(Action::StartCompletion {
             generation,
-            request: build(field, &self.config),
+            request: build(
+                field,
+                &self.config,
+                &Primer::select(&self.style, field, &self.config),
+            ),
         });
     }
 
