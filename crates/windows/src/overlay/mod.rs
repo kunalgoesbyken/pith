@@ -10,7 +10,7 @@ mod screen;
 mod shading;
 mod window;
 
-use pith_core::{Placement, Rgb, TextStyle, is_rtl};
+use pith_core::{Drawn, Placement, Rgb, TextStyle, drawn, is_rtl};
 
 use inline::Backdrop;
 use pill::Style;
@@ -20,12 +20,6 @@ use screen::{Monitor, ScreenDc, focused_field, sample_background};
 use window::Layered;
 
 use crate::ui::Theme;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Visible {
-    Shown,
-    Hidden,
-}
 
 pub struct Overlay {
     window: Layered,
@@ -48,7 +42,7 @@ impl Overlay {
         self.opacity = opacity;
     }
 
-    pub fn show(&mut self, text: &str, placement: Placement, style: &TextStyle) -> Visible {
+    pub fn show(&mut self, text: &str, placement: Placement, style: &TextStyle) -> Drawn {
         let (Placement::Inline(target)
         | Placement::Anchored(target)
         | Placement::BelowCaret(target)) = placement;
@@ -68,15 +62,23 @@ impl Overlay {
                 };
                 inline::compose(&frame, caret, style, backdrop)
             }
-            Placement::Anchored(element) => {
-                anchored::compose(&frame, element, element.width, self.style)
-            }
+            Placement::Anchored(element) => anchored::under_field(&frame, element, self.style),
             Placement::BelowCaret(caret) => {
-                let width = focused_field().map_or(frame.monitor.work.width, |field| field.width);
-                anchored::compose(&frame, caret, width, self.style)
+                anchored::under_caret(&frame, caret, focused_field(), self.style)
             }
         };
-        self.present(&screen, scene)
+        let outcome = scene
+            .as_ref()
+            .map_or(Drawn::Nothing, |scene| drawn(text, &scene.placed.lines));
+        match (outcome, scene) {
+            (Drawn::Whole, Some(scene)) => self.present(&screen, &scene),
+            (outcome, _) => {
+                if outcome == Drawn::Nothing {
+                    self.window.hide();
+                }
+                outcome
+            }
+        }
     }
 
     pub fn hide(&mut self) {
@@ -98,18 +100,16 @@ impl Overlay {
         }
     }
 
-    fn present(&mut self, screen: &ScreenDc, scene: Option<Scene>) -> Visible {
-        let drawn = scene
-            .as_ref()
-            .and_then(|scene| Some((Raster::render(scene)?, scene.placed.destination)));
-        match drawn {
-            Some((raster, destination)) => {
-                self.window.present(screen, &raster, destination);
-                Visible::Shown
+    fn present(&mut self, screen: &ScreenDc, scene: &Scene) -> Drawn {
+        match Raster::render(scene) {
+            Some(raster) => {
+                self.window
+                    .present(screen, &raster, scene.placed.destination);
+                Drawn::Whole
             }
             None => {
                 self.window.hide();
-                Visible::Hidden
+                Drawn::Nothing
             }
         }
     }

@@ -1,16 +1,26 @@
 use icu_properties::props::{
-    GeneralCategory, GeneralCategoryGroup, QuotationMark, TerminalPunctuation,
+    DefaultIgnorableCodePoint, GeneralCategory, GeneralCategoryGroup, QuotationMark,
+    TerminalPunctuation,
 };
-use icu_properties::{CodePointMapData, CodePointSetData};
+use icu_properties::{
+    CodePointMapData, CodePointMapDataBorrowed, CodePointSetData, CodePointSetDataBorrowed,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::LINE_BREAKS;
 use crate::text::is_word_like;
 
+const CATEGORIES: CodePointMapDataBorrowed<'static, GeneralCategory> = CodePointMapData::new();
+const TERMINAL: CodePointSetDataBorrowed<'static> = CodePointSetData::new::<TerminalPunctuation>();
+const QUOTES: CodePointSetDataBorrowed<'static> = CodePointSetData::new::<QuotationMark>();
+const IGNORABLE: CodePointSetDataBorrowed<'static> =
+    CodePointSetData::new::<DefaultIgnorableCodePoint>();
 const CLOSING: GeneralCategoryGroup =
     GeneralCategoryGroup::ClosePunctuation.union(GeneralCategoryGroup::FinalPunctuation);
 const OPENING: GeneralCategoryGroup =
     GeneralCategoryGroup::OpenPunctuation.union(GeneralCategoryGroup::InitialPunctuation);
+const MARKS: GeneralCategoryGroup = GeneralCategoryGroup::Mark;
+const JOINER: char = '\u{200D}';
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Suffix {
@@ -57,49 +67,67 @@ impl From<String> for After {
     }
 }
 
-fn category(c: char) -> GeneralCategory {
-    CodePointMapData::<GeneralCategory>::new().get(c)
-}
-
 fn is_closer(c: char) -> bool {
-    let category = category(c);
+    let category = CATEGORIES.get(c);
     CLOSING.contains(category)
-        || CodePointSetData::new::<TerminalPunctuation>().contains(c)
-        || (CodePointSetData::new::<QuotationMark>().contains(c) && !OPENING.contains(category))
+        || TERMINAL.contains(c)
+        || (QUOTES.contains(c) && !OPENING.contains(category))
 }
 
-fn is_opener(c: char) -> bool {
-    category(c) == GeneralCategory::OpenPunctuation
+fn is_invisible(c: char) -> bool {
+    IGNORABLE.contains(c)
+        || matches!(
+            CATEGORIES.get(c),
+            GeneralCategory::NonspacingMark | GeneralCategory::EnclosingMark
+        )
 }
 
-fn closes_unopened(text: &str) -> bool {
-    let mut open = 0usize;
-    text.chars().any(|c| match category(c) {
-        GeneralCategory::OpenPunctuation => {
-            open += 1;
-            false
-        }
-        GeneralCategory::ClosePunctuation => match open.checked_sub(1) {
-            Some(rest) => {
-                open = rest;
-                false
-            }
-            None => true,
-        },
-        _ => false,
-    })
+fn joins_previous(c: char) -> bool {
+    c == JOINER || MARKS.contains(CATEGORIES.get(c))
 }
 
 impl Suffix {
     fn of(after: &str) -> Self {
         let line = after.split(LINE_BREAKS).next().unwrap_or_default();
-        if line.chars().all(char::is_whitespace) {
+        let skippable = |c: char| c.is_whitespace() || is_invisible(c);
+        if line.chars().next().is_some_and(joins_previous) {
+            Self::Text
+        } else if line.chars().all(skippable) {
             Self::Blank
-        } else if line.chars().all(|c| c.is_whitespace() || is_closer(c)) {
-            Self::Closing(line.trim().to_string())
+        } else if line.chars().all(|c| skippable(c) || is_closer(c)) {
+            Self::Closing(
+                line.chars()
+                    .filter(|c| !is_invisible(*c))
+                    .collect::<String>()
+                    .trim()
+                    .to_string(),
+            )
         } else {
             Self::Text
         }
+    }
+}
+
+struct Brackets {
+    unopened: usize,
+    unclosed: usize,
+}
+
+fn brackets(text: &str) -> Brackets {
+    let (mut open, mut unopened) = (0usize, 0usize);
+    for c in text.chars() {
+        match CATEGORIES.get(c) {
+            GeneralCategory::OpenPunctuation => open += 1,
+            GeneralCategory::ClosePunctuation => match open.checked_sub(1) {
+                Some(rest) => open = rest,
+                None => unopened += 1,
+            },
+            _ => {}
+        }
+    }
+    Brackets {
+        unopened,
+        unclosed: open,
     }
 }
 
@@ -114,20 +142,24 @@ pub(crate) fn fit(candidate: &str, after: &After) -> Option<String> {
         Suffix::Text => return None,
     };
     let candidate = candidate.trim_end();
-    let candidate = match candidate.strip_suffix(run.as_str()) {
-        Some(rest) if !candidate.chars().any(is_opener) => rest.trim_end(),
-        Some(_) => return None,
-        None => candidate,
-    };
-    let repeats = candidate
+    let candidate = candidate
+        .strip_suffix(run.as_str())
+        .map(str::trim_end)
+        .filter(|stripped| brackets(stripped).unclosed <= brackets(candidate).unclosed)
+        .unwrap_or(candidate);
+    let shape = brackets(candidate);
+    let closes = run
         .chars()
-        .next_back()
-        .is_some_and(|c| is_closer(c) && run.contains(c));
-    let leads_with_closer = candidate.trim_start().starts_with(is_closer);
+        .filter(|c| CATEGORIES.get(*c) == GeneralCategory::ClosePunctuation)
+        .count();
     let acceptable = is_word_like(candidate)
-        && !repeats
-        && !leads_with_closer
-        && !closes_unopened(candidate)
+        && !candidate
+            .chars()
+            .next_back()
+            .is_some_and(|c| TERMINAL.contains(c))
+        && !candidate.trim_start().starts_with(is_closer)
+        && shape.unopened == 0
+        && shape.unclosed <= closes
         && !spans_sentences(candidate);
     acceptable.then(|| candidate.to_string())
 }

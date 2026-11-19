@@ -5,7 +5,6 @@ use pith_core::{Action, Completion, Event, log};
 
 use super::{App, InsertMode, TIMER_DEBOUNCE};
 use crate::clipboard::{Trigger, paste};
-use crate::overlay::Visible;
 
 pub struct Effects {
     insert: InsertMode,
@@ -60,7 +59,7 @@ impl App {
     }
 
     fn apply(&mut self, actions: Vec<Action>) {
-        let mut drawn = Visible::Shown;
+        let mut drawn = None;
         for action in actions {
             self.effects.observe(&action);
             match action {
@@ -83,7 +82,7 @@ impl App {
                     text,
                     placement,
                     style,
-                } => drawn = self.overlay.show(&text, placement, &style),
+                } => drawn = Some(self.overlay.show(&text, placement, &style)),
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => self.effects.insert(text),
                 Action::AutoPaused(apps) => {
@@ -94,8 +93,8 @@ impl App {
                 Action::DisarmKeys => self.keyboard.disarm(),
             }
         }
-        if drawn == Visible::Hidden {
-            self.dispatch(Event::NotDrawn);
+        if let Some(drawn) = drawn {
+            self.dispatch(Event::Drawn(drawn));
         }
     }
 

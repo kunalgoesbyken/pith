@@ -55,7 +55,13 @@ const PROSE: [&str; 6] = [
     "Could you send me the latest version of the proposal so that I can share it with the",
 ];
 
-const MIDLINE_SUFFIXES: [&str; 3] = [").", ")", "]"];
+const FIT_SUFFIX: &str = ".";
+
+const FIT_EDGE_PX: i32 = 36;
+
+const FIT_MIN_WORDS: usize = 5;
+
+const MIDLINE_SUFFIXES: [&str; 3] = [".", "?", "."];
 
 const CLOSING_SUFFIXES: [&str; 8] = [")", "」", "）。", "”", ". ", "?!", "؟", "\""];
 
@@ -1002,24 +1008,110 @@ fn midline_reader(rig: &mut Rig) {
     }
 }
 
-fn midline_suggestion(rig: &mut Rig) -> Option<(&'static str, &'static str, Vec<Action>)> {
+fn midline_cases() -> Vec<(&'static str, &'static str)> {
+    PROSE
+        .into_iter()
+        .zip(MIDLINE_SUFFIXES.into_iter().cycle())
+        .collect()
+}
+
+fn midline_suggestion<'a>(
+    rig: &mut Rig,
+    cases: &[(&'a str, &'a str)],
+    min_words: usize,
+) -> Option<(&'a str, &'a str, Vec<Action>)> {
     let field = rig.a;
-    for (prefix, suffix) in PROSE.into_iter().zip(MIDLINE_SUFFIXES.into_iter().cycle()) {
+    for &(prefix, suffix) in cases {
         rig.fresh(field, "");
         rig.place(field, &format!("{prefix}{suffix}"), utf16_len(prefix));
         if let Some((first, _)) = rig.wait_for(Duration::from_secs(5), is_show) {
             let mut seen = vec![first];
             seen.extend(rig.settle(Duration::from_millis(500)));
-            return Some((prefix, suffix, seen));
+            if last_show(&seen).is_some_and(|text| word_count(&text) >= min_words) {
+                return Some((prefix, suffix, seen));
+            }
         }
     }
     None
 }
 
+fn visible_text(seen: &[Action]) -> Option<String> {
+    seen.iter()
+        .rev()
+        .find(|action| is_show(action) || is_hide(action))
+        .filter(|action| is_show(action))
+        .map(shown_text)
+}
+
+fn midline_fit(rig: &mut Rig) {
+    let field = rig.a;
+    let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
+    let rect = window_rect(HWND(field.host as _));
+    let cases: Vec<(&str, &str)> = PROSE
+        .into_iter()
+        .map(|prefix| (prefix, FIT_SUFFIX))
+        .collect();
+    let Some((prefix, suffix, seen)) = midline_suggestion(rig, &cases, FIT_MIN_WORDS) else {
+        return rig.check("fit setup", false, "no suggestion".into());
+    };
+    let full = last_show(&seen).unwrap_or_default();
+    rig.key(KeyAction::AcceptWord);
+    let seen = rig.settle(Duration::from_millis(500));
+    let word = inserted(&seen).concat();
+    let remainder = visible_text(&seen).unwrap_or_default();
+    rig.check(
+        "a word accept leaves the rest of the suggestion in the pill",
+        !word.is_empty() && full == format!("{word}{remainder}"),
+        format!("full {full:?}, word {word:?}, rest {remainder:?}"),
+    );
+    let (caret_x, _) = caret_screen(field.edit, utf16_len(prefix) + utf16_len(&word));
+    move_host(
+        field,
+        rect.left + monitor.right - FIT_EDGE_PX - caret_x,
+        rect.top,
+    );
+    let seen = rig.settle(Duration::from_millis(700));
+    let fitted = visible_text(&seen);
+    let trimmed = fitted.as_deref().is_none_or(|text| {
+        remainder.starts_with(text)
+            && text.len() < remainder.len()
+            && remainder[text.len()..].starts_with(char::is_whitespace)
+    });
+    rig.check(
+        "a remainder that does not fit the pill is cut to whole words or withdrawn",
+        trimmed,
+        format!("rest {remainder:?}, now {fitted:?}"),
+    );
+    println!("[INFO] pill fit {fitted:?} of {remainder:?}");
+    rig.key(KeyAction::AcceptAll);
+    let seen = rig.settle(Duration::from_millis(700));
+    let landed = inserted(&seen).concat();
+    rig.check(
+        "accepting inserts exactly what the pill showed",
+        landed == fitted.clone().unwrap_or_default()
+            && get_text(field.edit) == format!("{prefix}{word}{landed}{suffix}"),
+        format!(
+            "inserts {:?}, shown {fitted:?}, tail {:?}",
+            inserted(&seen),
+            tail(&get_text(field.edit))
+        ),
+    );
+    move_host(field, rect.left, rect.top);
+    std::thread::sleep(Duration::from_millis(300));
+    rig.drain();
+    send_text(field.edit, "z");
+    let seen = rig.settle(Duration::from_millis(1500));
+    rig.check(
+        "suggesting goes on after an accept from a cut pill",
+        seen.iter().any(is_request),
+        format!("{} requests", requests(&seen).len()),
+    );
+}
+
 fn midline(rig: &mut Rig) {
     midline_reader(rig);
     let field = rig.a;
-    let Some((prefix, suffix, seen)) = midline_suggestion(rig) else {
+    let Some((prefix, suffix, seen)) = midline_suggestion(rig, &midline_cases(), 1) else {
         return rig.check("mid-line setup", false, "no suggestion".into());
     };
     let suggestion = last_show(&seen).unwrap_or_default();
@@ -1063,7 +1155,7 @@ fn midline(rig: &mut Rig) {
             tail(&get_text(field.edit))
         ),
     );
-    let Some((prefix, suffix, _)) = midline_suggestion(rig) else {
+    let Some((prefix, suffix, _)) = midline_suggestion(rig, &midline_cases(), 1) else {
         return rig.check("mid-line stale setup", false, "no suggestion".into());
     };
     let changed = format!("{prefix}!");
@@ -1915,6 +2007,30 @@ fn overlay_anchors_without_a_usable_caret(rig: &mut Rig) {
             back.map(|g| (g.left, g.top, g.right, g.bottom))
         ),
     );
+    anchored_accept(rig);
+}
+
+fn anchored_accept(rig: &mut Rig) {
+    let field = rig.a;
+    let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
+    let rect = window_rect(HWND(field.host as _));
+    if rig.suggestion_for(field, &PROSE, 1).is_none() {
+        return rig.check("anchored accept setup", false, "no suggestion".into());
+    }
+    let (caret_x, _) = caret_screen(field.edit, text_length(field.edit));
+    move_host(field, rect.left + monitor.right + 300 - caret_x, rect.top);
+    let shown = visible_text(&rig.settle(Duration::from_millis(700)));
+    let base = get_text(field.edit);
+    rig.key(KeyAction::AcceptAll);
+    let seen = rig.settle(Duration::from_millis(700));
+    let landed = inserted(&seen).concat();
+    rig.check(
+        "accepting from the pill under the field inserts exactly what it showed",
+        shown.as_deref() == Some(landed.as_str())
+            && get_text(field.edit) == format!("{base}{landed}"),
+        format!("shown {shown:?}, inserts {:?}", inserted(&seen)),
+    );
+    move_host(field, rect.left, rect.top);
 }
 
 fn idle_unload(rig: &mut Rig, unload_after: Duration) {
@@ -2214,13 +2330,14 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 24] = [
+        let scenarios: [(&str, Scenario); 25] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
             ("through", typing_through_and_escape),
             ("after", text_after_caret),
             ("midline", midline),
+            ("fit", midline_fit),
             ("multiline", multi_line),
             ("fidelity", reader_fidelity),
             ("scripts", scripts),

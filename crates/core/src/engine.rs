@@ -4,10 +4,11 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ignore::IgnoreTracker;
 use crate::stats::Counts;
+use crate::suffix::fit;
 use crate::{
-    Completion, CompletionRequest, Config, FieldSnapshot, Placement, SkipReason, Suffix, TextStyle,
-    TriggerMode, build, check, check_forced, continue_window, ends_spaced_word, next_word,
-    suggestion,
+    Completion, CompletionRequest, Config, Drawn, FieldSnapshot, Placement, SkipReason, Suffix,
+    TextStyle, TriggerMode, build, check, check_forced, continue_window, ends_spaced_word,
+    next_word, suggestion,
 };
 
 const READ_TIME: Duration = Duration::from_millis(500);
@@ -27,7 +28,7 @@ pub enum Event {
     AcceptAll,
     AcceptWord,
     Dismiss,
-    NotDrawn,
+    Drawn(Drawn),
     Trigger,
     Resume(String),
     SetConfig(Config),
@@ -88,6 +89,7 @@ struct Shown {
     text: String,
     shown_at: Option<Instant>,
     engaged: bool,
+    counted: bool,
 }
 
 enum Phase {
@@ -172,14 +174,12 @@ impl Engine {
                 if let Some(app) = ignored {
                     self.note_ignored(&app, &mut out);
                 }
-                self.hold_dismissal();
+                self.dismissed = self.field.as_ref().map(|field| Dismissal {
+                    field: FieldKey::of(field),
+                    before: field.before.clone(),
+                });
             }
-            Event::NotDrawn => {
-                if matches!(self.phase, Phase::Showing(_)) {
-                    self.reset(&mut out);
-                    self.hold_dismissal();
-                }
-            }
+            Event::Drawn(drawn) => self.on_drawn(drawn, &mut out),
             Event::Trigger => self.on_trigger(&mut out),
             Event::Resume(app) => {
                 if self.ignores.resume(&app) {
@@ -194,13 +194,6 @@ impl Engine {
             }
         }
         out
-    }
-
-    fn hold_dismissal(&mut self) {
-        self.dismissed = self.field.as_ref().map(|field| Dismissal {
-            field: FieldKey::of(field),
-            before: field.before.clone(),
-        });
     }
 
     fn was_readable(&self) -> bool {
@@ -443,8 +436,8 @@ impl Engine {
             text,
             shown_at: Some(Instant::now()),
             engaged: false,
+            counted: false,
         });
-        self.counts.record_shown();
         self.show_current(out);
         out.push(Action::ArmKeys);
     }
@@ -484,8 +477,36 @@ impl Engine {
                 text: rest,
                 shown_at: None,
                 engaged: true,
+                counted: true,
             });
             self.show_current(out);
+        }
+    }
+
+    fn on_drawn(&mut self, drawn: Drawn, out: &mut Vec<Action>) {
+        let (Phase::Showing(shown), Some(field)) = (&mut self.phase, &self.field) else {
+            return;
+        };
+        match drawn {
+            Drawn::Whole => {
+                if !std::mem::replace(&mut shown.counted, true) {
+                    self.counts.record_shown();
+                }
+            }
+            Drawn::Prefix(len) => {
+                let fitted = shown
+                    .text
+                    .get(..len)
+                    .and_then(|prefix| fit(prefix, &field.after));
+                match fitted {
+                    Some(text) => {
+                        shown.text = text;
+                        self.show_current(out);
+                    }
+                    None => self.withdraw(out),
+                }
+            }
+            Drawn::Nothing => self.withdraw(out),
         }
     }
 
@@ -551,10 +572,12 @@ mod tests {
             matches!(out.as_slice(), [Action::StartCompletion { .. }]),
             "{out:?}"
         );
-        engine.handle(Event::Completed {
+        let out = engine.handle(Event::Completed {
             generation,
             result: Ok(completion(text)),
-        })
+        });
+        engine.handle(Event::Drawn(Drawn::Whole));
+        out
     }
 
     fn suggest(engine: &mut Engine, before: &str, text: &str) -> Vec<Action> {

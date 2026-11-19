@@ -353,7 +353,7 @@ impl Harness {
                     self.sched = None;
                 }
             }
-            Event::DebounceElapsed(_) | Event::Resume(_) | Event::Trigger | Event::NotDrawn => {}
+            Event::DebounceElapsed(_) | Event::Resume(_) | Event::Trigger | Event::Drawn(_) => {}
         }
         self.check_dismissal(&event, scheduled_now);
         if matches!(event, Event::Field(None)) {
