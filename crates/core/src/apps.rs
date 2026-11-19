@@ -9,6 +9,7 @@ pub enum Surface {
 
 type Names = [(Surface, &'static [&'static str]); 3];
 
+#[cfg(windows)]
 const WINDOWS: Names = [
     (
         Surface::Secure,
@@ -50,6 +51,7 @@ const WINDOWS: Names = [
     ),
 ];
 
+#[cfg(target_os = "linux")]
 const LINUX: Names = [
     (
         Surface::Secure,
@@ -154,20 +156,26 @@ const LINUX: Names = [
     ),
 ];
 
+#[cfg(not(any(windows, target_os = "linux")))]
 const UNSUPPORTED: Names = [
     (Surface::Secure, &[]),
     (Surface::Terminal, &[]),
     (Surface::Editor, &[]),
 ];
 
+#[cfg(windows)]
 fn surfaces() -> &'static Names {
-    if cfg!(windows) {
-        &WINDOWS
-    } else if cfg!(target_os = "linux") {
-        &LINUX
-    } else {
-        &UNSUPPORTED
-    }
+    &WINDOWS
+}
+
+#[cfg(target_os = "linux")]
+fn surfaces() -> &'static Names {
+    &LINUX
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn surfaces() -> &'static Names {
+    &UNSUPPORTED
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
