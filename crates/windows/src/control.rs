@@ -1,16 +1,37 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::w;
+use windows::core::{PCWSTR, w};
 
 use crate::appearance::is_appearance_change;
 
 const WM_WAKE: u32 = WM_APP + 1;
+const CONTROL_CLASS: PCWSTR = w!("PithControl");
+
+fn reveal_message() -> u32 {
+    static MESSAGE: OnceLock<u32> = OnceLock::new();
+    *MESSAGE.get_or_init(|| unsafe { RegisterWindowMessageW(w!("PithReveal")) })
+}
+
+pub fn reveal_running_instance() {
+    let Ok(control) =
+        (unsafe { FindWindowExW(Some(HWND_MESSAGE), None, CONTROL_CLASS, PCWSTR::null()) })
+    else {
+        return;
+    };
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(control, Some(&mut pid));
+        let _ = AllowSetForegroundWindow(pid);
+        let _ = PostMessageW(Some(control), reveal_message(), WPARAM(0), LPARAM(0));
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct Waker(Arc<AtomicIsize>);
@@ -36,6 +57,7 @@ pub enum Signal {
     Hotkey(i32),
     Power,
     Appearance,
+    Reveal,
 }
 
 thread_local! {
@@ -49,6 +71,7 @@ unsafe extern "system" fn control_procedure(
     lparam: LPARAM,
 ) -> LRESULT {
     let signal = match message {
+        _ if message == reveal_message() => Some(Signal::Reveal),
         WM_WAKE => Some(Signal::Wake),
         WM_TIMER => Some(Signal::Timer(wparam.0)),
         WM_HOTKEY => Some(Signal::Hotkey(wparam.0 as i32)),
@@ -67,7 +90,7 @@ unsafe extern "system" fn control_procedure(
 pub fn control_window() -> windows::core::Result<HWND> {
     unsafe {
         let instance = GetModuleHandleW(None)?;
-        let class = w!("PithControl");
+        let class = CONTROL_CLASS;
         let wc = WNDCLASSW {
             lpfnWndProc: Some(control_procedure),
             hInstance: instance.into(),

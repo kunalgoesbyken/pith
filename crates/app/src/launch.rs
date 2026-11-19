@@ -1,7 +1,12 @@
 use pith_core::{init_log, log};
-use pith_windows::{Inbound, Inbox, InsertMode, Options, Source, hardware, run, single_instance};
+use pith_windows::{
+    BACKGROUND_FLAG, Inbound, Inbox, InsertMode, Options, Source, ensure_start_menu_shortcut,
+    hardware, refresh_start_with_windows, reveal_running_instance, run, single_instance,
+};
 
-use crate::setup::{Cli, Paths, WorkerMessage, directories, load_config, recommend, spawn_worker};
+use crate::setup::{
+    Cli, Extra, Paths, WorkerMessage, directories, load_config, recommend, spawn_worker,
+};
 
 const SINGLE_INSTANCE_NAME: &str = "Local\\PithSingleInstance";
 const POLL_MS: u32 = 250;
@@ -12,11 +17,22 @@ fn start() -> Result<(), String> {
     let paths = Paths::of(&dirs);
     init_log(&paths.log);
     let args: Vec<String> = std::env::args().collect();
-    let cli = Cli::parse(&args, &[])?;
+    let background = Extra {
+        name: BACKGROUND_FLAG,
+        takes_value: false,
+    };
+    let cli = Cli::parse(&args, &[background])?;
     let (config, config_error) = load_config(&paths.config, &cli)?;
     if !single_instance(SINGLE_INSTANCE_NAME) {
-        log("another instance is running");
+        log("another instance is running, asking it to show its window");
+        reveal_running_instance();
         return Ok(());
+    }
+    if let Err(error) = ensure_start_menu_shortcut() {
+        log(&format!("start menu shortcut not created: {error}"));
+    }
+    if let Err(error) = refresh_start_with_windows() {
+        log(&format!("start with Windows not refreshed: {error}"));
     }
     let (inbox, receiver) = Inbox::channel();
     let recommended = recommend(hardware());
@@ -29,6 +45,7 @@ fn start() -> Result<(), String> {
         });
     });
     let onboarded = dirs.data_local_dir().join(ONBOARDED_MARKER);
+    let onboarding = (!onboarded.exists()).then_some(onboarded);
     let options = Options {
         source: Source::Focused,
         insert: InsertMode::Paste,
@@ -37,7 +54,8 @@ fn start() -> Result<(), String> {
         config_path: Some(paths.config.clone()),
         observer: None,
         global_keys: true,
-        onboarding: (!onboarded.exists()).then_some(onboarded),
+        open_home: !cli.has(BACKGROUND_FLAG) && onboarding.is_none(),
+        onboarding,
         data_dir: Some(dirs.data_local_dir().to_path_buf()),
         notice: config_error,
         recommended,

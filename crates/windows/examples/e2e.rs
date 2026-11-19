@@ -2412,6 +2412,7 @@ fn main() {
         data_dir: None,
         notice: None,
         recommended: ModelPreset::Standard,
+        open_home: false,
     };
     run(config, worker, inbox, receiver, options).expect("run");
     let failed = driver.join().unwrap_or(1);

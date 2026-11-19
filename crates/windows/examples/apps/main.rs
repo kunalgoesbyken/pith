@@ -158,6 +158,7 @@ fn main() {
         data_dir: None,
         notice: None,
         recommended: ModelPreset::Small,
+        open_home: false,
     };
     run(config, worker, inbox, receiver, options).expect("run");
     let failures = driver.join().unwrap_or(1);

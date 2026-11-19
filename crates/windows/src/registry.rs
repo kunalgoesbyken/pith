@@ -14,8 +14,10 @@ pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const RUN_VALUE: &str = "Pith";
 pub const THEME_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 
+pub const BACKGROUND_FLAG: &str = "--background";
+
 pub fn run_command(exe: &Path) -> String {
-    format!("\"{}\"", exe.display())
+    format!("\"{}\" {BACKGROUND_FLAG}", exe.display())
 }
 
 struct Key(HKEY);
@@ -151,6 +153,13 @@ pub fn set_start_with_windows(enabled: bool) -> Result<()> {
         None
     };
     write_string(RUN_KEY, RUN_VALUE, value.as_deref())
+}
+
+pub fn refresh_start_with_windows() -> Result<()> {
+    if start_with_windows() {
+        return set_start_with_windows(true);
+    }
+    Ok(())
 }
 
 pub fn apps_use_dark_theme() -> bool {
