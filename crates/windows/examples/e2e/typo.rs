@@ -229,6 +229,26 @@ pub fn typed_past(rig: &mut Rig) {
     );
 }
 
+pub fn fix_ending_like_the_typo(rig: &mut Rig) {
+    let field = rig.a;
+    finish_word(rig, field, "I want it ecause");
+    let offer = wait_for_offer(rig);
+    rig.check(
+        "typo ending: a fix that ends with the typo is offered",
+        offer
+            .as_ref()
+            .is_some_and(|c| c.word == "ecause" && c.replacement == "because"),
+        format!("{offer:?}"),
+    );
+    rig.key(KeyAction::AcceptAll);
+    let resumed = rig.wait_for(Duration::from_secs(2), is_request);
+    rig.check(
+        "typo ending: completions resume right after the fix",
+        get_text(field.edit) == "I want it because " && resumed.is_some(),
+        format!("{:?}, {resumed:?}", get_text(field.edit)),
+    );
+}
+
 const SKIPPED: [(&str, &str); 12] = [
     ("an acronym", "Send it to KRTQ"),
     ("camel case", "call myVarr"),

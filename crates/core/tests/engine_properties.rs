@@ -3,7 +3,7 @@ mod common;
 use common::{Rng, fragment, is_boundary, text};
 use pith_core::{
     Action, After, Completion, Config, Correction, Drawn, Engine, Event, FieldSnapshot,
-    LINE_BREAKS, Placement, Rect, Spelling, StopReason, TriggerMode, check,
+    LINE_BREAKS, Placement, Rect, SelectOutcome, Spelling, StopReason, TriggerMode, check,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -146,8 +146,7 @@ struct Harness {
     lagging: bool,
     offer: Option<Correction>,
     selecting: Option<(u64, Correction)>,
-    selecting_key: Option<(u64, String, String)>,
-    pasting: bool,
+    selecting_key: Option<(u64, String)>,
     checking: Option<(u64, String)>,
     armed: bool,
     dismissed: Option<(u64, String)>,
@@ -215,7 +214,6 @@ impl Harness {
             offer: None,
             selecting: None,
             selecting_key: None,
-            pasting: false,
             checking: None,
             armed: false,
             dismissed: None,
@@ -242,15 +240,21 @@ impl Harness {
         let pre_offer = self.offer.clone();
         let accepting = matches!(event, Event::AcceptAll | Event::AcceptWord);
         let spelled = matches!(event, Event::Spelled { .. });
-        let spelled_selection = matches!(event, Event::Selected { selected: true, .. });
+        let selected_text = match &event {
+            Event::Selected {
+                outcome: SelectOutcome::Selected { text, .. },
+                ..
+            } => Some(text.clone()),
+            _ => None,
+        };
         let verdict_for = match &event {
-            Event::Selected { generation, .. } => Some(*generation),
+            Event::Selected { id, .. } => Some(*id),
             _ => None,
         };
         let answered = self
             .selecting
             .clone()
-            .filter(|(generation, _)| Some(*generation) == verdict_for && !self.pasting)
+            .filter(|(id, _)| Some(*id) == verdict_for)
             .map(|(_, correction)| correction);
         let replace_ended = self.replace_ends(&event);
         let blocked = self.selecting.is_some() && !replace_ended && answered.is_none();
@@ -377,8 +381,16 @@ impl Harness {
                     }
                     self.offer = Some(correction.clone());
                 }
+                Action::ArmReplaceTimeout { id, .. } => {
+                    self.expect(
+                        self.selecting
+                            .as_ref()
+                            .is_some_and(|(pending, _)| pending == id),
+                        "timeout armed for another replace",
+                    );
+                }
                 Action::Replace {
-                    generation,
+                    id,
                     field_id,
                     correction,
                 } => {
@@ -395,18 +407,14 @@ impl Harness {
                     );
                     self.stats.replaces += 1;
                     replacing = true;
-                    self.selecting = Some((*generation, correction.clone()));
-                    self.selecting_key = self.sent.as_ref().map(|f| {
-                        let prefix = f.before.strip_suffix(&correction.current());
-                        (
-                            f.field_id,
-                            f.app.clone(),
-                            prefix.unwrap_or_default().to_string(),
-                        )
-                    });
+                    self.selecting = Some((*id, correction.clone()));
+                    self.selecting_key = self.sent.as_ref().map(|f| (f.field_id, f.app.clone()));
                 }
                 Action::Overwrite(text) => {
-                    self.expect(spelled_selection, "overwrite without a selection result");
+                    self.expect(
+                        answered.is_some() && selected_text.is_some(),
+                        "overwrite without a selection result",
+                    );
                     self.expect(
                         answered
                             .as_ref()
@@ -424,13 +432,9 @@ impl Harness {
                     overwritten = Some(text.clone());
                 }
                 Action::Collapse { field_id, text } => {
-                    self.expect(spelled_selection, "collapse without a selection result");
                     self.expect(
-                        answered
-                            .as_ref()
-                            .is_some_and(|correction| correction.current() == *text)
-                            && *field_id != 0,
-                        "collapse without a pending replace",
+                        selected_text.as_ref() == Some(text) && *field_id != 0,
+                        "collapse without a selection result",
                     );
                 }
                 Action::Show { cuts, .. } => {
@@ -508,25 +512,22 @@ impl Harness {
                 "work started while a replace was pending",
             );
         }
-        if replace_ended {
+        if replace_ended || answered.is_some() {
             self.selecting = None;
             self.selecting_key = None;
-            self.pasting = false;
         }
-        if let Event::Selected { selected, .. } = &event {
-            if answered.is_some() && overwritten.is_some() {
-                self.pasting = true;
-            } else if answered.is_some() {
-                self.selecting = None;
-                self.selecting_key = None;
-            }
+        if let Event::Selected { outcome, .. } = &event {
+            let selected = matches!(outcome, SelectOutcome::Selected { .. });
             self.expect(
-                *selected || (overwritten.is_none() && !actions.iter().any(is_collapse)),
+                selected
+                    || !actions.iter().any(|action| {
+                        matches!(action, Action::Overwrite(_) | Action::Collapse { .. })
+                    }),
                 "a failed selection acted",
             );
             self.expect(
-                answered.is_some() || actions.is_empty(),
-                "selection result without a replace acted",
+                !selected || answered.is_some() || actions.iter().any(is_collapse),
+                "a late selection was left in place",
             );
         }
         self.expect(
@@ -599,7 +600,8 @@ impl Harness {
             | Event::Resume(_)
             | Event::Trigger
             | Event::Drawn(_)
-            | Event::Spelled { .. } => {}
+            | Event::Spelled { .. }
+            | Event::ReplaceTimedOut(_) => {}
         }
         self.check_dismissal(&event, scheduled_now);
         if matches!(event, Event::Field(None)) {
@@ -681,7 +683,8 @@ impl Harness {
                 self.send(Event::SetConfig(config));
             }
             92..=93 => self.spell(),
-            94..=95 => self.select(),
+            94 => self.select(),
+            95 => self.time_out(),
             _ => self.complete(false),
         }
     }
@@ -716,33 +719,40 @@ impl Harness {
     }
 
     fn replace_ends(&self, event: &Event) -> bool {
-        let (Some((generation, correction)), Some((id, app, prefix))) =
-            (&self.selecting, &self.selecting_key)
-        else {
+        let (Some((id, _)), Some((field_id, app))) = (&self.selecting, &self.selecting_key) else {
             return false;
         };
         match event {
-            Event::DebounceElapsed(elapsed) => elapsed == generation,
-            Event::Field(Some(field)) => {
-                let expected = field.before.ends_with(&correction.current())
-                    || (field.has_selection && prefix.ends_with(&field.before));
-                field.field_id != *id || field.app != *app || (self.pasting && !expected)
-            }
+            Event::ReplaceTimedOut(elapsed) => elapsed == id,
+            Event::Field(Some(field)) => field.field_id != *field_id || field.app != *app,
             _ => false,
         }
     }
 
     fn select(&mut self) {
-        let selected = self.rng.chance(70);
-        let generation = match &self.selecting {
-            Some((generation, _)) if self.rng.chance(90) => *generation,
-            Some((generation, _)) => generation + 1,
+        let id = match &self.selecting {
+            Some((id, _)) if self.rng.chance(90) => *id,
+            Some((id, _)) => id + 1,
             None => self.rng.below(5) as u64,
         };
-        let actions = self.send(Event::Selected {
-            generation,
-            selected,
-        });
+        let outcome = match self.rng.below(10) {
+            0..=6 => SelectOutcome::Selected {
+                field_id: 1,
+                text: "teh ".into(),
+            },
+            7 => SelectOutcome::Unsupported,
+            _ => SelectOutcome::Lost,
+        };
+        let outcome = match (&self.selecting, outcome) {
+            (Some((_, correction)), SelectOutcome::Selected { field_id, .. }) => {
+                SelectOutcome::Selected {
+                    field_id,
+                    text: correction.current(),
+                }
+            }
+            (_, outcome) => outcome,
+        };
+        let actions = self.send(Event::Selected { id, outcome });
         if actions
             .iter()
             .any(|action| matches!(action, Action::Overwrite(_)))
@@ -752,6 +762,14 @@ impl Harness {
                 self.publish();
             }
         }
+    }
+
+    fn time_out(&mut self) {
+        let id = match &self.selecting {
+            Some((id, _)) if self.rng.chance(80) => *id,
+            _ => self.rng.below(5) as u64,
+        };
+        self.send(Event::ReplaceTimedOut(id));
     }
 
     fn spell(&mut self) {

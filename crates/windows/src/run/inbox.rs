@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pith_core::{Completion, Event, FieldSnapshot, Model, Spelling, log};
+use pith_core::{Completion, Event, FieldSnapshot, Model, SelectOutcome, Spelling, log};
 use pith_infer::{Stage, UpdateCheck, check_for_update};
 use windows::Win32::Foundation::HWND;
 
@@ -14,7 +14,7 @@ pub enum Inbound {
     Snapshot(Option<FieldSnapshot>, Option<u64>),
     Done(u64, Result<Completion, String>),
     Spelled(u64, Spelling),
-    Selected(u64, bool),
+    Selected(u64, SelectOutcome),
     Ready(Result<String, String>),
     Preparing(Stage),
     Command(TrayCommand),
@@ -58,10 +58,7 @@ impl App {
                     generation,
                     spelling,
                 }),
-                Inbound::Selected(generation, selected) => self.dispatch(Event::Selected {
-                    generation,
-                    selected,
-                }),
+                Inbound::Selected(id, outcome) => self.dispatch(Event::Selected { id, outcome }),
                 Inbound::Ready(status) => self.model_ready(status),
                 Inbound::Preparing(stage) => self.model_preparing(stage),
                 Inbound::Command(command) => quit |= self.command(command),

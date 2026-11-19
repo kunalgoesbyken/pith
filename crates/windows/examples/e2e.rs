@@ -31,7 +31,7 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{PCWSTR, w};
+use windows::core::{BOOL, PCWSTR, w};
 
 mod common;
 
@@ -315,6 +315,40 @@ fn monitor_rect(monitor: HMONITOR) -> RECT {
         let _ = GetMonitorInfoW(monitor, &mut info);
     }
     info.rcWork
+}
+
+unsafe extern "system" fn collect_monitor(
+    monitor: HMONITOR,
+    _: HDC,
+    _: *mut RECT,
+    found: LPARAM,
+) -> BOOL {
+    unsafe { &mut *(found.0 as *mut Vec<RECT>) }.push(monitor_rect(monitor));
+    BOOL(1)
+}
+
+fn monitors() -> Vec<RECT> {
+    let mut found: Vec<RECT> = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(collect_monitor),
+            LPARAM(&mut found as *mut Vec<RECT> as isize),
+        );
+    }
+    found
+}
+
+const OFF_SCREEN_PX: i32 = 300;
+
+fn move_caret_off_screen(field: Field, rect: RECT, caret_x: i32) {
+    let rightmost = monitors().iter().map(|m| m.right).max().unwrap_or_default();
+    move_host(
+        field,
+        rect.left + rightmost + OFF_SCREEN_PX - caret_x,
+        rect.top,
+    );
 }
 
 fn move_host(field: Field, left: i32, top: i32) {
@@ -1931,19 +1965,14 @@ fn overlay_at_screen_edge(rig: &mut Rig) {
 
 fn overlay_anchors_without_a_usable_caret(rig: &mut Rig) {
     let field = rig.a;
-    let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
     let rect = window_rect(HWND(field.host as _));
     let Some((_, suggestion)) = rig.suggestion_for(field, &PROSE, 1) else {
         return rig.check("anchor setup", false, "no suggestion".into());
     };
     let (caret_x, _) = caret_screen(field.edit, text_length(field.edit));
-    let beyond = 300;
-    move_host(
-        field,
-        rect.left + monitor.right + beyond - caret_x,
-        rect.top,
-    );
+    move_caret_off_screen(field, rect, caret_x);
     std::thread::sleep(Duration::from_millis(500));
+    let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
     let edit = window_rect(HWND(field.edit as _));
     let pill = overlay_window()
         .map(window_rect)
@@ -1985,13 +2014,12 @@ fn overlay_anchors_without_a_usable_caret(rig: &mut Rig) {
 
 fn anchored_accept(rig: &mut Rig) {
     let field = rig.a;
-    let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
     let rect = window_rect(HWND(field.host as _));
     if rig.suggestion_for(field, &PROSE, 1).is_none() {
         return rig.check("anchored accept setup", false, "no suggestion".into());
     }
     let (caret_x, _) = caret_screen(field.edit, text_length(field.edit));
-    move_host(field, rect.left + monitor.right + 300 - caret_x, rect.top);
+    move_caret_off_screen(field, rect, caret_x);
     let shown = visible_text(&rig.settle(Duration::from_millis(700)));
     let base = get_text(field.edit);
     rig.key(KeyAction::AcceptAll);
@@ -2297,7 +2325,7 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 31] = [
+        let scenarios: [(&str, Scenario); 32] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
@@ -2328,6 +2356,7 @@ fn main() {
             ("typodismiss", typo::dismiss_and_decline),
             ("typostale", typo::stale_accept),
             ("typopast", typo::typed_past),
+            ("typoend", typo::fix_ending_like_the_typo),
             ("typoskip", typo::skips),
         ];
         for (name, scenario) in scenarios {

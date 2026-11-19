@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use pith_core::{Action, Completion, Correction, Drawn, Event, log};
 
-use super::{App, Inbound, InsertMode, TIMER_DEBOUNCE};
+use super::{App, Inbound, InsertMode, TIMER_DEBOUNCE, TIMER_REPLACE};
 use crate::clipboard::{Trigger, paste};
 use crate::reader::Selection;
 
@@ -11,6 +11,7 @@ pub struct Effects {
     insert: InsertMode,
     observer: Option<Sender<Action>>,
     pending_debounce: u64,
+    pending_replace: u64,
     started: Option<Instant>,
 }
 
@@ -20,6 +21,7 @@ impl Effects {
             insert,
             observer,
             pending_debounce: 0,
+            pending_replace: 0,
             started: None,
         }
     }
@@ -106,10 +108,14 @@ impl App {
                     drawn = Some(outcome);
                 }
                 Action::Replace {
-                    generation,
+                    id,
                     field_id,
                     correction,
-                } => self.replace(generation, field_id, correction),
+                } => self.replace(id, field_id, correction),
+                Action::ArmReplaceTimeout { id, delay_ms } => {
+                    self.effects.pending_replace = id;
+                    self.set_timer(TIMER_REPLACE, delay_ms as u32);
+                }
                 Action::Overwrite(text) => self.effects.insert(text),
                 Action::Collapse { field_id, text } => self.reader.collapse(field_id, text),
                 Action::Show {
@@ -145,13 +151,18 @@ impl App {
         }
     }
 
-    fn replace(&mut self, generation: u64, field_id: u64, correction: Correction) {
+    fn replace(&mut self, id: u64, field_id: u64, correction: Correction) {
         let inbox = self.inbox.clone();
         self.reader.select(Selection {
             field_id,
             text: correction.current(),
-            done: Box::new(move |selected| inbox.post(Inbound::Selected(generation, selected))),
+            done: Box::new(move |outcome| inbox.post(Inbound::Selected(id, outcome))),
         });
+    }
+
+    pub(super) fn replace_timed_out(&mut self) {
+        self.kill_timer(TIMER_REPLACE);
+        self.dispatch(Event::ReplaceTimedOut(self.effects.pending_replace));
     }
 
     pub(super) fn debounce_elapsed(&mut self) {

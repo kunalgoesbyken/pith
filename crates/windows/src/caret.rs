@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::ffi::c_void;
 
-use pith_core::{Rect, Rgb, TextStyle};
+use pith_core::{Rect, Rgb, SelectOutcome, TextStyle};
 use unicode_segmentation::UnicodeSegmentation;
 use windows::Win32::Foundation::{E_FAIL, HWND, POINT};
 use windows::Win32::Graphics::Gdi::MapWindowPoints;
@@ -86,29 +86,43 @@ fn unit_counts(text: &str) -> BTreeSet<i32> {
     .collect()
 }
 
-pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> Result<()> {
+fn range_covering(
+    caret: &IUIAutomationTextRange,
+    text: &str,
+    units: i32,
+) -> Option<IUIAutomationTextRange> {
     unsafe {
+        let range = caret.Clone().ok()?;
+        let moved = range
+            .MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -units)
+            .ok()?;
+        (moved == -units && range.GetText(-1).ok()? == text).then_some(range)
+    }
+}
+
+pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> SelectOutcome {
+    unsafe {
+        let Ok(caret) = caret_range(element) else {
+            return SelectOutcome::Lost;
+        };
         if has_selection(element) {
-            return Err(E_FAIL.into());
+            return SelectOutcome::Lost;
         }
-        let caret = caret_range(element)?;
+        let mut outcome = SelectOutcome::Lost;
         for units in unit_counts(text) {
-            let range = caret.Clone()?;
-            let moved = range.MoveEndpointByUnit(
-                TextPatternRangeEndpoint_Start,
-                TextUnit_Character,
-                -units,
-            )?;
-            if moved != -units || range.GetText(-1)? != text {
+            let Some(range) = range_covering(&caret, text, units) else {
                 continue;
+            };
+            outcome = SelectOutcome::Unsupported;
+            if range.Select().is_ok() && selected_text(element).is_ok_and(|now| now == text) {
+                return SelectOutcome::Selected {
+                    field_id: runtime_id(element),
+                    text: text.to_string(),
+                };
             }
-            range.Select()?;
-            if selected_text(element).is_ok_and(|selected| selected == text) {
-                return Ok(());
-            }
-            caret.Select()?;
+            let _ = caret.Select();
         }
-        Err(E_FAIL.into())
+        outcome
     }
 }
 

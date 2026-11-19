@@ -1,10 +1,11 @@
 use crate::field::FieldKey;
 use crate::{Correction, FieldSnapshot};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Stage {
-    Selecting,
-    Pasting,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SelectOutcome {
+    Selected { field_id: u64, text: String },
+    Unsupported,
+    Lost,
 }
 
 pub(crate) struct Replacing {
@@ -13,7 +14,6 @@ pub(crate) struct Replacing {
     pub(crate) field: FieldKey,
     prefix: String,
     pub(crate) aborted: bool,
-    stage: Stage,
 }
 
 impl Replacing {
@@ -29,23 +29,7 @@ impl Replacing {
             field: FieldKey::of(field),
             prefix,
             aborted: false,
-            stage: Stage::Selecting,
         }
-    }
-
-    pub(crate) fn pasting(self) -> Self {
-        Self {
-            stage: Stage::Pasting,
-            ..self
-        }
-    }
-
-    pub(crate) fn awaits(&self, generation: u64) -> bool {
-        self.id == generation && self.stage == Stage::Selecting
-    }
-
-    pub(crate) fn is_over(&self, field: &FieldSnapshot) -> bool {
-        !self.field.matches(field) || (self.stage == Stage::Pasting && self.aborted)
     }
 
     pub(crate) fn observe(&mut self, field: &FieldSnapshot) {

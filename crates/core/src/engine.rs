@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::field::FieldKey;
 use crate::ignore::IgnoreTracker;
-use crate::replacing::Replacing;
+use crate::replacing::{Replacing, SelectOutcome};
 use crate::stats::Counts;
 use crate::suffix::candidates;
 use crate::typo::{Declined, Finished};
@@ -39,9 +39,10 @@ pub enum Event {
         spelling: Spelling,
     },
     Selected {
-        generation: u64,
-        selected: bool,
+        id: u64,
+        outcome: SelectOutcome,
     },
+    ReplaceTimedOut(u64),
     Trigger,
     Resume(String),
     SetConfig(Config),
@@ -68,9 +69,13 @@ pub enum Action {
         placement: Placement,
     },
     Replace {
-        generation: u64,
+        id: u64,
         field_id: u64,
         correction: Correction,
+    },
+    ArmReplaceTimeout {
+        id: u64,
+        delay_ms: u64,
     },
     Overwrite(String),
     Collapse {
@@ -157,6 +162,7 @@ pub struct Engine {
     forced: Option<FieldKey>,
     unlanded: Vec<String>,
     replacing: Option<Replacing>,
+    replaced: u64,
     declined: Declined,
     counts: Counts,
 }
@@ -175,6 +181,7 @@ impl Engine {
             forced: None,
             unlanded: Vec::new(),
             replacing: None,
+            replaced: 0,
             declined: Declined::default(),
             counts: Counts::default(),
         }
@@ -252,10 +259,8 @@ impl Engine {
                 generation,
                 spelling,
             } => self.on_spelled(generation, spelling, &mut out),
-            Event::Selected {
-                generation,
-                selected,
-            } => self.on_selected(generation, selected, &mut out),
+            Event::Selected { id, outcome } => self.on_selected(id, outcome, &mut out),
+            Event::ReplaceTimedOut(id) => self.on_replace_timeout(id, &mut out),
             Event::Trigger => self.on_trigger(&mut out),
             Event::Resume(app) => {
                 if self.ignores.resume(&app) {
@@ -395,7 +400,7 @@ impl Engine {
             replacing.observe(&field);
         }
         self.replacing
-            .take_if(|replacing| replacing.is_over(&field));
+            .take_if(|replacing| !replacing.field.matches(&field));
         if self.insert_pending(&field) {
             return;
         }
@@ -539,28 +544,38 @@ impl Engine {
         }
     }
 
-    fn on_selected(&mut self, generation: u64, selected: bool, out: &mut Vec<Action>) {
-        let Some(replacing) = self
+    fn on_replace_timeout(&mut self, id: u64, out: &mut Vec<Action>) {
+        if self
             .replacing
-            .take_if(|replacing| replacing.awaits(generation))
-        else {
-            return;
-        };
-        if !selected {
-            if !replacing.aborted {
-                self.declined.insert(&replacing.correction.word);
+            .take_if(|replacing| replacing.id == id)
+            .is_some()
+        {
+            self.schedule(out);
+        }
+    }
+
+    fn on_selected(&mut self, id: u64, outcome: SelectOutcome, out: &mut Vec<Action>) {
+        let replacing = self.replacing.take_if(|replacing| replacing.id == id);
+        match outcome {
+            SelectOutcome::Selected { field_id, text } => {
+                match replacing.filter(|replacing| !replacing.aborted) {
+                    Some(replacing) => {
+                        out.push(Action::Overwrite(replacing.correction.corrected()))
+                    }
+                    None => {
+                        out.push(Action::Collapse { field_id, text });
+                        self.schedule(out);
+                    }
+                }
             }
-            return self.schedule(out);
+            SelectOutcome::Unsupported => {
+                if let Some(replacing) = replacing {
+                    self.declined.insert(&replacing.correction.word);
+                }
+                self.schedule(out);
+            }
+            SelectOutcome::Lost => self.schedule(out),
         }
-        if replacing.aborted {
-            out.push(Action::Collapse {
-                field_id: replacing.field.id,
-                text: replacing.correction.current(),
-            });
-            return self.schedule(out);
-        }
-        out.push(Action::Overwrite(replacing.correction.corrected()));
-        self.replacing = Some(replacing.pasting());
     }
 
     fn typed_through(&self, previous: &FieldSnapshot, field: &FieldSnapshot) -> Option<String> {
@@ -602,13 +617,6 @@ impl Engine {
     }
 
     fn on_debounce(&mut self, generation: u64, out: &mut Vec<Action>) {
-        if self
-            .replacing
-            .take_if(|replacing| replacing.id == generation)
-            .is_some()
-        {
-            return self.schedule(out);
-        }
         if generation != self.generation {
             return;
         }
@@ -666,21 +674,22 @@ impl Engine {
     }
 
     fn accept_correction(&mut self, correction: Correction, out: &mut Vec<Action>) {
-        let generation = self.generation + 1;
         if let Some(field) = &self.field {
+            self.replaced += 1;
+            let id = self.replaced;
             out.push(Action::Replace {
-                generation,
+                id,
                 field_id: field.field_id,
                 correction: correction.clone(),
             });
-            out.push(Action::ScheduleDebounce {
-                generation,
+            out.push(Action::ArmReplaceTimeout {
+                id,
                 delay_ms: MAX_REPLACE_WAIT_MS,
             });
-            self.replacing = Some(Replacing::of(generation, correction, field));
+            self.replacing = Some(Replacing::of(id, correction, field));
         }
         self.withdraw(out);
-        self.generation = generation;
+        self.generation += 1;
     }
 
     fn accept_suggestion(&mut self, suggestion: String, one_word: bool, out: &mut Vec<Action>) {

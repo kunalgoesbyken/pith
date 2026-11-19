@@ -33,6 +33,7 @@ use presenter::Presenter;
 const TIMER_POLL: usize = 1;
 const TIMER_DEBOUNCE: usize = 2;
 const TIMER_REARM: usize = 3;
+const TIMER_REPLACE: usize = 4;
 const MIN_POLL_MS: u32 = 16;
 
 pub enum InsertMode {
@@ -133,6 +134,7 @@ impl App {
             Signal::Timer(TIMER_POLL) => return self.poll(),
             Signal::Timer(TIMER_DEBOUNCE) => self.debounce_elapsed(),
             Signal::Timer(TIMER_REARM) => self.rearm(),
+            Signal::Timer(TIMER_REPLACE) => self.replace_timed_out(),
             Signal::Timer(_) => {}
             Signal::Power => self.power_changed(),
             Signal::Hotkey(id) => self.hotkey_pressed(id),

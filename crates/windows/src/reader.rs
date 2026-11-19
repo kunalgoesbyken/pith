@@ -2,7 +2,9 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
-use pith_core::{AFTER_CHARS, Config, FieldParts, FieldSnapshot, Surrounding, is_redacted, place};
+use pith_core::{
+    AFTER_CHARS, Config, FieldParts, FieldSnapshot, SelectOutcome, Surrounding, is_redacted, place,
+};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -43,7 +45,7 @@ fn is_readable_own_field(hwnd: HWND) -> bool {
 pub struct Selection {
     pub field_id: u64,
     pub text: String,
-    pub done: Box<dyn FnOnce(bool) + Send>,
+    pub done: Box<dyn FnOnce(SelectOutcome) + Send>,
 }
 
 pub enum Poke {
@@ -206,9 +208,11 @@ fn select(automation: &IUIAutomation, source: Source, selection: Selection) {
         text,
         done,
     } = selection;
-    let selected = field_target(automation, source, field_id)
-        .is_some_and(|target| select_before_caret(&target.element, &text).is_ok());
-    done(selected);
+    let outcome = field_target(automation, source, field_id)
+        .map_or(SelectOutcome::Lost, |target| {
+            select_before_caret(&target.element, &text)
+        });
+    done(outcome);
 }
 
 fn collapse(automation: &IUIAutomation, source: Source, field_id: u64, text: &str) {

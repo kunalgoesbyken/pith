@@ -40,6 +40,7 @@ pub use placement::{Placement, anchor_pill, place};
 pub use policy::{SkipReason, check, check_forced};
 pub use preset::{Hardware, ModelPreset};
 pub use prompt::{CompletionRequest, build, suggestion};
+pub use replacing::SelectOutcome;
 pub use setting::{Length, Setting, Suggestions, clamp_opacity};
 pub use stats::{Counts, Day, Ledger, Stats};
 pub use status::{Model, Status, skip_label};
