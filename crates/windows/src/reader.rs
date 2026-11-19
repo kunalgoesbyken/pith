@@ -194,23 +194,25 @@ fn target(automation: &IUIAutomation, source: Source) -> Result<Target> {
     }
 }
 
+fn field_target(automation: &IUIAutomation, source: Source, field_id: u64) -> Option<Target> {
+    target(automation, source)
+        .ok()
+        .filter(|target| runtime_id(&target.element) == field_id)
+}
+
 fn select(automation: &IUIAutomation, source: Source, selection: Selection) {
     let Selection {
         field_id,
         text,
         done,
     } = selection;
-    let selected = target(automation, source)
-        .ok()
-        .filter(|target| runtime_id(&target.element) == field_id)
+    let selected = field_target(automation, source, field_id)
         .is_some_and(|target| select_before_caret(&target.element, &text).is_ok());
     done(selected);
 }
 
 fn collapse(automation: &IUIAutomation, source: Source, field_id: u64, text: &str) {
-    if let Ok(target) = target(automation, source)
-        && runtime_id(&target.element) == field_id
-    {
+    if let Some(target) = field_target(automation, source, field_id) {
         let _ = collapse_selection(&target.element, text);
     }
 }

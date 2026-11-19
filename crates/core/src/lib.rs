@@ -12,6 +12,7 @@ mod placement;
 mod policy;
 mod preset;
 mod prompt;
+mod replacing;
 mod setting;
 mod stats;
 mod status;

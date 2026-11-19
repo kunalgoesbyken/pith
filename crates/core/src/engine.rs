@@ -2,7 +2,9 @@ use std::time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::field::FieldKey;
 use crate::ignore::IgnoreTracker;
+use crate::replacing::Replacing;
 use crate::stats::Counts;
 use crate::suffix::candidates;
 use crate::typo::{Declined, Finished};
@@ -14,6 +16,7 @@ use crate::{
 
 const READ_TIME: Duration = Duration::from_millis(500);
 const MAX_SPELL_WAIT_MS: u64 = 1_000;
+const MAX_REPLACE_WAIT_MS: u64 = 3_000;
 
 fn is_grapheme_boundary(text: &str, index: usize) -> bool {
     index == text.len() || text.grapheme_indices(true).any(|(start, _)| start == index)
@@ -90,25 +93,6 @@ fn closes_spaced_word(field: &FieldSnapshot, accepted: &str) -> bool {
     field.after.text().is_empty() && ends_spaced_word(&format!("{}{accepted}", field.before))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FieldKey {
-    id: u64,
-    app: String,
-}
-
-impl FieldKey {
-    fn of(field: &FieldSnapshot) -> Self {
-        Self {
-            id: field.field_id,
-            app: field.app.clone(),
-        }
-    }
-
-    fn matches(&self, field: &FieldSnapshot) -> bool {
-        self.id == field.field_id && self.app == field.app
-    }
-}
-
 enum Release {
     Edit,
     EditOrMove(Option<Placement>),
@@ -151,41 +135,6 @@ struct Shown {
 struct Offer {
     correction: Correction,
     shown_at: Instant,
-}
-
-struct Replacing {
-    id: u64,
-    correction: Correction,
-    field: FieldKey,
-    prefix: String,
-    aborted: bool,
-}
-
-impl Replacing {
-    fn of(id: u64, correction: Correction, field: &FieldSnapshot) -> Self {
-        let prefix = field
-            .before
-            .strip_suffix(&correction.current())
-            .unwrap_or_default()
-            .to_string();
-        Self {
-            id,
-            correction,
-            field: FieldKey::of(field),
-            prefix,
-            aborted: false,
-        }
-    }
-
-    fn expects(&self, field: &FieldSnapshot) -> bool {
-        self.field.matches(field)
-            && (field.before.ends_with(&self.correction.current())
-                || (field.has_selection && self.prefix.ends_with(&field.before)))
-    }
-
-    fn observe(&mut self, field: &FieldSnapshot) {
-        self.aborted |= !self.expects(field);
-    }
 }
 
 enum Phase {
@@ -382,6 +331,7 @@ impl Engine {
     fn on_trigger(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
         if !matches!(self.phase, Phase::Idle | Phase::Checking(_))
+            || self.replacing.is_some()
             || field.placement.is_none()
             || check_forced(field, &self.config).is_err()
         {
@@ -444,6 +394,8 @@ impl Engine {
         if let Some(replacing) = &mut self.replacing {
             replacing.observe(&field);
         }
+        self.replacing
+            .take_if(|replacing| replacing.is_over(&field));
         if self.insert_pending(&field) {
             return;
         }
@@ -536,6 +488,7 @@ impl Engine {
             return false;
         };
         let wanted = self.config.typo_fix
+            && self.replacing.is_none()
             && self.config.trigger_mode == TriggerMode::Auto
             && field.placement.is_some()
             && check(field, &self.config).is_ok()
@@ -589,11 +542,14 @@ impl Engine {
     fn on_selected(&mut self, generation: u64, selected: bool, out: &mut Vec<Action>) {
         let Some(replacing) = self
             .replacing
-            .take_if(|replacing| replacing.id == generation)
+            .take_if(|replacing| replacing.awaits(generation))
         else {
             return;
         };
         if !selected {
+            if !replacing.aborted {
+                self.declined.insert(&replacing.correction.word);
+            }
             return self.schedule(out);
         }
         if replacing.aborted {
@@ -604,6 +560,7 @@ impl Engine {
             return self.schedule(out);
         }
         out.push(Action::Overwrite(replacing.correction.corrected()));
+        self.replacing = Some(replacing.pasting());
     }
 
     fn typed_through(&self, previous: &FieldSnapshot, field: &FieldSnapshot) -> Option<String> {
@@ -623,6 +580,9 @@ impl Engine {
 
     fn schedule(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
+        if self.replacing.is_some() {
+            return;
+        }
         let dismissed = self
             .dismissed
             .as_ref()
@@ -642,6 +602,13 @@ impl Engine {
     }
 
     fn on_debounce(&mut self, generation: u64, out: &mut Vec<Action>) {
+        if self
+            .replacing
+            .take_if(|replacing| replacing.id == generation)
+            .is_some()
+        {
+            return self.schedule(out);
+        }
         if generation != self.generation {
             return;
         }
@@ -705,6 +672,10 @@ impl Engine {
                 generation,
                 field_id: field.field_id,
                 correction: correction.clone(),
+            });
+            out.push(Action::ScheduleDebounce {
+                generation,
+                delay_ms: MAX_REPLACE_WAIT_MS,
             });
             self.replacing = Some(Replacing::of(generation, correction, field));
         }

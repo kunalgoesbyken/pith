@@ -146,6 +146,8 @@ struct Harness {
     lagging: bool,
     offer: Option<Correction>,
     selecting: Option<(u64, Correction)>,
+    selecting_key: Option<(u64, String, String)>,
+    pasting: bool,
     checking: Option<(u64, String)>,
     armed: bool,
     dismissed: Option<(u64, String)>,
@@ -212,6 +214,8 @@ impl Harness {
             lagging: false,
             offer: None,
             selecting: None,
+            selecting_key: None,
+            pasting: false,
             checking: None,
             armed: false,
             dismissed: None,
@@ -246,8 +250,10 @@ impl Harness {
         let answered = self
             .selecting
             .clone()
-            .filter(|(generation, _)| Some(*generation) == verdict_for)
+            .filter(|(generation, _)| Some(*generation) == verdict_for && !self.pasting)
             .map(|(_, correction)| correction);
+        let replace_ended = self.replace_ends(&event);
+        let blocked = self.selecting.is_some() && !replace_ended && answered.is_none();
         match &event {
             Event::Field(field) => self.sent = field.clone(),
             Event::SetConfig(config) => self.config = config.clone(),
@@ -390,6 +396,14 @@ impl Harness {
                     self.stats.replaces += 1;
                     replacing = true;
                     self.selecting = Some((*generation, correction.clone()));
+                    self.selecting_key = self.sent.as_ref().map(|f| {
+                        let prefix = f.before.strip_suffix(&correction.current());
+                        (
+                            f.field_id,
+                            f.app.clone(),
+                            prefix.unwrap_or_default().to_string(),
+                        )
+                    });
                 }
                 Action::Overwrite(text) => {
                     self.expect(spelled_selection, "overwrite without a selection result");
@@ -479,9 +493,32 @@ impl Harness {
             field.before.truncate(start);
             field.before.push_str(&correction.corrected());
         }
+        if blocked {
+            self.expect(
+                !actions.iter().any(|action| {
+                    matches!(
+                        action,
+                        Action::CheckSpelling { .. }
+                            | Action::Offer { .. }
+                            | Action::StartCompletion { .. }
+                            | Action::Show { .. }
+                            | Action::ScheduleDebounce { .. }
+                    )
+                }),
+                "work started while a replace was pending",
+            );
+        }
+        if replace_ended {
+            self.selecting = None;
+            self.selecting_key = None;
+            self.pasting = false;
+        }
         if let Event::Selected { selected, .. } = &event {
-            if answered.is_some() {
+            if answered.is_some() && overwritten.is_some() {
+                self.pasting = true;
+            } else if answered.is_some() {
                 self.selecting = None;
+                self.selecting_key = None;
             }
             self.expect(
                 *selected || (overwritten.is_none() && !actions.iter().any(is_collapse)),
@@ -675,6 +712,23 @@ impl Harness {
         self.publish();
         if self.rng.chance(70) {
             self.spell();
+        }
+    }
+
+    fn replace_ends(&self, event: &Event) -> bool {
+        let (Some((generation, correction)), Some((id, app, prefix))) =
+            (&self.selecting, &self.selecting_key)
+        else {
+            return false;
+        };
+        match event {
+            Event::DebounceElapsed(elapsed) => elapsed == generation,
+            Event::Field(Some(field)) => {
+                let expected = field.before.ends_with(&correction.current())
+                    || (field.has_selection && prefix.ends_with(&field.before));
+                field.field_id != *id || field.app != *app || (self.pasting && !expected)
+            }
+            _ => false,
         }
     }
 

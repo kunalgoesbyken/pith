@@ -6,7 +6,7 @@ use pith_core::{Spelling, log};
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Globalization::{
     CORRECTIVE_ACTION_GET_SUGGESTIONS, CORRECTIVE_ACTION_REPLACE, ISpellChecker,
-    ISpellCheckerFactory, SpellCheckerFactory,
+    ISpellCheckerFactory, ISpellingError, SpellCheckerFactory,
 };
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
@@ -74,7 +74,8 @@ fn create_factory() -> windows::core::Result<ISpellCheckerFactory> {
 struct Checkers {
     factory: Option<ISpellCheckerFactory>,
     retry_at: Option<Instant>,
-    by_language: HashMap<String, Option<ISpellChecker>>,
+    by_language: HashMap<String, ISpellChecker>,
+    unsupported: HashMap<String, Instant>,
 }
 
 impl Checkers {
@@ -95,15 +96,40 @@ impl Checkers {
         }
     }
 
+    fn throttled(&self, language: &str) -> bool {
+        self.unsupported
+            .get(language)
+            .is_some_and(|retry_at| Instant::now() < *retry_at)
+    }
+
+    fn postpone(&mut self, language: &str) {
+        let retry_at = Instant::now() + FACTORY_RETRY_AFTER;
+        if self
+            .unsupported
+            .insert(language.to_string(), retry_at)
+            .is_none()
+        {
+            log(&format!("no spell checker for {language}"));
+        }
+    }
+
+    fn checker(&mut self, language: &str) -> Option<&ISpellChecker> {
+        let factory = self.factory.as_ref()?;
+        if !self.by_language.contains_key(language) && !self.throttled(language) {
+            match checker_for(factory, language) {
+                Some(checker) => {
+                    self.unsupported.remove(language);
+                    self.by_language.insert(language.to_string(), checker);
+                }
+                None => self.postpone(language),
+            }
+        }
+        self.by_language.get(language)
+    }
+
     fn spelling(&mut self, language: &str, word: &str) -> Spelling {
         self.connect();
-        let Some(factory) = &self.factory else {
-            return Spelling::Correct;
-        };
-        self.by_language
-            .entry(language.to_string())
-            .or_insert_with(|| checker_for(factory, language))
-            .as_ref()
+        self.checker(language)
             .map_or(Spelling::Correct, |checker| verdict(checker, word))
     }
 }
@@ -156,24 +182,26 @@ fn top_suggestion(checker: &ISpellChecker, word: PCWSTR) -> Option<String> {
         .flatten()
 }
 
-fn verdict(checker: &ISpellChecker, word: &str) -> Spelling {
-    let text = wide(word);
-    let text = PCWSTR(text.as_ptr());
-    let Ok(errors) = (unsafe { checker.Check(text) }) else {
-        return Spelling::Correct;
-    };
+fn only_error(checker: &ISpellChecker, text: PCWSTR) -> Option<ISpellingError> {
+    let errors = unsafe { checker.Check(text) }.ok()?;
     let (mut first, mut second) = (None, None);
     let found = unsafe { errors.Next(&mut first) } == S_OK;
     let extra = unsafe { errors.Next(&mut second) } == S_OK;
-    let (true, false, Some(error)) = (found, extra, first) else {
+    first.filter(|_| found && !extra)
+}
+
+fn spans_word(error: &ISpellingError, word: &str) -> bool {
+    let whole = u32::try_from(word.encode_utf16().count()).ok();
+    let span = unsafe { (error.StartIndex().ok(), error.Length().ok()) };
+    span == (Some(0), whole)
+}
+
+fn verdict(checker: &ISpellChecker, word: &str) -> Spelling {
+    let text = wide(word);
+    let text = PCWSTR(text.as_ptr());
+    let Some(error) = only_error(checker, text).filter(|error| spans_word(error, word)) else {
         return Spelling::Correct;
     };
-    let whole = word.encode_utf16().count();
-    let span = unsafe { (error.StartIndex().ok(), error.Length().ok()) };
-    let spans_word = span == (Some(0), Some(whole as u32));
-    if !spans_word {
-        return Spelling::Correct;
-    }
     match unsafe { error.CorrectiveAction() } {
         Ok(CORRECTIVE_ACTION_REPLACE) => unsafe { error.Replacement() }
             .ok()

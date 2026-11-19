@@ -101,32 +101,42 @@ fn one_edit(a: &[&str], b: &[&str]) -> bool {
     }
 }
 
+fn is_single_space(boundary: &str) -> bool {
+    let mut graphemes = boundary.graphemes(true);
+    matches!(
+        (graphemes.next(), graphemes.next()),
+        (Some(only), None) if only.chars().all(is_inline_space)
+    )
+}
+
+fn word_start(text: &str) -> Option<usize> {
+    text.char_indices()
+        .rev()
+        .take_while(|(_, c)| is_letter(*c))
+        .last()
+        .map(|(start, _)| start)
+}
+
+fn is_correctable(head: &str, word: &str) -> bool {
+    let mut letters = word.chars();
+    let Some(first) = letters.next().filter(|c| c.is_alphabetic()) else {
+        return false;
+    };
+    let inside_caps = letters.any(char::is_uppercase);
+    let graphemes = word.graphemes(true).count();
+    opens_a_word(head)
+        && (MIN_WORD_GRAPHEMES..=MAX_WORD_GRAPHEMES).contains(&graphemes)
+        && !inside_caps
+        && (!first.is_uppercase() || starts_a_sentence(head))
+}
+
 impl Finished {
     pub(crate) fn of(previous: &str, current: &str) -> Option<Self> {
-        let boundary = current.strip_prefix(previous)?;
-        let mut graphemes = boundary.graphemes(true);
-        let (Some(only), None) = (graphemes.next(), graphemes.next()) else {
-            return None;
-        };
-        if !only.chars().all(is_inline_space) {
-            return None;
-        }
-        let start = previous
-            .char_indices()
-            .rev()
-            .take_while(|(_, c)| is_letter(*c))
-            .last()?
-            .0;
-        let (head, word) = previous.split_at(start);
-        let mut letters = word.chars();
-        let first = letters.next().filter(|c| c.is_alphabetic())?;
-        let inside_caps = letters.any(char::is_uppercase);
-        let graphemes = word.graphemes(true).count();
-        let acceptable = opens_a_word(head)
-            && (MIN_WORD_GRAPHEMES..=MAX_WORD_GRAPHEMES).contains(&graphemes)
-            && !inside_caps
-            && (!first.is_uppercase() || starts_a_sentence(head));
-        acceptable.then(|| Self {
+        let boundary = current
+            .strip_prefix(previous)
+            .filter(|boundary| is_single_space(boundary))?;
+        let (head, word) = previous.split_at(word_start(previous)?);
+        is_correctable(head, word).then(|| Self {
             word: word.to_string(),
             boundary: boundary.to_string(),
         })

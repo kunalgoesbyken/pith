@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::ffi::c_void;
 
 use pith_core::{Rect, Rgb, TextStyle};
@@ -74,18 +75,15 @@ fn selected_text(element: &IUIAutomationElement) -> Result<String> {
     }
 }
 
-fn unit_counts(text: &str) -> Vec<i32> {
-    let counts = [
+fn unit_counts(text: &str) -> BTreeSet<i32> {
+    [
         text.graphemes(true).count(),
         text.chars().count(),
         text.encode_utf16().count(),
-    ];
-    let mut units: Vec<i32> = counts
-        .into_iter()
-        .filter_map(|count| i32::try_from(count).ok())
-        .collect();
-    units.dedup();
-    units
+    ]
+    .into_iter()
+    .filter_map(|count| i32::try_from(count).ok())
+    .collect()
 }
 
 pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> Result<()> {

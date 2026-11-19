@@ -59,3 +59,22 @@ impl FieldSnapshot {
         }
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FieldKey {
+    pub(crate) id: u64,
+    app: String,
+}
+
+impl FieldKey {
+    pub(crate) fn of(field: &FieldSnapshot) -> Self {
+        Self {
+            id: field.field_id,
+            app: field.app.clone(),
+        }
+    }
+
+    pub(crate) fn matches(&self, field: &FieldSnapshot) -> bool {
+        self.id == field.field_id && self.app == field.app
+    }
+}
