@@ -1,6 +1,6 @@
 <h1 align="center"><img src="assets/logo.svg" alt="Pith" width="280"></h1>
 
-Local autocomplete for every text box on Windows. Pause while you type and Pith shows the rest of your sentence in grey at the caret. Tab keeps all of it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, and Ctrl+Shift+Space asks for a suggestion right away.
+Local autocomplete for every text box on Windows. Pause while you type and Pith shows the rest of your sentence in grey at the caret. Tab keeps all of it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, and Ctrl+Shift+Space asks for a suggestion right away. When you finish a misspelled word, Pith offers the fix instead (`teh → the`) and Tab applies it.
 
 A 0.6B model runs on your CPU. There is no account and no telemetry. The only network use is the one-time model download and the update check you start yourself. It is built for ordinary laptops with 8 GB RAM and no GPU.
 
@@ -15,6 +15,7 @@ Status: Windows MVP. macOS and Linux are planned; the engine and inference crate
 | Telemetry | None |
 | Keystrokes | Never seen. There is no keyboard hook |
 | Password fields, password managers, sign-in screens, blocked apps | Never read |
+| Spell checking | The one word you just finished is checked by the spell checker built into Windows (the Windows Spell Checking API, Windows 8 and later), which runs on this PC and uses your own Windows dictionaries. Pith adds no network request for it |
 | Clipboard | Accepting pastes through the clipboard, excluded from clipboard history, cloud clipboard and clipboard monitors, then restores what you had |
 | On disk | `config.toml` (your settings), `stats.toml` (counts of suggestions shown and accepted, no text), `pith.log` (timings, errors and app names, capped at 1 MB) and the model |
 
@@ -75,7 +76,7 @@ The tray shows what Pith is doing (Ready, Paused until 14:35, Skipped: password 
 
 Settings changes apply at once:
 
-- Enabled, and how often suggestions appear (Fewer, Normal, More)
+- Enabled, fix typos, and how often suggestions appear (Fewer, Normal, More)
 - Suggestion length (Short, Normal, Long)
 - The model (Small, Standard or Large, with the recommended one marked). Choosing one downloads it if needed and switches without a restart; downloaded models are kept
 - Ghost text opacity
@@ -91,6 +92,16 @@ When an app reports no caret, or a caret Pith cannot trust, the suggestion shows
 The pill is also used when the only text after the caret on the line is closing punctuation, such as `)`, `]`, `"`, `.`, `?`, `」` or `）。` (closing brackets and quotes, and terminal punctuation in any script, by Unicode property). Pith suggests the words that belong before it and shows them in a pill that starts at the caret, just below its line, so the suggestion never sits on top of the punctuation. In a field with several lines the pill covers the start of the line under the caret while it is shown. The pill spans from the caret to the right edge of the field (or of the screen when the app does not report a field) and wraps up to four lines. When the suggestion does not fit, Pith cuts it to the longest run of whole words that does and still fits the rules above, and accepting inserts only those; when not even one word fits on the first row, nothing is shown, the tray says "Skipped: no room for the suggestion", and Pith tries once more when the window or the caret moves and again whenever you edit the text. Resizing a field without moving the caret does not count as a move unless the pill is anchored to the field itself, so Pith usually waits until you type. This applies to every pill and to the ghost text, so what you accept is always what you saw. A suggestion that repeats the punctuation after the caret is dropped (`could you send it` before `?`, not `could you send it?`), and so is one that ends in a comma, semicolon or colon (or the equivalent in another script), ends a sentence in front of punctuation that already ends one (`soon.` before `).`), closes a bracket it did not open or runs over more than one sentence (an abbreviation such as `Dr. Smith` counts as a sentence break, so suggestions containing one are dropped). Accepting inserts at the caret and leaves the punctuation where it is. Any other text after the caret on the line (a word, an opening bracket, a symbol) still skips the suggestion.
 
 Pith pauses and frees the model while Windows battery saver is on.
+
+### Typo fixes
+
+When you type a space after a word the Windows spell checker does not know, Pith shows the correction in a pill under the caret instead of a completion, for example `teh → the`, with the fix in stronger text. Tab (or Shift+Tab or Ctrl+Right, or any key you set in `accept_keys` or `accept_word_keys`) replaces the word and keeps the space and the caret where they were. Esc dismisses it, and a word you dismissed is not offered again until you restart Pith. The completion for that spot waits while the fix is shown and carries on once you accept, dismiss or type.
+
+- It works in every language Windows has a spell checker for. Pith asks for the language of your current keyboard layout (`en-US`, `de-DE`, `hi-IN`) and falls back to the language without its region. With no checker for that language, nothing is offered. Words you added to the Windows dictionary count as correct, and your Windows autocorrect list is honoured.
+- Only the word just before the caret and the space you typed are checked, and only when the checker finds exactly that word wrong and the best suggestion is one edit away (a swapped, missing, extra or wrong letter) or comes from your autocorrect list. Anything less certain is left alone.
+- It never touches a password field, text after the caret, a word under three letters, a word with digits, an ALL-CAPS word or one with capitals inside it (`NASA`, `iPhone`), a capitalised word in the middle of a sentence (names), or a word that is part of a URL, an email address, a path, a hyphenated word or an identifier. Blocked apps, pauses and the per-app switch in the tray apply here as they do to completions.
+- Applying a fix selects the word through UI Automation, checks that the selected text is exactly the word you typed, and pastes the correction over it, so it is one undo step. If the app does not support selecting text, or the field changed in between, nothing is replaced.
+- The Fix typos toggle in Settings, or `typo_fix = false`, turns it off.
 
 ## Verify your download
 
@@ -146,6 +157,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 | `pause_on_battery_saver` | true | pause and free the model while battery saver is on; PCs without a battery are unaffected |
 | `auto_pause_after` | 12 | stop suggesting in an app after this many ignored suggestions in a row (0 = never); the tray offers Resume |
 | `smart_space` | false | add a space after accepting the last word of a suggestion |
+| `typo_fix` | true | offer the correction of a misspelled word you just finished, using the Windows spell checker |
 | `blocked_apps` | [] | extra process names to ignore. Terminals, password managers and sign-in screens are always ignored, and so are code editors unless listed in `allowed_apps` |
 | `allowed_apps` | [] | code editors to turn Pith on in: `Code`, `Cursor`, `devenv`, `idea64`, `pycharm64`, `rider64`, `zed`. Any other name, including a terminal or password manager, is ignored. Pith completes prose, not code: it skips only lines that are mostly symbols or numbers, so expect suggestions in comments and some in code |
 | `typing_wpm` | 40 | your typing speed, used for the time-saved estimate (1 to 500) |
@@ -159,6 +171,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 - **Captures the accept keys and Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after. Right at a caret that is not at the end of the text goes to the app untouched.
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
 - **Predicts** with llama.cpp in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so the suggestion finishes the word. Low-confidence suggestions are dropped.
+- **Checks spelling** of the word you just finished through the Windows Spell Checking API on its own thread, in the language of your keyboard layout. A correction takes the place of the completion for that word; the completion waits for the answer and is never delayed past its normal pause. Applying it selects the word with UI Automation, re-reads it and pastes the fix.
 - **Skips** password fields, IME composition, selections, text after the caret on the same line (unless it is only closing punctuation, which shows in the pill), terminals, password managers, sign-in screens and, until you allow them, code editors.
 - **Re-reads the field** when you press an accept key or Esc, and acts only if the suggestion still fits what is on screen.
 
@@ -183,7 +196,7 @@ cargo run --release -p pith-windows --example ui_shots
 ```
 
 - `typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed next. The MID-LINE row replays text typed before closing punctuation and is kept out of TOTAL.
-- `e2e` drives the whole app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, accept chains, stale keys, Esc, selections, password fields, text and punctuation after the caret, pause, field switching, the fallback pill, overlay geometry and memory. `PITH_E2E_ONLY=<name>` runs matching scenarios, `PITH_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `PITH_E2E_INSERT_LAG_MS=<ms>` delays insertion like a real paste and `PITH_E2E_TRACE=1` prints every action.
+- `e2e` drives the whole app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, accept chains, stale keys, Esc, typo fixes, selections, password fields, text and punctuation after the caret, pause, field switching, the fallback pill, overlay geometry and memory. `PITH_E2E_ONLY=<name>` runs matching scenarios, `PITH_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `PITH_E2E_INSERT_LAG_MS=<ms>` delays insertion like a real paste and `PITH_E2E_TRACE=1` prints every action.
 - `apps` runs the whole app against real Chrome, Edge, Electron and Notepad on a GitHub Actions Windows runner (workflow `Apps`, weekly or by hand) and reports, per app and field, whether Pith reads the text and caret, shows a suggestion and inserts it on Tab. It sends real keystrokes and mouse clicks, so it refuses to start unless it runs on a GitHub-hosted runner with `--ci-runner`, and is never meant for a desktop in use. Firefox is not covered: it shows no page under the limited token the harness has to use, and Pith skips elevated apps.
 - `ui_shots` renders the settings and welcome windows, light and dark, to PNGs in `target/ui-shots`.
 
@@ -193,7 +206,6 @@ cargo run --release -p pith-windows --example ui_shots
 - Learns your phrasing from text you accept, kept on this PC
 - Context from the rest of the window, such as the email you are replying to
 - Suggestions before words in the middle of a line, which needs a model that reads what follows the caret
-- Typo fixes alongside the completion
 - Snippets and per-site rules
 - Several candidates to choose from
 - Code signing, winget and automatic update notices

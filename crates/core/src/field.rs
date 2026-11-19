@@ -20,6 +20,7 @@ pub struct FieldParts {
     pub has_selection: bool,
     pub is_password: bool,
     pub composing: bool,
+    pub language: Option<String>,
     pub placement: Option<Placement>,
     pub style: TextStyle,
 }
@@ -52,6 +53,7 @@ impl FieldSnapshot {
             has_selection: parts.has_selection,
             is_password: parts.is_password,
             composing: parts.composing,
+            language: parts.language,
             placement: parts.placement,
             style: parts.style,
         }

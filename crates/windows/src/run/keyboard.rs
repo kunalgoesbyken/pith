@@ -88,10 +88,7 @@ impl App {
 
     fn hotkey(&mut self, press: Press) {
         let needs_field = press.action == KeyAction::Trigger;
-        if !needs_field
-            && self.engine.suggestion().is_none()
-            && self.keyboard.awaiting_read.is_empty()
-        {
+        if !needs_field && !self.engine.is_visible() && self.keyboard.awaiting_read.is_empty() {
             self.pass_through(press);
             return;
         }
@@ -103,7 +100,7 @@ impl App {
         for press in std::mem::take(&mut self.keyboard.awaiting_read) {
             let handled = match press.action {
                 KeyAction::Trigger => true,
-                KeyAction::Dismiss => self.engine.suggestion().is_some(),
+                KeyAction::Dismiss => self.engine.is_visible(),
                 KeyAction::AcceptAll | KeyAction::AcceptWord => {
                     self.engine.can_accept(press.at, press.moves_caret())
                 }
@@ -122,14 +119,14 @@ impl App {
         }
         self.keyboard.disarm();
         replay(&press.chord);
-        if self.engine.suggestion().is_some() {
+        if self.engine.is_visible() {
             self.set_timer(TIMER_REARM, REARM_MS);
         }
     }
 
     pub(super) fn rearm(&mut self) {
         self.kill_timer(TIMER_REARM);
-        if self.engine.suggestion().is_some() {
+        if self.engine.is_visible() {
             self.keyboard.arm();
         }
     }

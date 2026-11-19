@@ -22,6 +22,7 @@ use crate::events::Hooks;
 use crate::overlay::Overlay;
 use crate::power;
 use crate::reader::{Reader, Source};
+use crate::spell::Speller;
 
 use effects::Effects;
 pub use inbox::{Inbound, Inbox};
@@ -62,6 +63,7 @@ struct App {
     effects: Effects,
     reader: Reader,
     worker: Worker,
+    speller: Speller,
     overlay: Overlay,
     data_dir: Option<PathBuf>,
     erasing: Option<PathBuf>,
@@ -88,6 +90,10 @@ impl App {
             engine: Engine::new(config.clone()),
             reader,
             worker,
+            speller: Speller::spawn({
+                let spelled = inbox.clone();
+                move |generation, spelling| spelled.post(Inbound::Spelled(generation, spelling))
+            }),
             data_dir: options.data_dir,
             erasing: None,
             inbox,

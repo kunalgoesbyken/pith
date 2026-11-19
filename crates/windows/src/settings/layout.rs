@@ -5,8 +5,8 @@ use pith_core::{Counts, ModelPreset};
 use super::model::Model;
 use super::{
     FREQUENCY, ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA,
-    ID_REMOVE_FIRST, ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, LENGTH, MAX_APP_ROWS, MODELS,
-    Segment,
+    ID_REMOVE_FIRST, ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, ID_TYPO, LENGTH, MAX_APP_ROWS,
+    MODELS, Segment,
 };
 use crate::format::{duration, number};
 use crate::rival::Rival;
@@ -39,12 +39,16 @@ const BUTTON_WIDTH: i32 = 88;
 const TOGGLE_LABEL: i32 = 28;
 const CONTROL_GAP: i32 = 16;
 
-pub const GENERAL_ROWS: [(&str, &str); 3] = [
+pub const GENERAL_ROWS: [(&str, &str); 4] = [
     (
         "Suggest as I type",
         "Show the rest of your sentence in grey.",
     ),
     ("How often", "More shows suggestions sooner."),
+    (
+        "Fix typos",
+        "Offer the right spelling after a misspelled word.",
+    ),
     (
         "Start with Windows",
         "Open Pith in the tray when you sign in.",
@@ -427,6 +431,11 @@ pub fn build(model: &Model) -> Layout {
             },
             Spec {
                 text: pair(2, &GENERAL_ROWS),
+                height: ROW,
+                control: Control::Toggle(ID_TYPO),
+            },
+            Spec {
+                text: pair(3, &GENERAL_ROWS),
                 height: ROW,
                 control: Control::Toggle(ID_START),
             },

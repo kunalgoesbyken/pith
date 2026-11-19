@@ -8,7 +8,7 @@ pub const LINE_BREAKS: [char; 7] = [
     '\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}',
 ];
 
-fn is_inline_space(c: char) -> bool {
+pub(crate) fn is_inline_space(c: char) -> bool {
     c.is_whitespace() && !LINE_BREAKS.contains(&c)
 }
 

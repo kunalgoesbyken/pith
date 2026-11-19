@@ -15,8 +15,10 @@ use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetForegroun
 use windows::core::{Interface, Result};
 
 use crate::caret::{
-    caret_range, caret_rect, composing, font, has_selection, runtime_id, text_around,
+    caret_range, caret_rect, composing, font, has_selection, runtime_id, select_before_caret,
+    text_around,
 };
+use crate::language::input_language;
 use crate::util::{is_elevated, process_name, rect_of, window_pid, window_title, work_areas};
 
 #[derive(Clone, Copy, Debug)]
@@ -38,19 +40,16 @@ fn is_readable_own_field(hwnd: HWND) -> bool {
     !hwnd.0.is_null() && hwnd.0 as isize == READABLE_OWN_FIELD.load(Ordering::SeqCst)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Selection {
+    pub field_id: u64,
+    pub text: String,
+    pub done: Box<dyn FnOnce(bool) + Send>,
+}
+
 pub enum Poke {
     Changed,
     Key(u64),
-}
-
-impl Poke {
-    fn key(self) -> Option<u64> {
-        match self {
-            Poke::Changed => None,
-            Poke::Key(id) => Some(id),
-        }
-    }
+    Select(Selection),
 }
 
 pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, Option<u64>) + Send>;
@@ -87,6 +86,10 @@ impl Reader {
         let _ = self.pokes.send(Poke::Key(id));
     }
 
+    pub fn select(&self, selection: Selection) {
+        let _ = self.pokes.send(Poke::Select(selection));
+    }
+
     pub fn sender(&self) -> Sender<Poke> {
         self.pokes.clone()
     }
@@ -120,10 +123,14 @@ fn serve(
     let mut first = true;
     let mut errors = 0;
     while let Ok(request) = rx.recv() {
-        let served = std::iter::once(request)
-            .chain(rx.try_iter())
-            .filter_map(Poke::key)
-            .max();
+        let mut served = None;
+        for poke in std::iter::once(request).chain(rx.try_iter()) {
+            match poke {
+                Poke::Changed => {}
+                Poke::Key(id) => served = served.max(Some(id)),
+                Poke::Select(selection) => select(&automation, source, selection),
+            }
+        }
         let current = config
             .lock()
             .map(|shared| shared.clone())
@@ -152,6 +159,48 @@ fn serve(
     }
 }
 
+struct Target {
+    element: IUIAutomationElement,
+    root: HWND,
+    foreground: Option<HWND>,
+}
+
+fn target(automation: &IUIAutomation, source: Source) -> Result<Target> {
+    unsafe {
+        Ok(match source {
+            Source::Focused => {
+                let foreground = GetForegroundWindow();
+                Target {
+                    element: automation.GetFocusedElement()?,
+                    root: foreground,
+                    foreground: Some(foreground),
+                }
+            }
+            Source::Window(handle) => {
+                let hwnd = HWND(handle.load(Ordering::SeqCst) as _);
+                Target {
+                    element: automation.ElementFromHandle(hwnd)?,
+                    root: GetAncestor(hwnd, GA_ROOT),
+                    foreground: None,
+                }
+            }
+        })
+    }
+}
+
+fn select(automation: &IUIAutomation, source: Source, selection: Selection) {
+    let Selection {
+        field_id,
+        text,
+        done,
+    } = selection;
+    let selected = target(automation, source)
+        .ok()
+        .filter(|target| runtime_id(&target.element) == field_id)
+        .is_some_and(|target| select_before_caret(&target.element, &text).is_ok());
+    done(selected);
+}
+
 fn read(
     automation: &IUIAutomation,
     source: Source,
@@ -159,24 +208,11 @@ fn read(
     own_pid: u32,
 ) -> Result<Option<FieldSnapshot>> {
     unsafe {
-        let (element, root, foreground): (IUIAutomationElement, HWND, Option<HWND>) = match source {
-            Source::Focused => {
-                let foreground = GetForegroundWindow();
-                (
-                    automation.GetFocusedElement()?,
-                    foreground,
-                    Some(foreground),
-                )
-            }
-            Source::Window(handle) => {
-                let hwnd = HWND(handle.load(Ordering::SeqCst) as _);
-                (
-                    automation.ElementFromHandle(hwnd)?,
-                    GetAncestor(hwnd, GA_ROOT),
-                    None,
-                )
-            }
-        };
+        let Target {
+            element,
+            root,
+            foreground,
+        } = target(automation, source)?;
         let pid = element.CurrentProcessId()? as u32;
         if matches!(source, Source::Focused)
             && pid == own_pid
@@ -221,6 +257,7 @@ fn read(
                 has_selection: has_selection(&element),
                 is_password,
                 composing: composing(&element),
+                language: input_language(root),
                 placement: place(caret_rect(&caret, foreground), element_rect, &work_areas()),
                 style,
             },

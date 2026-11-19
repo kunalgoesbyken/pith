@@ -37,6 +37,9 @@ mod common;
 
 use common::{overlay_visible, overlay_window, wide, window_rect, window_title};
 
+#[path = "e2e/typo.rs"]
+mod typo;
+
 static TARGET: AtomicIsize = AtomicIsize::new(0);
 static THROUGH_CLIPBOARD: AtomicBool = AtomicBool::new(false);
 
@@ -2294,7 +2297,7 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 26] = [
+        let scenarios: [(&str, Scenario); 30] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
@@ -2321,6 +2324,10 @@ fn main() {
             ("switch", switching_fields),
             ("geometry", overlay_geometry),
             ("autopause", auto_pause_on_ignore),
+            ("typo", typo::offer_and_apply),
+            ("typodismiss", typo::dismiss_and_decline),
+            ("typostale", typo::stale_accept),
+            ("typoskip", typo::skips),
         ];
         for (name, scenario) in scenarios {
             if only.as_deref().is_some_and(|o| !name.contains(o)) {

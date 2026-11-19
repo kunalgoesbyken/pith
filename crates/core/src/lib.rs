@@ -19,6 +19,7 @@ mod stored;
 mod suffix;
 mod text;
 mod types;
+mod typo;
 
 pub use apps::Access;
 pub use chord::{Chord, Key};
@@ -47,6 +48,7 @@ pub use text::{
     next_word, sentence_end, split_partial, tail_chars,
 };
 pub use types::{Completion, Drawn, FieldSnapshot, Rect, StopReason, TextStyle, average_logprob};
+pub use typo::{Correction, Label, Spelling};
 
 pub trait Completer {
     fn complete(

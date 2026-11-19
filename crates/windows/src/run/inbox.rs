@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pith_core::{Completion, Event, FieldSnapshot, Model, log};
+use pith_core::{Completion, Event, FieldSnapshot, Model, Spelling, log};
 use pith_infer::{Stage, UpdateCheck, check_for_update};
 use windows::Win32::Foundation::HWND;
 
@@ -13,6 +13,8 @@ use crate::update::Update;
 pub enum Inbound {
     Snapshot(Option<FieldSnapshot>, Option<u64>),
     Done(u64, Result<Completion, String>),
+    Spelled(u64, Spelling),
+    Corrected(String),
     Ready(Result<String, String>),
     Preparing(Stage),
     Command(TrayCommand),
@@ -52,6 +54,11 @@ impl App {
             match message {
                 Inbound::Snapshot(snapshot, served) => self.snapshot_read(snapshot, served),
                 Inbound::Done(generation, result) => self.completion_done(generation, result),
+                Inbound::Spelled(generation, spelling) => self.dispatch(Event::Spelled {
+                    generation,
+                    spelling,
+                }),
+                Inbound::Corrected(text) => self.effects.insert(text),
                 Inbound::Ready(status) => self.model_ready(status),
                 Inbound::Preparing(stage) => self.model_preparing(stage),
                 Inbound::Command(command) => quit |= self.command(command),

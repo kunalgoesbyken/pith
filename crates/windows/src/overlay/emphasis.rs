@@ -1,4 +1,6 @@
-use pith_core::{Line, next_word, strong_span};
+use std::ops::Range;
+
+use pith_core::{Line, strong_span};
 use windows::Win32::Foundation::POINT;
 
 use super::face::Face;
@@ -8,17 +10,17 @@ pub struct Emphasis(Vec<Option<(i32, i32)>>);
 impl Emphasis {
     pub fn of(
         text: &str,
+        strong: &Range<usize>,
         lines: &[Line],
         rtl: bool,
         face: &Face,
         origin: POINT,
         height: i32,
     ) -> Self {
-        let strong_end = next_word(text).len();
         let measure = |segment: &str| face.measure(segment);
         let spans: Vec<_> = lines
             .iter()
-            .map(|line| strong_span(text, line, strong_end, rtl, &measure))
+            .map(|line| strong_span(text, line, strong.clone(), rtl, &measure))
             .collect();
         row_spans(lines, &spans, origin, face.line_height, height)
     }

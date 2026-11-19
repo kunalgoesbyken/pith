@@ -2,8 +2,8 @@ mod common;
 
 use common::{Rng, fragment, is_boundary, text};
 use pith_core::{
-    Action, Completion, Config, Drawn, Engine, Event, FieldSnapshot, LINE_BREAKS, Placement, Rect,
-    StopReason, check,
+    Action, After, Completion, Config, Correction, Drawn, Engine, Event, FieldSnapshot,
+    LINE_BREAKS, Placement, Rect, Spelling, StopReason, check,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -27,7 +27,23 @@ const WORDS: &[&str] = &[
     "👨\u{200d}👩\u{200d}👧 ",
     "tomorrow ",
     ". ",
+    " ",
 ];
+
+const TYPOS: &[&str] = &[
+    "teh",
+    "recieve",
+    "Teh",
+    "NASA",
+    "myVar",
+    "école",
+    "नमस्ते",
+    "abc123",
+    "ab",
+    "wich",
+];
+
+const LANGUAGE: &str = "en-US";
 
 const COMPLETIONS: &[&str] = &[
     " contract by Friday.",
@@ -127,6 +143,9 @@ struct Harness {
     flight: Option<u64>,
     live: Option<u64>,
     shown: Option<String>,
+    lagging: bool,
+    offer: Option<Correction>,
+    checking: Option<(u64, String)>,
     armed: bool,
     dismissed: Option<(u64, String)>,
     trace: Vec<String>,
@@ -141,6 +160,9 @@ struct Stats {
     cancels: usize,
     stale: usize,
     dismissals: usize,
+    checks: usize,
+    offers: usize,
+    replaces: usize,
 }
 
 impl Stats {
@@ -151,6 +173,9 @@ impl Stats {
         self.cancels += other.cancels;
         self.stale += other.stale;
         self.dismissals += other.dismissals;
+        self.checks += other.checks;
+        self.offers += other.offers;
+        self.replaces += other.replaces;
     }
 }
 
@@ -167,6 +192,7 @@ impl Harness {
             app: "notepad".into(),
             before: "Please sign the".into(),
             placement: Some(placement(&mut rng)),
+            language: Some(LANGUAGE.into()),
             ..Default::default()
         };
         Self {
@@ -182,6 +208,9 @@ impl Harness {
             flight: None,
             live: None,
             shown: None,
+            lagging: false,
+            offer: None,
+            checking: None,
             armed: false,
             dismissed: None,
             trace: Vec::new(),
@@ -204,7 +233,9 @@ impl Harness {
         self.trace.push(format!("{event:?}"));
         let before_key = context_key(&self.sent);
         let pre = self.engine.suggestion().map(str::to_string);
+        let pre_offer = self.offer.clone();
         let accepting = matches!(event, Event::AcceptAll | Event::AcceptWord);
+        let spelled = matches!(event, Event::Spelled { .. });
         match &event {
             Event::Field(field) => self.sent = field.clone(),
             Event::SetConfig(config) => self.config = config.clone(),
@@ -214,6 +245,7 @@ impl Harness {
         self.trace.push(format!("  -> {actions:?}"));
         let mut scheduled_now = false;
         let mut inserted = None;
+        let mut replaced = None;
         for action in &actions {
             match action {
                 Action::ScheduleDebounce { generation, .. } => {
@@ -260,6 +292,86 @@ impl Harness {
                     self.flight = None;
                     self.live = None;
                 }
+                Action::CheckSpelling {
+                    generation,
+                    language,
+                    word,
+                } => {
+                    let field = self.sent.as_ref();
+                    self.expect(self.config.typo_fix, "spell check with typo fix off");
+                    self.expect(
+                        field.is_some_and(|f| {
+                            f.language.as_deref() == Some(language.as_str())
+                                && f.placement.is_some()
+                                && check(f, &self.config).is_ok()
+                        }),
+                        "spell check for a field that is not eligible",
+                    );
+                    self.expect(
+                        field.is_some_and(|f| {
+                            f.before
+                                .strip_suffix(char::is_whitespace)
+                                .is_some_and(|head| head.ends_with(word.as_str()))
+                        }),
+                        "spell check for a word that was not just finished",
+                    );
+                    self.expect(word.chars().count() >= 3, "spell check for a short word");
+                    self.stats.checks += 1;
+                    self.checking = Some((*generation, word.clone()));
+                }
+                Action::Offer { correction, .. } => {
+                    self.expect(
+                        spelled || self.offer.is_some(),
+                        "offer without a spelling verdict",
+                    );
+                    self.expect(
+                        self.checking
+                            .as_ref()
+                            .is_some_and(|(_, word)| *word == correction.word),
+                        "offer for a word that was not checked",
+                    );
+                    self.expect(
+                        !correction.replacement.is_empty()
+                            && correction.replacement != correction.word
+                            && !correction.replacement.contains(LINE_BREAKS),
+                        "offer with an unusable replacement",
+                    );
+                    self.expect(
+                        self.sent.as_ref().is_some_and(|f| {
+                            f.placement.is_some()
+                                && check(f, &self.config).is_ok()
+                                && f.before.ends_with(&correction.current())
+                        }),
+                        "offer for text that is not before the caret",
+                    );
+                    self.expect(self.shown.is_none(), "offer over a suggestion");
+                    self.expect(
+                        self.offer.as_ref().is_none_or(|offer| offer == correction),
+                        "offer changed while visible",
+                    );
+                    if self.offer.is_none() {
+                        self.stats.offers += 1;
+                    }
+                    self.offer = Some(correction.clone());
+                }
+                Action::Replace {
+                    field_id,
+                    correction,
+                } => {
+                    self.expect(
+                        self.offer.as_ref() == Some(correction) && self.armed,
+                        "replace without an armed correction",
+                    );
+                    self.expect(accepting, "replace without an accept event");
+                    self.expect(
+                        self.sent.as_ref().is_some_and(|f| {
+                            f.field_id == *field_id && f.before.ends_with(&correction.current())
+                        }),
+                        "replace for text that is not before the caret",
+                    );
+                    self.stats.replaces += 1;
+                    replaced = Some(correction.clone());
+                }
                 Action::Show { cuts, .. } => {
                     let text = &cuts[0];
                     self.expect(!text.trim().is_empty(), "blank suggestion shown");
@@ -274,17 +386,27 @@ impl Harness {
                     self.shown = Some(text.clone());
                 }
                 Action::Hide => {
-                    self.expect(self.shown.is_some(), "hide with nothing shown");
+                    self.expect(
+                        self.shown.is_some() || self.offer.is_some(),
+                        "hide with nothing shown",
+                    );
                     self.shown = None;
+                    self.offer = None;
                 }
                 Action::ArmKeys => {
                     self.expect(!self.armed, "armed twice");
-                    self.expect(self.shown.is_some(), "armed without a suggestion");
+                    self.expect(
+                        self.shown.is_some() || self.offer.is_some(),
+                        "armed without a suggestion",
+                    );
                     self.armed = true;
                 }
                 Action::DisarmKeys => {
                     self.expect(self.armed, "disarmed while not armed");
-                    self.expect(self.shown.is_none(), "disarmed before hide");
+                    self.expect(
+                        self.shown.is_none() && self.offer.is_none(),
+                        "disarmed before hide",
+                    );
                     self.armed = false;
                 }
                 Action::AutoPaused(_) => {}
@@ -293,6 +415,7 @@ impl Harness {
                         self.shown.is_some() && self.armed,
                         "insert without armed suggestion",
                     );
+                    self.expect(pre_offer.is_none(), "insert while a correction shows");
                     self.expect(accepting, "insert without an accept event");
                     self.expect(!inserted_text.is_empty(), "empty insert");
                     self.stats.inserts += 1;
@@ -303,16 +426,25 @@ impl Harness {
         if let (Some(inserted), Some(field)) = (&inserted, &mut self.sent) {
             field.before.push_str(inserted);
         }
+        if let (Some(correction), Some(field)) = (&replaced, &mut self.sent) {
+            let start = field.before.len() - correction.current().len();
+            field.before.truncate(start);
+            field.before.push_str(&correction.corrected());
+        }
         self.expect(
             self.shown.as_deref() == self.engine.suggestion(),
             "shown text differs from engine suggestion",
         );
         let drawn = actions
             .iter()
-            .any(|action| matches!(action, Action::Show { .. }));
+            .any(|action| matches!(action, Action::Show { .. } | Action::Offer { .. }));
         self.expect(
-            drawn || self.armed == self.shown.is_some(),
+            drawn || self.armed == (self.shown.is_some() || self.offer.is_some()),
             "armed state differs from shown state",
+        );
+        self.expect(
+            self.shown.is_none() || self.offer.is_none(),
+            "a suggestion and a correction at once",
         );
         if let (Some(inserted), Some(pre)) = (&inserted, &pre) {
             self.expect(
@@ -329,8 +461,14 @@ impl Harness {
                 "remainder after insert is wrong",
             );
         }
-        if accepting && pre.is_none() {
+        if accepting && pre.is_none() && pre_offer.is_none() {
             self.expect(actions.is_empty(), "accept without suggestion acted");
+        }
+        if accepting && pre_offer.is_some() {
+            self.expect(
+                replaced.is_some() && self.offer.is_none(),
+                "accepting a correction did not replace it",
+            );
         }
         match &event {
             Event::Completed { generation, .. } => {
@@ -357,7 +495,11 @@ impl Harness {
                     self.sched = None;
                 }
             }
-            Event::DebounceElapsed(_) | Event::Resume(_) | Event::Trigger | Event::Drawn(_) => {}
+            Event::DebounceElapsed(_)
+            | Event::Resume(_)
+            | Event::Trigger
+            | Event::Drawn(_)
+            | Event::Spelled { .. } => {}
         }
         self.check_dismissal(&event, scheduled_now);
         if matches!(event, Event::Field(None)) {
@@ -367,8 +509,13 @@ impl Harness {
             );
         }
         if drawn {
+            let verdict = if self.offer.is_some() && self.rng.chance(20) {
+                Drawn::Nothing
+            } else {
+                Drawn::Shown(0)
+            };
             let mut actions = actions;
-            actions.extend(self.send(Event::Drawn(Drawn::Shown(0))));
+            actions.extend(self.send(Event::Drawn(verdict)));
             return actions;
         }
         actions
@@ -411,7 +558,8 @@ impl Harness {
             38 => {
                 self.send(Event::Field(None));
             }
-            39..=44 => self.debounce(),
+            39..=40 => self.finish_word(),
+            41..=44 => self.debounce(),
             45..=51 => self.complete(false),
             52..=76 => self.settle(),
             77..=86 => self.accept(),
@@ -421,11 +569,13 @@ impl Harness {
             90..=91 => {
                 let config = Config {
                     enabled: self.rng.chance(60),
+                    typo_fix: self.rng.chance(80),
                     min_chars_before: if self.rng.chance(50) { 3 } else { 6 },
                     ..self.config.clone()
                 };
                 self.send(Event::SetConfig(config));
             }
+            92..=95 => self.spell(),
             _ => self.complete(false),
         }
     }
@@ -437,8 +587,74 @@ impl Harness {
         }
     }
 
+    fn finish_word(&mut self) {
+        let word = self.rng.pick(TYPOS).to_string();
+        let placement = placement(&mut self.rng);
+        if let Some(field) = &mut self.world {
+            field.before.push(' ');
+            field.before.push_str(&word);
+            field.has_selection = false;
+            field.composing = false;
+            field.is_password = false;
+            field.after = After::default();
+            field.placement.get_or_insert(placement);
+        }
+        self.publish();
+        if let Some(field) = &mut self.world {
+            field.before.push(' ');
+        }
+        self.publish();
+        if self.rng.chance(70) {
+            self.spell();
+        }
+    }
+
+    fn spell(&mut self) {
+        let Some((generation, word)) = self.checking.clone() else {
+            return;
+        };
+        let (generation, expects_offer) = if self.rng.chance(85) {
+            (generation, true)
+        } else {
+            (generation + 1 + self.rng.below(3) as u64, false)
+        };
+        let spelling = match self.rng.below(7) {
+            0 => Spelling::Correct,
+            1 => Spelling::Autocorrect(format!("{word}s")),
+            2 => Spelling::Autocorrect(String::new()),
+            3 => Spelling::Autocorrect(word.clone()),
+            4 => Spelling::Autocorrect("a\nb".into()),
+            5 => Spelling::Suggested(format!("{word}s")),
+            _ => Spelling::Suggested(format!("{word}{word}")),
+        };
+        let actions = self.send(Event::Spelled {
+            generation,
+            spelling: spelling.clone(),
+        });
+        let offered = actions
+            .iter()
+            .any(|action| matches!(action, Action::Offer { .. }));
+        if offered {
+            self.expect(expects_offer, "a stale verdict offered a correction");
+            let allowed = match &spelling {
+                Spelling::Correct => false,
+                Spelling::Autocorrect(replacement) => {
+                    !replacement.is_empty()
+                        && *replacement != word
+                        && !replacement.contains(LINE_BREAKS)
+                }
+                Spelling::Suggested(replacement) => *replacement == format!("{word}s"),
+            };
+            self.expect(allowed, "a verdict that must not be offered was offered");
+            if self.rng.chance(50) {
+                self.accept();
+            }
+        }
+    }
+
     fn publish(&mut self) {
         let snapshot = self.world.clone();
+        self.lagging = false;
         self.send(Event::Field(snapshot));
     }
 
@@ -451,6 +667,9 @@ impl Harness {
     }
 
     fn backspace(&mut self) {
+        if self.lagging {
+            self.publish();
+        }
         if let Some(field) = &mut self.world
             && let Some((start, _)) = field.before.grapheme_indices(true).next_back()
         {
@@ -481,6 +700,7 @@ impl Harness {
             app,
             before,
             placement,
+            language: Some(LANGUAGE.into()),
             ..Default::default()
         });
         self.publish();
@@ -495,12 +715,18 @@ impl Harness {
     }
 
     fn toggle_flag(&mut self) {
-        let which = self.rng.below(3);
+        let which = self.rng.below(4);
         if let Some(field) = &mut self.world {
             match which {
                 0 => field.has_selection = !field.has_selection,
                 1 => field.is_password = !field.is_password,
-                _ => field.composing = !field.composing,
+                2 => field.composing = !field.composing,
+                _ => {
+                    field.language = match field.language {
+                        Some(_) => None,
+                        None => Some(LANGUAGE.into()),
+                    }
+                }
             }
         }
         self.publish();
@@ -623,10 +849,15 @@ impl Harness {
             Event::AcceptWord
         };
         let actions = self.send(event);
-        if matches!(actions.first(), Some(Action::Insert(_))) {
+        if matches!(
+            actions.first(),
+            Some(Action::Insert(_) | Action::Replace { .. })
+        ) {
             self.world = self.sent.clone();
             if self.rng.chance(60) {
                 self.publish();
+            } else {
+                self.lagging = true;
             }
         }
     }
@@ -649,4 +880,7 @@ fn engine_invariants_hold_over_random_event_sequences() {
     assert!(totals.cancels > 250, "{}", totals.cancels);
     assert!(totals.stale > 5000, "{}", totals.stale);
     assert!(totals.dismissals > 1000, "{}", totals.dismissals);
+    assert!(totals.checks > 200, "{}", totals.checks);
+    assert!(totals.offers > 30, "{}", totals.offers);
+    assert!(totals.replaces > 5, "{}", totals.replaces);
 }

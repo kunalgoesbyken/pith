@@ -127,6 +127,7 @@ pub(crate) async fn read(
             has_selection: caret::has_selection(&text).await,
             is_password,
             composing: false,
+            language: None,
             placement: place(rect, None, &[]),
             style: style::read(&text, view.caret).await,
         },

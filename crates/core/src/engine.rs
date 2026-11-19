@@ -5,10 +5,11 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::ignore::IgnoreTracker;
 use crate::stats::Counts;
 use crate::suffix::candidates;
+use crate::typo::{Declined, Finished};
 use crate::{
-    Completion, CompletionRequest, Config, Drawn, FieldSnapshot, Placement, SkipReason, Suffix,
-    TextStyle, TriggerMode, build, check, check_forced, continue_window, ends_spaced_word,
-    next_word, suggestion,
+    Completion, CompletionRequest, Config, Correction, Drawn, FieldSnapshot, Placement, SkipReason,
+    Spelling, Suffix, TextStyle, TriggerMode, build, check, check_forced, continue_window,
+    ends_spaced_word, next_word, suggestion,
 };
 
 const READ_TIME: Duration = Duration::from_millis(500);
@@ -29,6 +30,10 @@ pub enum Event {
     AcceptWord,
     Dismiss,
     Drawn(Drawn),
+    Spelled {
+        generation: u64,
+        spelling: Spelling,
+    },
     Trigger,
     Resume(String),
     SetConfig(Config),
@@ -45,6 +50,19 @@ pub enum Action {
         request: CompletionRequest,
     },
     CancelCompletion,
+    CheckSpelling {
+        generation: u64,
+        language: String,
+        word: String,
+    },
+    Offer {
+        correction: Correction,
+        placement: Placement,
+    },
+    Replace {
+        field_id: u64,
+        correction: Correction,
+    },
     Show {
         cuts: Vec<String>,
         placement: Placement,
@@ -119,9 +137,16 @@ struct Shown {
     counted: bool,
 }
 
+struct Offer {
+    correction: Correction,
+    shown_at: Instant,
+}
+
 enum Phase {
     Idle,
     Requested,
+    Checking(Finished),
+    Offering(Offer),
     Showing(Shown),
 }
 
@@ -136,6 +161,7 @@ pub struct Engine {
     ignores: IgnoreTracker,
     forced: Option<FieldKey>,
     unlanded: Vec<String>,
+    declined: Declined,
     counts: Counts,
 }
 
@@ -152,6 +178,7 @@ impl Engine {
             ignores: IgnoreTracker::default(),
             forced: None,
             unlanded: Vec::new(),
+            declined: Declined::default(),
             counts: Counts::default(),
         }
     }
@@ -167,8 +194,12 @@ impl Engine {
     pub fn suggestion(&self) -> Option<&str> {
         match &self.phase {
             Phase::Showing(shown) => Some(&shown.text),
-            Phase::Idle | Phase::Requested => None,
+            Phase::Idle | Phase::Requested | Phase::Checking(_) | Phase::Offering(_) => None,
         }
+    }
+
+    pub fn is_visible(&self) -> bool {
+        matches!(self.phase, Phase::Showing(_) | Phase::Offering(_))
     }
 
     fn is_idle(&self) -> bool {
@@ -176,10 +207,15 @@ impl Engine {
     }
 
     pub fn can_accept(&self, now: Instant, moves_caret: bool) -> bool {
-        let (Some(field), Phase::Showing(shown)) = (&self.field, &self.phase) else {
+        let shown_at = match &self.phase {
+            Phase::Showing(shown) => shown.shown_at,
+            Phase::Offering(offer) => Some(offer.shown_at),
+            Phase::Idle | Phase::Requested | Phase::Checking(_) => return false,
+        };
+        let Some(field) = &self.field else {
             return false;
         };
-        let racing = shown.shown_at.is_some_and(|at| {
+        let racing = shown_at.is_some_and(|at| {
             now.saturating_duration_since(at) < Duration::from_millis(self.config.accept_race_ms)
         });
         !racing && (!moves_caret || field.after.ends_text())
@@ -201,6 +237,7 @@ impl Engine {
             Event::AcceptWord => self.on_accept(true, &mut out),
             Event::Dismiss => {
                 let ignored = self.unengaged_app();
+                self.decline_offer();
                 self.reset(&mut out);
                 if let Some(app) = ignored {
                     self.note_ignored(&app, &mut out);
@@ -211,6 +248,10 @@ impl Engine {
                     .map(|field| Dismissal::of(field, Release::Edit));
             }
             Event::Drawn(drawn) => self.on_drawn(drawn, &mut out),
+            Event::Spelled {
+                generation,
+                spelling,
+            } => self.on_spelled(generation, spelling, &mut out),
             Event::Trigger => self.on_trigger(&mut out),
             Event::Resume(app) => {
                 if self.ignores.resume(&app) {
@@ -242,6 +283,12 @@ impl Engine {
         }
     }
 
+    fn decline_offer(&mut self) {
+        if let Phase::Offering(offer) = &self.phase {
+            self.declined.insert(&offer.correction.word);
+        }
+    }
+
     fn withdraw(&mut self, out: &mut Vec<Action>) {
         self.phase = Phase::Idle;
         out.push(Action::Hide);
@@ -257,7 +304,8 @@ impl Engine {
                 self.phase = Phase::Idle;
                 out.push(Action::CancelCompletion);
             }
-            Phase::Showing(_) => self.withdraw(out),
+            Phase::Checking(_) => self.phase = Phase::Idle,
+            Phase::Showing(_) | Phase::Offering(_) => self.withdraw(out),
         }
         self.forced = None;
         self.unlanded.clear();
@@ -278,7 +326,7 @@ impl Engine {
 
     fn on_trigger(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
-        if !self.is_idle()
+        if !matches!(self.phase, Phase::Idle | Phase::Checking(_))
             || field.placement.is_none()
             || check_forced(field, &self.config).is_err()
         {
@@ -350,6 +398,7 @@ impl Engine {
                 self.config.lookback_chars(),
             );
         }
+        let finished = self.finished_word(&field);
         let suggestable = field.placement.is_some() && check(&field, &self.config).is_ok();
         let released = self
             .dismissed
@@ -399,7 +448,66 @@ impl Engine {
             self.note_ignored(&app, out);
         }
         self.field = Some(field);
+        self.start_check(finished, out);
         self.schedule(out);
+    }
+
+    fn finished_word(&self, field: &FieldSnapshot) -> Option<Finished> {
+        let previous = self
+            .field
+            .as_ref()
+            .filter(|previous| FieldKey::of(previous).matches(field))?;
+        Finished::of(&previous.before, &field.before)
+    }
+
+    fn start_check(&mut self, finished: Option<Finished>, out: &mut Vec<Action>) {
+        let (Some(finished), Some(field)) = (finished, &self.field) else {
+            return;
+        };
+        let Some(language) = field.language.clone() else {
+            return;
+        };
+        let wanted = self.config.typo_fix
+            && field.placement.is_some()
+            && check(field, &self.config).is_ok()
+            && !self.ignores.is_paused(&field.app)
+            && !self.declined.contains(finished.word());
+        if !wanted {
+            return;
+        }
+        out.push(Action::CheckSpelling {
+            generation: self.generation,
+            language,
+            word: finished.word().to_string(),
+        });
+        self.phase = Phase::Checking(finished);
+    }
+
+    fn on_spelled(&mut self, generation: u64, spelling: Spelling, out: &mut Vec<Action>) {
+        if generation != self.generation {
+            return;
+        }
+        match std::mem::replace(&mut self.phase, Phase::Idle) {
+            Phase::Checking(finished) => self.offer(finished, spelling, out),
+            other => self.phase = other,
+        }
+    }
+
+    fn offer(&mut self, finished: Finished, spelling: Spelling, out: &mut Vec<Action>) {
+        let Some(correction) = finished.correct(spelling) else {
+            return;
+        };
+        let offerable = self
+            .field
+            .as_ref()
+            .is_some_and(|field| field.placement.is_some() && self.eligible(field).is_ok());
+        if offerable {
+            self.phase = Phase::Offering(Offer {
+                correction,
+                shown_at: Instant::now(),
+            });
+            self.show_current(out);
+        }
     }
 
     fn typed_through(&self, previous: &FieldSnapshot, field: &FieldSnapshot) -> Option<String> {
@@ -438,7 +546,13 @@ impl Engine {
     }
 
     fn on_debounce(&mut self, generation: u64, out: &mut Vec<Action>) {
-        if generation != self.generation || !self.is_idle() {
+        if generation != self.generation {
+            return;
+        }
+        if matches!(self.phase, Phase::Checking(_)) {
+            self.phase = Phase::Idle;
+        }
+        if !self.is_idle() {
             return;
         }
         let Some(field) = &self.field else { return };
@@ -481,11 +595,25 @@ impl Engine {
     }
 
     fn on_accept(&mut self, one_word: bool, out: &mut Vec<Action>) {
-        let Phase::Showing(shown) = &mut self.phase else {
-            return;
-        };
-        let suggestion = std::mem::take(&mut shown.text);
-        self.phase = Phase::Idle;
+        match std::mem::replace(&mut self.phase, Phase::Idle) {
+            Phase::Offering(offer) => self.accept_correction(offer.correction, out),
+            Phase::Showing(shown) => self.accept_suggestion(shown.text, one_word, out),
+            other => self.phase = other,
+        }
+    }
+
+    fn accept_correction(&mut self, correction: Correction, out: &mut Vec<Action>) {
+        if let Some(field) = &self.field {
+            out.push(Action::Replace {
+                field_id: field.field_id,
+                correction,
+            });
+        }
+        self.withdraw(out);
+        self.generation += 1;
+    }
+
+    fn accept_suggestion(&mut self, suggestion: String, one_word: bool, out: &mut Vec<Action>) {
         let accepted = if one_word {
             next_word(&suggestion).to_string()
         } else {
@@ -523,20 +651,33 @@ impl Engine {
     }
 
     fn on_drawn(&mut self, drawn: Drawn, out: &mut Vec<Action>) {
-        let Phase::Showing(shown) = &mut self.phase else {
-            return;
-        };
-        let Drawn::Shown(index) = drawn else {
-            return self.give_up(out);
-        };
-        let Some(text) = shown.cuts.get(index) else {
-            return self.give_up(out);
-        };
-        shown.text = text.clone();
-        if !std::mem::replace(&mut shown.counted, true) {
-            self.counts.record_shown();
+        match &mut self.phase {
+            Phase::Showing(shown) => {
+                let Drawn::Shown(index) = drawn else {
+                    return self.give_up(out);
+                };
+                let Some(text) = shown.cuts.get(index) else {
+                    return self.give_up(out);
+                };
+                shown.text = text.clone();
+                if !std::mem::replace(&mut shown.counted, true) {
+                    self.counts.record_shown();
+                }
+                self.crowded_at = None;
+                self.arm(out);
+            }
+            Phase::Offering(_) => match drawn {
+                Drawn::Shown(_) => self.arm(out),
+                Drawn::Nothing => {
+                    self.withdraw(out);
+                    self.schedule(out);
+                }
+            },
+            Phase::Idle | Phase::Requested | Phase::Checking(_) => {}
         }
-        self.crowded_at = None;
+    }
+
+    fn arm(&mut self, out: &mut Vec<Action>) {
         if !std::mem::replace(&mut self.armed, true) {
             out.push(Action::ArmKeys);
         }
@@ -570,6 +711,27 @@ impl Engine {
     }
 
     fn show_current(&mut self, out: &mut Vec<Action>) {
+        match &self.phase {
+            Phase::Showing(_) => self.show_suggestion(out),
+            Phase::Offering(_) => self.show_offer(out),
+            Phase::Idle | Phase::Requested | Phase::Checking(_) => {}
+        }
+    }
+
+    fn show_offer(&mut self, out: &mut Vec<Action>) {
+        let (Phase::Offering(offer), Some(field)) = (&self.phase, &self.field) else {
+            return;
+        };
+        let Some(placement) = field.placement else {
+            return self.withdraw(out);
+        };
+        out.push(Action::Offer {
+            correction: offer.correction.clone(),
+            placement,
+        });
+    }
+
+    fn show_suggestion(&mut self, out: &mut Vec<Action>) {
         let (Phase::Showing(shown), Some(field)) = (&mut self.phase, &self.field) else {
             return;
         };

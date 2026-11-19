@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use pith_core::{Line, Rect};
 use windows::Win32::Foundation::{POINT, SIZE};
 
@@ -9,6 +11,7 @@ use super::shading::Shading;
 #[derive(Clone, Copy)]
 pub struct Frame<'a> {
     pub text: &'a str,
+    pub strong: &'a Range<usize>,
     pub rtl: bool,
     pub screen: &'a ScreenDc,
     pub monitor: Monitor,
@@ -37,6 +40,7 @@ impl<'a> Scene<'a> {
         let face = frame.face;
         let emphasis = Emphasis::of(
             frame.text,
+            frame.strong,
             &placed.lines,
             frame.rtl,
             face,

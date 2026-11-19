@@ -10,7 +10,7 @@ mod screen;
 mod shading;
 mod window;
 
-use pith_core::{Drawn, Placement, Rgb, TextStyle, fits, is_rtl};
+use pith_core::{Drawn, Label, Placement, Rgb, TextStyle, fits, is_rtl, next_word};
 
 use inline::Backdrop;
 use pill::Style;
@@ -44,6 +44,29 @@ impl Overlay {
     }
 
     pub fn show(&mut self, cuts: &[String], placement: Placement, style: &TextStyle) -> Drawn {
+        let labels: Vec<Label> = cuts
+            .iter()
+            .map(|text| Label {
+                strong: 0..next_word(text).len(),
+                text: text.clone(),
+            })
+            .collect();
+        self.draw(&labels, placement, style)
+    }
+
+    pub fn offer(&mut self, label: &Label, placement: Placement) -> Drawn {
+        let placement = match placement {
+            Placement::Inline(caret) => Placement::BelowCaret(caret),
+            other => other,
+        };
+        self.draw(
+            std::slice::from_ref(label),
+            placement,
+            &TextStyle::default(),
+        )
+    }
+
+    fn draw(&mut self, labels: &[Label], placement: Placement, style: &TextStyle) -> Drawn {
         let (Placement::Inline(target)
         | Placement::Anchored(target)
         | Placement::BelowCaret(target)) = placement;
@@ -54,16 +77,17 @@ impl Overlay {
             Placement::Anchored(_) | Placement::BelowCaret(_) => anchored::face(&screen, monitor),
         };
         let field = focused_field();
-        let frame = |text| Frame {
+        let frame = |text, strong| Frame {
             text,
+            strong,
             rtl: is_rtl(text),
             screen: &screen,
             monitor,
             face: &face,
             field,
         };
-        for (index, text) in cuts.iter().enumerate() {
-            let frame = frame(text);
+        for (index, Label { text, strong }) in labels.iter().enumerate() {
+            let frame = frame(text, strong);
             let placed = match placement {
                 Placement::Inline(caret) => inline::place(&frame, caret),
                 Placement::Anchored(element) => anchored::under_field(&frame, element),

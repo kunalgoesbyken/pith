@@ -29,6 +29,7 @@ pub struct FieldSnapshot {
     pub has_selection: bool,
     pub is_password: bool,
     pub composing: bool,
+    pub language: Option<String>,
     pub placement: Option<Placement>,
     pub style: TextStyle,
 }

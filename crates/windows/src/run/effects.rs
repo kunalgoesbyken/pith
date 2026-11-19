@@ -1,10 +1,11 @@
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use pith_core::{Action, Completion, Drawn, Event, log};
+use pith_core::{Action, Completion, Correction, Drawn, Event, log};
 
-use super::{App, InsertMode, TIMER_DEBOUNCE};
+use super::{App, Inbound, InsertMode, TIMER_DEBOUNCE};
 use crate::clipboard::{Trigger, paste};
+use crate::reader::Selection;
 
 pub struct Effects {
     insert: InsertMode,
@@ -29,7 +30,7 @@ impl Effects {
         }
     }
 
-    fn insert(&self, text: String) {
+    pub fn insert(&self, text: String) {
         match &self.insert {
             InsertMode::Paste => paste(text, Trigger::Chord),
             InsertMode::Custom(insert) => insert(text),
@@ -63,7 +64,7 @@ impl App {
     fn apply(&mut self, actions: Vec<Action>) {
         let mut drawn = None;
         for action in actions {
-            if !matches!(action, Action::Show { .. }) {
+            if !matches!(action, Action::Show { .. } | Action::Offer { .. }) {
                 self.effects.observe(&action);
             }
             match action {
@@ -82,6 +83,28 @@ impl App {
                     self.worker.submit(generation, request);
                 }
                 Action::CancelCompletion => self.worker.cancel(),
+                Action::CheckSpelling {
+                    generation,
+                    language,
+                    word,
+                } => self.speller.check(generation, language, word),
+                Action::Offer {
+                    correction,
+                    placement,
+                } => {
+                    let outcome = self.overlay.offer(&correction.label(), placement);
+                    if matches!(outcome, Drawn::Shown(_)) {
+                        self.effects.observe(&Action::Offer {
+                            correction,
+                            placement,
+                        });
+                    }
+                    drawn = Some(outcome);
+                }
+                Action::Replace {
+                    field_id,
+                    correction,
+                } => self.replace(field_id, correction),
                 Action::Show {
                     cuts,
                     placement,
@@ -113,6 +136,20 @@ impl App {
             let actions = self.engine.handle(Event::Drawn(drawn));
             self.apply(actions);
         }
+    }
+
+    fn replace(&mut self, field_id: u64, correction: Correction) {
+        let inbox = self.inbox.clone();
+        let corrected = correction.corrected();
+        self.reader.select(Selection {
+            field_id,
+            text: correction.current(),
+            done: Box::new(move |selected| {
+                if selected {
+                    inbox.post(Inbound::Corrected(corrected));
+                }
+            }),
+        });
     }
 
     pub(super) fn debounce_elapsed(&mut self) {

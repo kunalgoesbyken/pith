@@ -80,6 +80,7 @@ pub fn clamp_opacity(percent: u8) -> u8 {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Setting {
     Enabled(bool),
+    TypoFix(bool),
     Suggestions(Suggestions),
     Length(Length),
     GhostOpacity(u8),
@@ -94,6 +95,7 @@ impl Setting {
     pub fn apply(&self, config: &mut Config) {
         match self {
             Self::Enabled(enabled) => config.enabled = *enabled,
+            Self::TypoFix(on) => config.typo_fix = *on,
             Self::Suggestions(level) => level.apply(config),
             Self::Length(length) => length.apply(config),
             Self::GhostOpacity(percent) => config.ghost_opacity = clamp_opacity(*percent),

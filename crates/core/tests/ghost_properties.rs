@@ -103,7 +103,7 @@ fn strong_span_stays_inside_its_line() {
         let rtl = is_rtl(&input);
         let strong_end = rng.below(input.len() + 2);
         for line in layout(&input, &flow, &measure) {
-            if let Some((from, to)) = strong_span(&input, &line, strong_end, rtl, &measure) {
+            if let Some((from, to)) = strong_span(&input, &line, 0..strong_end, rtl, &measure) {
                 assert!(0 <= from && from <= to && to <= line.width, "{from} {to}");
             }
         }

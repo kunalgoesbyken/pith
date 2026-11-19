@@ -11,15 +11,17 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::LINE_BREAKS;
 use crate::text::is_word_like;
 
-const CATEGORIES: CodePointMapDataBorrowed<'static, GeneralCategory> = CodePointMapData::new();
+pub(crate) const CATEGORIES: CodePointMapDataBorrowed<'static, GeneralCategory> =
+    CodePointMapData::new();
 const TERMINAL: CodePointSetDataBorrowed<'static> = CodePointSetData::new::<TerminalPunctuation>();
-const SENTENCE: CodePointSetDataBorrowed<'static> = CodePointSetData::new::<SentenceTerminal>();
+pub(crate) const SENTENCE: CodePointSetDataBorrowed<'static> =
+    CodePointSetData::new::<SentenceTerminal>();
 const QUOTES: CodePointSetDataBorrowed<'static> = CodePointSetData::new::<QuotationMark>();
 const IGNORABLE: CodePointSetDataBorrowed<'static> =
     CodePointSetData::new::<DefaultIgnorableCodePoint>();
 const CLOSING: GeneralCategoryGroup =
     GeneralCategoryGroup::ClosePunctuation.union(GeneralCategoryGroup::FinalPunctuation);
-const OPENING: GeneralCategoryGroup =
+pub(crate) const OPENING: GeneralCategoryGroup =
     GeneralCategoryGroup::OpenPunctuation.union(GeneralCategoryGroup::InitialPunctuation);
 const MARKS: GeneralCategoryGroup = GeneralCategoryGroup::Mark;
 const JOINER: char = '\u{200D}';
@@ -94,7 +96,7 @@ fn is_skippable(c: char) -> bool {
     c.is_whitespace() || is_invisible(c)
 }
 
-fn joins_previous(c: char) -> bool {
+pub(crate) fn joins_previous(c: char) -> bool {
     c == JOINER || MARKS.contains(CATEGORIES.get(c))
 }
 

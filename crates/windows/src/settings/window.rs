@@ -16,7 +16,8 @@ use super::model::{self, Model, read, update};
 use super::view::{draw_item, name, paint_page};
 use super::{
     ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA, ID_REMOVE_FIRST,
-    ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, MAX_APP_ROWS, StatsView, UiEvent, emit, segments,
+    ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, ID_TYPO, MAX_APP_ROWS, StatsView, UiEvent, emit,
+    segments,
 };
 use crate::ui::{self, BASE_DPI, Parent, Scale, Theme, width};
 use crate::util::wide;
@@ -53,6 +54,7 @@ fn sync_names(window: HWND, model: &Model) {
     let slots = (0..MAX_APP_ROWS as i32).map(|slot| ID_REMOVE_FIRST + slot);
     let others = [
         ID_ENABLED,
+        ID_TYPO,
         ID_START,
         ID_OPEN_DATA,
         ID_DELETE_DATA,
@@ -189,6 +191,11 @@ fn command(window: HWND, id: i32, code: u32) {
             let snapshot = &mut model.snapshot;
             snapshot.enabled = !snapshot.enabled;
             Some(UiEvent::Apply(Setting::Enabled(snapshot.enabled)))
+        }),
+        ID_TYPO => flip(window, |model| {
+            let snapshot = &mut model.snapshot;
+            snapshot.typo_fix = !snapshot.typo_fix;
+            Some(UiEvent::Apply(Setting::TypoFix(snapshot.typo_fix)))
         }),
         ID_START => flip(window, |model| {
             let snapshot = &mut model.snapshot;

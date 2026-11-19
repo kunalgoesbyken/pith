@@ -38,6 +38,7 @@ impl AppRule {
 #[derive(Debug, PartialEq)]
 pub struct Snapshot {
     pub enabled: bool,
+    pub typo_fix: bool,
     pub level: Option<Suggestions>,
     pub length: Option<Length>,
     pub preset: Option<ModelPreset>,
@@ -102,6 +103,7 @@ impl Snapshot {
     ) -> Self {
         Self {
             enabled: config.enabled,
+            typo_fix: config.typo_fix,
             level: Suggestions::of(config),
             length: Length::of(config),
             preset: config.uses_preset().then(|| config.preset(recommended)),

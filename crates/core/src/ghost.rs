@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::Rgb;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -177,21 +179,26 @@ pub fn fits(text: &str, lines: &[Line]) -> bool {
 pub fn strong_span(
     text: &str,
     line: &Line,
-    strong_end: usize,
+    strong: Range<usize>,
     rtl: bool,
     measure: &dyn Fn(&str) -> i32,
 ) -> Option<(i32, i32)> {
-    if strong_end <= line.start {
+    let (from, to) = (strong.start.max(line.start), strong.end.min(line.end));
+    if from >= to {
         return None;
     }
-    if strong_end >= line.end {
-        return Some((0, line.width));
-    }
-    let covered = measure(text.get(line.start..strong_end)?).clamp(0, line.width);
+    let reach = |end: usize| -> Option<i32> {
+        if end >= line.end {
+            return Some(line.width);
+        }
+        Some(measure(text.get(line.start..end)?).clamp(0, line.width))
+    };
+    let end = reach(to)?;
+    let start = reach(from)?.min(end);
     Some(if rtl {
-        (line.width - covered, line.width)
+        (line.width - end, line.width - start)
     } else {
-        (0, covered)
+        (start, end)
     })
 }
 
@@ -407,7 +414,7 @@ mod tests {
             let (text, caret_x, width, flow_rtl, line, strong_end, rtl, expected) = row;
             let lines = layout(text, &flow(caret_x, 0, width, flow_rtl), &measure);
             assert_eq!(
-                strong_span(text, &lines[line], strong_end, rtl, &measure),
+                strong_span(text, &lines[line], 0..strong_end, rtl, &measure),
                 expected,
                 "{row:?}"
             );

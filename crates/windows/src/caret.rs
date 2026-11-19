@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 
 use pith_core::{Rect, Rgb, TextStyle};
-use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::Foundation::{E_FAIL, HWND, POINT};
 use windows::Win32::Graphics::Gdi::MapWindowPoints;
 use windows::Win32::System::Com::SAFEARRAY;
 use windows::Win32::System::Ole::{
@@ -62,6 +62,43 @@ pub fn has_selection(element: &IUIAutomationElement) -> bool {
             )
             .map(|d| d != 0)
             .unwrap_or(false)
+    }
+}
+
+fn selected_text(element: &IUIAutomationElement) -> Result<String> {
+    unsafe {
+        let pattern: IUIAutomationTextPattern = element.GetCurrentPatternAs(UIA_TextPatternId)?;
+        let range = pattern.GetSelection()?.GetElement(0)?;
+        Ok(range.GetText(-1)?.to_string())
+    }
+}
+
+pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> Result<()> {
+    unsafe {
+        if has_selection(element) {
+            return Err(E_FAIL.into());
+        }
+        let caret = caret_range(element)?;
+        let range = caret.Clone()?;
+        let wanted = text.encode_utf16().count();
+        let mut reached = 0;
+        while reached < wanted {
+            if range.MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -1)?
+                == 0
+            {
+                return Err(E_FAIL.into());
+            }
+            reached = range.GetText(-1)?.len();
+        }
+        if range.GetText(-1)? != text {
+            return Err(E_FAIL.into());
+        }
+        range.Select()?;
+        if selected_text(element)? == text {
+            return Ok(());
+        }
+        caret.Select()?;
+        Err(E_FAIL.into())
     }
 }
 

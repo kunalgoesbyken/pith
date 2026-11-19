@@ -281,6 +281,7 @@ pub struct Config {
     pub min_chars_before: usize,
     pub auto_pause_after: u32,
     pub smart_space: bool,
+    pub typo_fix: bool,
     pub trigger_mode: TriggerMode,
     pub accept_keys: Vec<Chord>,
     pub accept_word_keys: Vec<Chord>,
@@ -314,6 +315,7 @@ impl Default for Config {
             min_chars_before: 3,
             auto_pause_after: 12,
             smart_space: false,
+            typo_fix: true,
             trigger_mode: TriggerMode::Auto,
             accept_keys: vec![Chord::plain(Key::Tab)],
             accept_word_keys: vec![

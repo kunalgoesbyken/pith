@@ -8,7 +8,7 @@ use super::layout::{
 use super::model::Model;
 use super::{
     ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA, ID_REMOVE_FIRST,
-    ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, MAX_APP_ROWS, segments,
+    ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, ID_TYPO, MAX_APP_ROWS, segments,
 };
 use crate::ui::{
     self, Align, CARD_RADIUS, Canvas, Look, Role, STROKE, Text, Tone, height, measure, paint_mark,
@@ -35,6 +35,7 @@ fn look(model: &Model, id: i32) -> Option<Look<'static>> {
     let button = |tone, label| Look::Button { tone, label };
     match id {
         ID_ENABLED => Some(toggle(model.snapshot.enabled)),
+        ID_TYPO => Some(toggle(model.snapshot.typo_fix)),
         ID_START => Some(toggle(model.snapshot.start_with_windows)),
         ID_OPEN_DATA => Some(button(Tone::Standard, "Open")),
         ID_DELETE_DATA => Some(button(Tone::Danger, "Delete")),
@@ -59,7 +60,8 @@ pub fn name(model: &Model, id: i32) -> String {
     let state = |title: &str, on| format!("{title}, {}", on_off(on).to_lowercase());
     match id {
         ID_ENABLED => state(GENERAL_ROWS[0].0, model.snapshot.enabled),
-        ID_START => state(GENERAL_ROWS[2].0, model.snapshot.start_with_windows),
+        ID_TYPO => state(GENERAL_ROWS[2].0, model.snapshot.typo_fix),
+        ID_START => state(GENERAL_ROWS[3].0, model.snapshot.start_with_windows),
         ID_OPEN_DATA => DATA_ROWS[0].0.to_string(),
         ID_DELETE_DATA => DATA_ROWS[1].0.to_string(),
         ID_RESET_STATS => STATS_RESET.0.to_string(),

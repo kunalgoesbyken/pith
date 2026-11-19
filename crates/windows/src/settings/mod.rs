@@ -28,6 +28,7 @@ const ID_DELETE_DATA: i32 = 113;
 const ID_START: i32 = 114;
 const ID_RESET_STATS: i32 = 115;
 const ID_RIVAL_OPEN: i32 = 116;
+const ID_TYPO: i32 = 117;
 const ID_REMOVE_FIRST: i32 = 120;
 const ID_SMALL: i32 = 130;
 const ID_STANDARD: i32 = 131;
@@ -552,7 +553,7 @@ mod tests {
                 .collect();
             assert_eq!(
                 visible.len(),
-                2 + FREQUENCY.len() + LENGTH.len() + 2 + MODELS.len() + MAX_APP_ROWS + 2 + 1
+                3 + FREQUENCY.len() + LENGTH.len() + 2 + MODELS.len() + MAX_APP_ROWS + 2 + 1
             );
             for (index, placed) in visible.iter().enumerate() {
                 let bounds = placed.bounds;
