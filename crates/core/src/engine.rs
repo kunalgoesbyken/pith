@@ -86,11 +86,6 @@ enum Release {
     Crowded,
 }
 
-enum Display {
-    Shown,
-    Withdrawn,
-}
-
 struct Dismissal {
     field: FieldKey,
     before: String,
@@ -137,6 +132,7 @@ pub struct Engine {
     phase: Phase,
     dismissed: Option<Dismissal>,
     crowded_at: Option<(FieldKey, String)>,
+    armed: bool,
     ignores: IgnoreTracker,
     forced: Option<FieldKey>,
     unlanded: Vec<String>,
@@ -152,6 +148,7 @@ impl Engine {
             phase: Phase::Idle,
             dismissed: None,
             crowded_at: None,
+            armed: false,
             ignores: IgnoreTracker::default(),
             forced: None,
             unlanded: Vec::new(),
@@ -248,7 +245,9 @@ impl Engine {
     fn withdraw(&mut self, out: &mut Vec<Action>) {
         self.phase = Phase::Idle;
         out.push(Action::Hide);
-        out.push(Action::DisarmKeys);
+        if std::mem::replace(&mut self.armed, false) {
+            out.push(Action::DisarmKeys);
+        }
     }
 
     fn reset(&mut self, out: &mut Vec<Action>) {
@@ -478,9 +477,7 @@ impl Engine {
             engaged: false,
             counted: false,
         });
-        if let Display::Shown = self.show_current(out) {
-            out.push(Action::ArmKeys);
-        }
+        self.show_current(out);
     }
 
     fn on_accept(&mut self, one_word: bool, out: &mut Vec<Action>) {
@@ -539,6 +536,10 @@ impl Engine {
         if !std::mem::replace(&mut shown.counted, true) {
             self.counts.record_shown();
         }
+        self.crowded_at = None;
+        if !std::mem::replace(&mut self.armed, true) {
+            out.push(Action::ArmKeys);
+        }
     }
 
     pub fn skip(&self) -> Option<SkipReason> {
@@ -568,18 +569,16 @@ impl Engine {
         self.dismissed = Some(Dismissal::of(field, release));
     }
 
-    fn show_current(&mut self, out: &mut Vec<Action>) -> Display {
+    fn show_current(&mut self, out: &mut Vec<Action>) {
         let (Phase::Showing(shown), Some(field)) = (&mut self.phase, &self.field) else {
-            return Display::Withdrawn;
+            return;
         };
         let Some(placement) = field.placement else {
-            self.withdraw(out);
-            return Display::Withdrawn;
+            return self.withdraw(out);
         };
         let cuts = candidates(&shown.text, &field.after);
         if cuts.is_empty() {
-            self.give_up(out);
-            return Display::Withdrawn;
+            return self.give_up(out);
         }
         let placement = match placement {
             Placement::Inline(caret) if !matches!(field.after.suffix(), Suffix::Blank) => {
@@ -593,7 +592,6 @@ impl Engine {
             placement,
             style: field.style.clone(),
         });
-        Display::Shown
     }
 }
 
@@ -1368,8 +1366,9 @@ mod tests {
             generation,
             result: Ok(completion(" there, how are you?")),
         });
-        assert!(matches!(&out[0], Action::Show { .. }), "{out:?}");
-        assert_eq!(out[1], Action::ArmKeys);
+        assert!(matches!(out.as_slice(), [Action::Show { .. }]), "{out:?}");
+        let out = engine.handle(Event::Drawn(Drawn::Shown(0)));
+        assert_eq!(out, [Action::ArmKeys]);
         for _ in 0..3 {
             let out = engine.handle(Event::Field(Some(field("Hi"))));
             assert!(out.is_empty(), "{out:?}");

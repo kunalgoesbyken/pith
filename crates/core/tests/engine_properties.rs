@@ -2,7 +2,7 @@ mod common;
 
 use common::{Rng, fragment, is_boundary, text};
 use pith_core::{
-    Action, Completion, Config, Engine, Event, FieldSnapshot, LINE_BREAKS, Placement, Rect,
+    Action, Completion, Config, Drawn, Engine, Event, FieldSnapshot, LINE_BREAKS, Placement, Rect,
     StopReason, check,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -307,8 +307,11 @@ impl Harness {
             self.shown.as_deref() == self.engine.suggestion(),
             "shown text differs from engine suggestion",
         );
+        let drawn = actions
+            .iter()
+            .any(|action| matches!(action, Action::Show { .. }));
         self.expect(
-            self.armed == self.shown.is_some(),
+            drawn || self.armed == self.shown.is_some(),
             "armed state differs from shown state",
         );
         if let (Some(inserted), Some(pre)) = (&inserted, &pre) {
@@ -362,6 +365,11 @@ impl Harness {
                 self.shown.is_none() && self.flight.is_none(),
                 "focus loss left state behind",
             );
+        }
+        if drawn {
+            let mut actions = actions;
+            actions.extend(self.send(Event::Drawn(Drawn::Shown(0))));
+            return actions;
         }
         actions
     }
