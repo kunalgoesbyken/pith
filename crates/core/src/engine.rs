@@ -83,6 +83,12 @@ impl FieldKey {
 enum Release {
     Edit,
     EditOrMove(Option<Placement>),
+    Crowded,
+}
+
+enum Display {
+    Shown,
+    Withdrawn,
 }
 
 struct Dismissal {
@@ -104,7 +110,7 @@ impl Dismissal {
         self.field.matches(field)
             && self.before == field.before
             && match self.release {
-                Release::Edit => true,
+                Release::Edit | Release::Crowded => true,
                 Release::EditOrMove(placement) => placement == field.placement,
             }
     }
@@ -130,6 +136,7 @@ pub struct Engine {
     generation: u64,
     phase: Phase,
     dismissed: Option<Dismissal>,
+    crowded_at: Option<(FieldKey, String)>,
     ignores: IgnoreTracker,
     forced: Option<FieldKey>,
     unlanded: Vec<String>,
@@ -144,6 +151,7 @@ impl Engine {
             generation: 0,
             phase: Phase::Idle,
             dismissed: None,
+            crowded_at: None,
             ignores: IgnoreTracker::default(),
             forced: None,
             unlanded: Vec::new(),
@@ -470,8 +478,9 @@ impl Engine {
             engaged: false,
             counted: false,
         });
-        self.show_current(out);
-        out.push(Action::ArmKeys);
+        if let Display::Shown = self.show_current(out) {
+            out.push(Action::ArmKeys);
+        }
     }
 
     fn on_accept(&mut self, one_word: bool, out: &mut Vec<Action>) {
@@ -532,34 +541,45 @@ impl Engine {
         }
     }
 
-    pub fn crowded(&self) -> bool {
-        self.field.as_ref().is_some_and(|field| {
-            self.dismissed.as_ref().is_some_and(|dismissal| {
-                matches!(dismissal.release, Release::EditOrMove(_)) && dismissal.holds(field)
-            })
+    pub fn skip(&self) -> Option<SkipReason> {
+        let field = self.field.as_ref()?;
+        check(field, &self.config).err().or_else(|| {
+            let crowded = self.dismissed.as_ref().is_some_and(|dismissal| {
+                !matches!(dismissal.release, Release::Edit) && dismissal.holds(field)
+            });
+            crowded.then_some(SkipReason::NoRoom)
         })
     }
 
     fn give_up(&mut self, out: &mut Vec<Action>) {
         self.withdraw(out);
         self.forced = None;
-        self.dismissed = self
-            .field
+        let Some(field) = &self.field else { return };
+        let repeated = self
+            .crowded_at
             .as_ref()
-            .map(|field| Dismissal::of(field, Release::EditOrMove(field.placement)));
+            .is_some_and(|(key, before)| key.matches(field) && *before == field.before);
+        let release = if repeated {
+            Release::Crowded
+        } else {
+            Release::EditOrMove(field.placement)
+        };
+        self.crowded_at = Some((FieldKey::of(field), field.before.clone()));
+        self.dismissed = Some(Dismissal::of(field, release));
     }
 
-    fn show_current(&mut self, out: &mut Vec<Action>) {
+    fn show_current(&mut self, out: &mut Vec<Action>) -> Display {
         let (Phase::Showing(shown), Some(field)) = (&mut self.phase, &self.field) else {
-            return;
+            return Display::Withdrawn;
         };
         let Some(placement) = field.placement else {
             self.withdraw(out);
-            return;
+            return Display::Withdrawn;
         };
         let cuts = candidates(&shown.text, &field.after);
         if cuts.is_empty() {
-            return self.give_up(out);
+            self.give_up(out);
+            return Display::Withdrawn;
         }
         let placement = match placement {
             Placement::Inline(caret) if !matches!(field.after.suffix(), Suffix::Blank) => {
@@ -573,6 +593,7 @@ impl Engine {
             placement,
             style: field.style.clone(),
         });
+        Display::Shown
     }
 }
 

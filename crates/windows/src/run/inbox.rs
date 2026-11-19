@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pith_core::{Completion, Event, FieldSnapshot, Model, SkipReason, check, log};
+use pith_core::{Completion, Event, FieldSnapshot, Model, log};
 use pith_infer::{Stage, UpdateCheck, check_for_update};
 use windows::Win32::Foundation::HWND;
 
@@ -74,13 +74,7 @@ impl App {
     }
 
     fn snapshot_read(&mut self, snapshot: Option<FieldSnapshot>, served: Option<u64>) {
-        let skip = snapshot
-            .as_ref()
-            .and_then(|field| check(field, self.engine.config()).err());
         self.dispatch(Event::Field(snapshot));
-        self.presenter
-            .set_skip(skip.or_else(|| self.engine.crowded().then_some(SkipReason::NoRoom)));
-        self.refresh();
         if self.keyboard.serves(served) {
             self.release_keys();
         }

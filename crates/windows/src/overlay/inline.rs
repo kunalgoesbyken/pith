@@ -4,7 +4,7 @@ use pith_core::{
 use windows::Win32::Foundation::{POINT, SIZE};
 
 use super::face::{FALLBACK_FAMILY, Face};
-use super::scene::{Frame, Placed, Scene};
+use super::scene::{Frame, Placed};
 use super::screen::{Monitor, ScreenDc};
 use super::shading::Shading;
 use crate::ui::Scale;
@@ -42,12 +42,7 @@ pub fn face(screen: &ScreenDc, monitor: Monitor, caret: Rect, style: &TextStyle)
     )
 }
 
-pub fn compose<'a>(
-    frame: &Frame<'a>,
-    caret: Rect,
-    style: &TextStyle,
-    backdrop: Backdrop,
-) -> Option<Scene<'a>> {
+pub fn place(frame: &Frame, caret: Rect) -> Option<Placed> {
     let face = frame.face;
     let top = caret.y + (caret.height - face.line_height) / 2;
     let bounds = flow_bounds(frame.field, caret, frame.monitor.work);
@@ -64,7 +59,7 @@ pub fn compose<'a>(
     let right = lines.iter().map(|line| line.x + line.width).max()?;
     let (first, last) = (lines.first()?.y, lines.last()?.y);
     let origin = POINT { x: left, y: first };
-    let placed = Placed {
+    Some(Placed {
         lines,
         origin,
         destination: origin,
@@ -72,11 +67,13 @@ pub fn compose<'a>(
             cx: (right - left).max(1),
             cy: last - first + face.line_height,
         },
-    };
+    })
+}
+
+pub fn shading(style: &TextStyle, backdrop: Backdrop) -> Shading {
     let paint = ink(style.color, backdrop.color, backdrop.opacity);
-    let shading = Shading::Ink {
+    Shading::Ink {
         ink: paint,
         strong_alpha: next_word_alpha(paint.alpha),
-    };
-    Some(Scene::new(frame, placed, shading))
+    }
 }

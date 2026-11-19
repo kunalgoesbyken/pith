@@ -15,7 +15,7 @@ use pith_core::{Drawn, Placement, Rgb, TextStyle, fits, is_rtl};
 use inline::Backdrop;
 use pill::Style;
 use raster::Raster;
-use scene::{Frame, Scene};
+use scene::{Frame, Placed, Scene};
 use screen::{Monitor, ScreenDc, focused_field, sample_background};
 use window::Layered;
 
@@ -61,24 +61,15 @@ impl Overlay {
             face: &face,
             field,
         };
-        if let Some(first) = cuts.first() {
-            self.capture(&frame(first), placement);
-        }
         for (index, text) in cuts.iter().enumerate() {
             let frame = frame(text);
-            let scene = match placement {
-                Placement::Inline(caret) => {
-                    let backdrop = Backdrop {
-                        color: self.background,
-                        opacity: self.opacity,
-                    };
-                    inline::compose(&frame, caret, style, backdrop)
-                }
-                Placement::Anchored(element) => anchored::under_field(&frame, element, self.style),
-                Placement::BelowCaret(caret) => anchored::under_caret(&frame, caret, self.style),
+            let placed = match placement {
+                Placement::Inline(caret) => inline::place(&frame, caret),
+                Placement::Anchored(element) => anchored::under_field(&frame, element),
+                Placement::BelowCaret(caret) => anchored::under_caret(&frame, caret),
             };
-            if let Some(scene) = scene.filter(|scene| fits(text, &scene.placed.lines)) {
-                return self.present(&screen, &scene, index);
+            if let Some(placed) = placed.filter(|placed| fits(text, &placed.lines)) {
+                return self.present(&frame, placement, style, placed, index);
             }
         }
         self.window.hide();
@@ -104,11 +95,32 @@ impl Overlay {
         }
     }
 
-    fn present(&mut self, screen: &ScreenDc, scene: &Scene, index: usize) -> Drawn {
-        match Raster::render(scene) {
+    fn present(
+        &mut self,
+        frame: &Frame,
+        placement: Placement,
+        style: &TextStyle,
+        placed: Placed,
+        index: usize,
+    ) -> Drawn {
+        self.capture(frame, placement);
+        let shading = match placement {
+            Placement::Inline(_) => {
+                let backdrop = Backdrop {
+                    color: self.background,
+                    opacity: self.opacity,
+                };
+                inline::shading(style, backdrop)
+            }
+            Placement::Anchored(_) | Placement::BelowCaret(_) => {
+                anchored::shading(frame, &placed, self.style)
+            }
+        };
+        let destination = placed.destination;
+        let scene = Scene::new(frame, placed, shading);
+        match Raster::render(&scene) {
             Some(raster) => {
-                self.window
-                    .present(screen, &raster, scene.placed.destination);
+                self.window.present(frame.screen, &raster, destination);
                 Drawn::Shown(index)
             }
             None => {

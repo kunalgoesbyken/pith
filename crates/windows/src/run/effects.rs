@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use pith_core::{Action, Completion, Drawn, Event, SkipReason, log};
+use pith_core::{Action, Completion, Drawn, Event, log};
 
 use super::{App, InsertMode, TIMER_DEBOUNCE};
 use crate::clipboard::{Trigger, paste};
@@ -56,6 +56,8 @@ impl App {
     pub(super) fn dispatch(&mut self, event: Event) {
         let actions = self.engine.handle(event);
         self.apply(actions);
+        self.presenter.set_skip(self.engine.skip());
+        self.refresh();
     }
 
     fn apply(&mut self, actions: Vec<Action>) {
@@ -108,10 +110,8 @@ impl App {
             }
         }
         if let Some(drawn) = drawn {
-            self.dispatch(Event::Drawn(drawn));
-            self.presenter
-                .set_skip(self.engine.crowded().then_some(SkipReason::NoRoom));
-            self.refresh();
+            let actions = self.engine.handle(Event::Drawn(drawn));
+            self.apply(actions);
         }
     }
 

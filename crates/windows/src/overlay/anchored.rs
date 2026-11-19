@@ -3,7 +3,7 @@ use windows::Win32::Foundation::{POINT, SIZE};
 
 use super::face::{FALLBACK_FAMILY, Face};
 use super::pill::{Pill, Style};
-use super::scene::{Frame, Placed, Scene};
+use super::scene::{Frame, Placed};
 use super::screen::{Monitor, ScreenDc};
 use super::shading::Shading;
 use crate::ui::{Role, STROKE};
@@ -22,26 +22,26 @@ pub fn face(screen: &ScreenDc, monitor: Monitor) -> Face {
     )
 }
 
-pub fn under_field<'a>(frame: &Frame<'a>, element: Rect, style: Style) -> Option<Scene<'a>> {
+pub fn under_field(frame: &Frame, element: Rect) -> Option<Placed> {
     let monitor = frame.monitor;
     let room = element
         .width
         .max(monitor.scale.px(MIN_WIDTH))
         .min(monitor.work.width);
-    compose(frame, element, room, style)
+    place(frame, element, room)
 }
 
-pub fn under_caret<'a>(frame: &Frame<'a>, caret: Rect, style: Style) -> Option<Scene<'a>> {
+pub fn under_caret(frame: &Frame, caret: Rect) -> Option<Placed> {
     let bounds = flow_bounds(frame.field, caret, frame.monitor.work);
     let room = if frame.rtl {
         caret.x + caret.width - bounds.x
     } else {
         bounds.x + bounds.width - caret.x
     };
-    compose(frame, caret, room, style)
+    place(frame, caret, room)
 }
 
-fn compose<'a>(frame: &Frame<'a>, anchor: Rect, room: i32, style: Style) -> Option<Scene<'a>> {
+fn place(frame: &Frame, anchor: Rect, room: i32) -> Option<Placed> {
     let Frame {
         text, rtl, monitor, ..
     } = *frame;
@@ -85,7 +85,7 @@ fn compose<'a>(frame: &Frame<'a>, anchor: Rect, room: i32, style: Style) -> Opti
         work,
         rtl,
     )?;
-    let placed = Placed {
+    Some(Placed {
         lines,
         origin: POINT {
             x: left - padding_x,
@@ -99,11 +99,16 @@ fn compose<'a>(frame: &Frame<'a>, anchor: Rect, room: i32, style: Style) -> Opti
             cx: pill.width,
             cy: pill.height,
         },
-    };
-    let shape = Pill {
-        width: pill.width,
-        height: pill.height,
-        edge: scale.px(STROKE).max(1),
-    };
-    Some(Scene::new(frame, placed, Shading::Pill { style, shape }))
+    })
+}
+
+pub fn shading(frame: &Frame, placed: &Placed, style: Style) -> Shading {
+    Shading::Pill {
+        style,
+        shape: Pill {
+            width: placed.size.cx,
+            height: placed.size.cy,
+            edge: frame.monitor.scale.px(STROKE).max(1),
+        },
+    }
 }
