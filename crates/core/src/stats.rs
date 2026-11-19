@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::stored::{aside_path, write_atomically};
+use crate::stored::{set_aside, write_atomically};
 
 const CHARS_PER_WORD: u64 = 5;
 const SECONDS_PER_MINUTE: u64 = 60;
@@ -261,10 +261,6 @@ impl Ledger {
         self.dirty = true;
         self.flush()
     }
-}
-
-pub(crate) fn set_aside(path: &Path) -> Result<(), String> {
-    std::fs::rename(path, aside_path(path)).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

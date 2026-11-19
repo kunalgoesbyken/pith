@@ -1,12 +1,14 @@
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 use pith_core::{Config, Event, PlainVault, Sample, StyleStore, log};
 
 use super::App;
 
-pub(super) fn open(path: Option<PathBuf>, config: &Config) -> Option<StyleStore> {
-    let mut store = StyleStore::open(path?, Box::new(PlainVault))
+const STYLE_FILE: &str = "style.toml";
+
+pub(super) fn open(data_dir: Option<&Path>, config: &Config) -> Option<StyleStore> {
+    let mut store = StyleStore::open(data_dir?.join(STYLE_FILE), Box::new(PlainVault))
         .inspect_err(|error| log(&format!("style not loaded, not learning: {error}")))
         .ok()?;
     if let Err(error) = store.forget_blocked(config) {

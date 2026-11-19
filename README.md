@@ -124,7 +124,7 @@ When you turn on Learn my writing style in Settings, Privacy & data, Pith rememb
 - Sentences carry over between conversations in the same app. They are never used in another app. Turning Pith off in an app forgets what it learned there, and nothing is learned while Pith is paused.
 - With `remote_url` set nothing is sent: the examples are left out, so the server sees only the text you typed as before.
 - Settings lists every remembered sentence with the app it came from. Forget removes one, Forget all removes the file. Turning the switch off stops learning and stops using the sentences, and they stay in the list until you remove them.
-- On Windows the file is encrypted with DPAPI, so another Windows account or a copied disk cannot read it, but a program running as you can. On Linux there is no encryption: `~/.local/share/pith/style.toml` is a plain file that only your account can read (mode 0600 in a 0700 folder), and you remove sentences by editing or deleting it.
+- On Windows the file is encrypted with DPAPI, so another Windows account or a copied disk cannot read it, but a program running as you can. On Linux there is no encryption: `~/.local/share/pith/style.toml` is a plain file that only your account can read (mode 0600 in a 0700 folder), and you remove sentences by editing or deleting it while Pith is closed.
 
 ## Verify your download
 

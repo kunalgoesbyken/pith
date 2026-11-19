@@ -13,7 +13,8 @@ fn start() -> Result<(), String> {
     if on_wayland() {
         return Err(WAYLAND_MESSAGE.to_string());
     }
-    let paths = Paths::of(&directories()?);
+    let dirs = directories()?;
+    let paths = Paths::of(&dirs);
     init_log(&paths.log);
     let args: Vec<String> = std::env::args().collect();
     let cli = Cli::parse(&args, hooks::FLAGS)?;
@@ -24,7 +25,7 @@ fn start() -> Result<(), String> {
         return Ok(());
     };
     let mut options = Options::new(cli.has(ALLOW_ACCESSIBILITY).then(Consent::granted));
-    options.style = Some(paths.style.clone());
+    options.data_dir = Some(dirs.data_local_dir().to_path_buf());
     hooks::apply(&cli, &mut options)?;
     let (inbox, receiver) = Inbox::channel();
     let recommended = recommend(hardware());

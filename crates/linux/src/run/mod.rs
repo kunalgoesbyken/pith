@@ -67,7 +67,7 @@ impl InsertPolicy {
 
 pub struct Options {
     pub consent: Option<Consent>,
-    pub style: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
     #[cfg(feature = "e2e")]
     pub insert: InsertPolicy,
     #[cfg(feature = "e2e")]
@@ -78,7 +78,7 @@ impl Options {
     pub fn new(consent: Option<Consent>) -> Self {
         Self {
             consent,
-            style: None,
+            data_dir: None,
             #[cfg(feature = "e2e")]
             insert: InsertPolicy::Auto,
             #[cfg(feature = "e2e")]
@@ -242,7 +242,7 @@ pub fn run(
     let effects = Effects::new(options.insert, options.observer, clipboard);
     #[cfg(not(feature = "e2e"))]
     let effects = Effects::new(InsertPolicy::Auto, clipboard);
-    let style = style::open(options.style, &config);
+    let style = style::open(options.data_dir.as_deref(), &config);
     let mut app = App {
         engine: Engine::new(config),
         keyboard,

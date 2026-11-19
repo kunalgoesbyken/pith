@@ -33,14 +33,8 @@ fn cues<'a>(field: &'a FieldSnapshot, config: &Config, used_tokens: usize) -> Ve
 }
 
 fn examples(primer: &Primer, config: &Config, used_tokens: usize) -> String {
-    if !config.uses_style() {
-        return String::new();
-    }
     let allowed = room(config, used_tokens).min(STYLE_TOKENS);
-    primer.fit(allowed).join(
-        "
-",
-    )
+    primer.fit(allowed).join("\n")
 }
 
 pub fn build(field: &FieldSnapshot, config: &Config, primer: &Primer) -> CompletionRequest {
@@ -54,19 +48,11 @@ pub fn build(field: &FieldSnapshot, config: &Config, primer: &Primer) -> Complet
         .into_iter()
         .filter(|block| !block.is_empty())
         .collect::<Vec<_>>()
-        .join(
-            "
-
-",
-        );
+        .join("\n\n");
     let prompt = if lead.is_empty() {
         head.to_string()
     } else {
-        format!(
-            "{lead}
-
-{head}"
-        )
+        format!("{lead}\n\n{head}")
     };
     CompletionRequest {
         field_id: field.field_id,

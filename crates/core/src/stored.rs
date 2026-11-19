@@ -88,6 +88,10 @@ pub(crate) fn aside_path(path: &Path) -> PathBuf {
     beside(path, ".bad")
 }
 
+pub(crate) fn set_aside(path: &Path) -> Result<(), String> {
+    std::fs::rename(path, aside_path(path)).map_err(|error| error.to_string())
+}
+
 fn publish(temporary: &Path, path: &Path) -> io::Result<()> {
     std::fs::rename(temporary, path).inspect_err(|_| {
         let _ = std::fs::remove_file(temporary);

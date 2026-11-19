@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::memory::{Sample, StyleMemory};
 use crate::Config;
-use crate::stats::set_aside;
-use crate::stored::{aside_path, write_private};
+use crate::stored::{aside_path, set_aside, write_private};
 
 pub trait Vault: Send {
     fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String>;
@@ -81,16 +80,20 @@ impl StyleStore {
     }
 
     pub fn erase(&mut self) -> Result<(), String> {
-        self.memory.clear();
         let kept = remove_if_present(&aside_path(&self.path));
-        remove_if_present(&self.path).and(kept)
+        remove_if_present(&self.path).and(kept)?;
+        self.memory.clear();
+        Ok(())
     }
 
     fn update(&mut self, change: impl FnOnce(&mut StyleMemory) -> bool) -> Result<(), String> {
-        if !change(&mut self.memory) {
+        let mut memory = self.memory.clone();
+        if !change(&mut memory) {
             return Ok(());
         }
-        let sealed = self.vault.seal(self.memory.render()?.as_bytes())?;
-        write_private(&self.path, &sealed).map_err(|error| error.to_string())
+        let sealed = self.vault.seal(memory.render()?.as_bytes())?;
+        write_private(&self.path, &sealed).map_err(|error| error.to_string())?;
+        self.memory = memory;
+        Ok(())
     }
 }

@@ -7,7 +7,7 @@ use crate::{Config, FieldSnapshot, LINE_BREAKS, SentenceEnd, check_forced, sente
 
 struct Pending {
     key: FieldKey,
-    accepted: String,
+    anchor: String,
 }
 
 #[derive(Default)]
@@ -22,6 +22,13 @@ fn is_finished(before: &str) -> bool {
         }
 }
 
+fn open_sentence(before: &str) -> &str {
+    if is_finished(before) {
+        return "";
+    }
+    before.unicode_sentences().last().unwrap_or_default()
+}
+
 fn may_learn(field: &FieldSnapshot, config: &Config) -> bool {
     config.uses_style() && check_forced(field, config).is_ok()
 }
@@ -32,16 +39,15 @@ impl Harvest {
     }
 
     pub(crate) fn accepted(&mut self, field: &FieldSnapshot, config: &Config, text: &str) {
-        let accepted = text.trim();
-        self.0 = (!accepted.is_empty() && may_learn(field, config)).then(|| Pending {
+        self.0 = (!text.trim().is_empty() && may_learn(field, config)).then(|| Pending {
             key: FieldKey::of(field),
-            accepted: accepted.to_string(),
+            anchor: format!("{}{}", open_sentence(&field.before), text.trim_end()),
         });
     }
 
     pub(crate) fn observe(&mut self, field: &FieldSnapshot, config: &Config) -> Option<Sample> {
         let pending = self.0.as_ref()?;
-        if !pending.key.matches(field) {
+        if !pending.key.matches(field) || !field.before.contains(&pending.anchor) {
             self.0 = None;
             return None;
         }
@@ -53,7 +59,7 @@ impl Harvest {
             return None;
         }
         let last = field.before.trim_end().unicode_sentences().last()?;
-        if !last.contains(&pending.accepted) {
+        if !last.starts_with(&pending.anchor) {
             return None;
         }
         Some(Sample::new(Sentence::learnable(last)?, &field.app))
