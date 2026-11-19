@@ -5,7 +5,7 @@ use windows::Win32::Foundation::{POINT, SIZE};
 
 use super::face::{FALLBACK_FAMILY, Face};
 use super::scene::{Frame, Placed, Scene};
-use super::screen::focused_field;
+use super::screen::{Monitor, ScreenDc};
 use super::shading::Shading;
 use crate::ui::Scale;
 
@@ -34,19 +34,23 @@ fn font_px(caret: Rect, style: &TextStyle, scale: Scale) -> i32 {
     preferred.clamp(scale.px(MIN_FONT_PX), scale.px(MAX_FONT_PX))
 }
 
+pub fn face(screen: &ScreenDc, monitor: Monitor, caret: Rect, style: &TextStyle) -> Face {
+    Face::new(
+        screen,
+        style.family.as_deref().unwrap_or(FALLBACK_FAMILY),
+        font_px(caret, style, monitor.scale),
+    )
+}
+
 pub fn compose<'a>(
     frame: &Frame<'a>,
     caret: Rect,
     style: &TextStyle,
     backdrop: Backdrop,
 ) -> Option<Scene<'a>> {
-    let face = Face::new(
-        frame.screen,
-        style.family.as_deref().unwrap_or(FALLBACK_FAMILY),
-        font_px(caret, style, frame.monitor.scale),
-    );
+    let face = frame.face;
     let top = caret.y + (caret.height - face.line_height) / 2;
-    let bounds = flow_bounds(focused_field(), caret, frame.monitor.work);
+    let bounds = flow_bounds(frame.field, caret, frame.monitor.work);
     let flow = Flow {
         caret,
         top,
@@ -74,5 +78,5 @@ pub fn compose<'a>(
         ink: paint,
         strong_alpha: next_word_alpha(paint.alpha),
     };
-    Some(Scene::new(frame, face, placed, shading))
+    Some(Scene::new(frame, placed, shading))
 }

@@ -10,7 +10,7 @@ mod screen;
 mod shading;
 mod window;
 
-use pith_core::{Drawn, Placement, Rgb, TextStyle, drawn, is_rtl};
+use pith_core::{Drawn, Placement, Rgb, TextStyle, fits, is_rtl};
 
 use inline::Backdrop;
 use pill::Style;
@@ -42,67 +42,47 @@ impl Overlay {
         self.opacity = opacity;
     }
 
-    pub fn show(&mut self, text: &str, placement: Placement, style: &TextStyle) -> Drawn {
+    pub fn show(&mut self, cuts: &[String], placement: Placement, style: &TextStyle) -> Drawn {
         let (Placement::Inline(target)
         | Placement::Anchored(target)
         | Placement::BelowCaret(target)) = placement;
         let screen = ScreenDc::get();
-        let frame = Frame {
+        let monitor = Monitor::nearest(target);
+        let face = match placement {
+            Placement::Inline(caret) => inline::face(&screen, monitor, caret, style),
+            Placement::Anchored(_) | Placement::BelowCaret(_) => anchored::face(&screen, monitor),
+        };
+        let field = focused_field();
+        let frame = |text| Frame {
             text,
             rtl: is_rtl(text),
             screen: &screen,
-            monitor: Monitor::nearest(target),
+            monitor,
+            face: &face,
+            field,
         };
-        self.capture(&frame, placement);
-        match self.draw(&screen, &frame, placement, style) {
-            Drawn::Prefix(len) => {
-                let cut = Frame {
-                    text: &text[..len],
-                    ..frame
-                };
-                match self.draw(&screen, &cut, placement, style) {
-                    Drawn::Whole => Drawn::Prefix(len),
-                    Drawn::Prefix(_) | Drawn::Nothing => {
-                        self.window.hide();
-                        Drawn::Nothing
-                    }
+        if let Some(first) = cuts.first() {
+            self.capture(&frame(first), placement);
+        }
+        for (index, text) in cuts.iter().enumerate() {
+            let frame = frame(text);
+            let scene = match placement {
+                Placement::Inline(caret) => {
+                    let backdrop = Backdrop {
+                        color: self.background,
+                        opacity: self.opacity,
+                    };
+                    inline::compose(&frame, caret, style, backdrop)
                 }
-            }
-            outcome => outcome,
-        }
-    }
-
-    fn draw(
-        &mut self,
-        screen: &ScreenDc,
-        frame: &Frame,
-        placement: Placement,
-        style: &TextStyle,
-    ) -> Drawn {
-        let scene = match placement {
-            Placement::Inline(caret) => {
-                let backdrop = Backdrop {
-                    color: self.background,
-                    opacity: self.opacity,
-                };
-                inline::compose(frame, caret, style, backdrop)
-            }
-            Placement::Anchored(element) => anchored::under_field(frame, element, self.style),
-            Placement::BelowCaret(caret) => {
-                anchored::under_caret(frame, caret, focused_field(), self.style)
-            }
-        };
-        let outcome = scene.as_ref().map_or(Drawn::Nothing, |scene| {
-            drawn(frame.text, &scene.placed.lines)
-        });
-        match (outcome, scene) {
-            (Drawn::Whole, Some(scene)) => self.present(screen, &scene),
-            (Drawn::Prefix(len), _) => Drawn::Prefix(len),
-            (Drawn::Whole | Drawn::Nothing, _) => {
-                self.window.hide();
-                Drawn::Nothing
+                Placement::Anchored(element) => anchored::under_field(&frame, element, self.style),
+                Placement::BelowCaret(caret) => anchored::under_caret(&frame, caret, self.style),
+            };
+            if let Some(scene) = scene.filter(|scene| fits(text, &scene.placed.lines)) {
+                return self.present(&screen, &scene, index);
             }
         }
+        self.window.hide();
+        Drawn::Nothing
     }
 
     pub fn hide(&mut self) {
@@ -124,12 +104,12 @@ impl Overlay {
         }
     }
 
-    fn present(&mut self, screen: &ScreenDc, scene: &Scene) -> Drawn {
+    fn present(&mut self, screen: &ScreenDc, scene: &Scene, index: usize) -> Drawn {
         match Raster::render(scene) {
             Some(raster) => {
                 self.window
                     .present(screen, &raster, scene.placed.destination);
-                Drawn::Whole
+                Drawn::Shown(index)
             }
             None => {
                 self.window.hide();

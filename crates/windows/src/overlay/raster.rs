@@ -25,7 +25,7 @@ pub struct Raster<'a> {
 
 impl<'a> Raster<'a> {
     pub fn render(scene: &'a Scene) -> Option<Self> {
-        let raster = Self::allocate(&scene.face, scene.placed.size)?;
+        let raster = Self::allocate(scene.face, scene.placed.size)?;
         raster.draw_text(scene);
         raster.shade(scene);
         Some(raster)

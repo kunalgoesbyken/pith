@@ -4,6 +4,7 @@ use windows::Win32::Foundation::{POINT, SIZE};
 use super::face::{FALLBACK_FAMILY, Face};
 use super::pill::{Pill, Style};
 use super::scene::{Frame, Placed, Scene};
+use super::screen::{Monitor, ScreenDc};
 use super::shading::Shading;
 use crate::ui::{Role, STROKE};
 
@@ -12,6 +13,14 @@ const PADDING_Y: i32 = 5;
 const GAP: i32 = 4;
 const MIN_WIDTH: i32 = 240;
 const MAX_LINES: usize = 4;
+
+pub fn face(screen: &ScreenDc, monitor: Monitor) -> Face {
+    Face::new(
+        screen,
+        FALLBACK_FAMILY,
+        monitor.scale.size(Role::Body.size()).round() as i32,
+    )
+}
 
 pub fn under_field<'a>(frame: &Frame<'a>, element: Rect, style: Style) -> Option<Scene<'a>> {
     let monitor = frame.monitor;
@@ -22,13 +31,8 @@ pub fn under_field<'a>(frame: &Frame<'a>, element: Rect, style: Style) -> Option
     compose(frame, element, room, style)
 }
 
-pub fn under_caret<'a>(
-    frame: &Frame<'a>,
-    caret: Rect,
-    field: Option<Rect>,
-    style: Style,
-) -> Option<Scene<'a>> {
-    let bounds = flow_bounds(field, caret, frame.monitor.work);
+pub fn under_caret<'a>(frame: &Frame<'a>, caret: Rect, style: Style) -> Option<Scene<'a>> {
+    let bounds = flow_bounds(frame.field, caret, frame.monitor.work);
     let room = if frame.rtl {
         caret.x + caret.width - bounds.x
     } else {
@@ -47,11 +51,7 @@ fn compose<'a>(frame: &Frame<'a>, anchor: Rect, room: i32, style: Style) -> Opti
     if room < 1 {
         return None;
     }
-    let face = Face::new(
-        frame.screen,
-        FALLBACK_FAMILY,
-        scale.size(Role::Body.size()).round() as i32,
-    );
+    let face = frame.face;
     let flow = Flow {
         caret: Rect {
             x: if rtl { room } else { -1 },
@@ -105,10 +105,5 @@ fn compose<'a>(frame: &Frame<'a>, anchor: Rect, room: i32, style: Style) -> Opti
         height: pill.height,
         edge: scale.px(STROKE).max(1),
     };
-    Some(Scene::new(
-        frame,
-        face,
-        placed,
-        Shading::Pill { style, shape },
-    ))
+    Some(Scene::new(frame, placed, Shading::Pill { style, shape }))
 }

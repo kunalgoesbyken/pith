@@ -1,4 +1,4 @@
-use pith_core::Line;
+use pith_core::{Line, Rect};
 use windows::Win32::Foundation::{POINT, SIZE};
 
 use super::emphasis::Emphasis;
@@ -12,6 +12,8 @@ pub struct Frame<'a> {
     pub rtl: bool,
     pub screen: &'a ScreenDc,
     pub monitor: Monitor,
+    pub face: &'a Face,
+    pub field: Option<Rect>,
 }
 
 pub struct Placed {
@@ -24,19 +26,20 @@ pub struct Placed {
 pub struct Scene<'a> {
     pub text: &'a str,
     pub rtl: bool,
-    pub face: Face,
+    pub face: &'a Face,
     pub placed: Placed,
     emphasis: Emphasis,
     shading: Shading,
 }
 
 impl<'a> Scene<'a> {
-    pub fn new(frame: &Frame<'a>, face: Face, placed: Placed, shading: Shading) -> Self {
+    pub fn new(frame: &Frame<'a>, placed: Placed, shading: Shading) -> Self {
+        let face = frame.face;
         let emphasis = Emphasis::of(
             frame.text,
             &placed.lines,
             frame.rtl,
-            &face,
+            face,
             placed.origin,
             placed.size.cy,
         );

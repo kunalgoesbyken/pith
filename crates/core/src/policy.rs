@@ -10,6 +10,7 @@ pub enum SkipReason {
     TextAfterCaret,
     TooShort,
     NotProse,
+    NoRoom,
 }
 
 pub fn check(field: &FieldSnapshot, config: &Config) -> Result<(), SkipReason> {

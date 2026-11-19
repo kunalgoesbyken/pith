@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ignore::IgnoreTracker;
 use crate::stats::Counts;
-use crate::suffix::cut;
+use crate::suffix::candidates;
 use crate::{
     Completion, CompletionRequest, Config, Drawn, FieldSnapshot, Placement, SkipReason, Suffix,
     TextStyle, TriggerMode, build, check, check_forced, continue_window, ends_spaced_word,
@@ -46,7 +46,7 @@ pub enum Action {
     },
     CancelCompletion,
     Show {
-        text: String,
+        cuts: Vec<String>,
         placement: Placement,
         style: TextStyle,
     },
@@ -80,13 +80,39 @@ impl FieldKey {
     }
 }
 
+enum Release {
+    Edit,
+    EditOrMove(Option<Placement>),
+}
+
 struct Dismissal {
     field: FieldKey,
     before: String,
+    release: Release,
+}
+
+impl Dismissal {
+    fn of(field: &FieldSnapshot, release: Release) -> Self {
+        Self {
+            field: FieldKey::of(field),
+            before: field.before.clone(),
+            release,
+        }
+    }
+
+    fn holds(&self, field: &FieldSnapshot) -> bool {
+        self.field.matches(field)
+            && self.before == field.before
+            && match self.release {
+                Release::Edit => true,
+                Release::EditOrMove(placement) => placement == field.placement,
+            }
+    }
 }
 
 struct Shown {
     text: String,
+    cuts: Vec<String>,
     shown_at: Option<Instant>,
     engaged: bool,
     counted: bool,
@@ -174,7 +200,10 @@ impl Engine {
                 if let Some(app) = ignored {
                     self.note_ignored(&app, &mut out);
                 }
-                self.hold_dismissal();
+                self.dismissed = self
+                    .field
+                    .as_ref()
+                    .map(|field| Dismissal::of(field, Release::Edit));
             }
             Event::Drawn(drawn) => self.on_drawn(drawn, &mut out),
             Event::Trigger => self.on_trigger(&mut out),
@@ -315,16 +344,20 @@ impl Engine {
             );
         }
         let suggestable = field.placement.is_some() && check(&field, &self.config).is_ok();
-        self.dismissed.take_if(|dismissal| {
-            suggestable && dismissal.field.matches(&field) && dismissal.before != field.before
-        });
+        let released = self
+            .dismissed
+            .take_if(|dismissal| {
+                suggestable && dismissal.field.matches(&field) && !dismissal.holds(&field)
+            })
+            .is_some();
         let mut ignored = None;
         if let Some(previous) = &self.field {
             let same_field =
                 FieldKey::of(previous).matches(&field) && self.eligible(&field).is_ok();
             if same_field && previous.before == field.before && previous.after == field.after {
                 let moved = previous.placement != field.placement;
-                let unblocked = self.eligible(previous).is_err()
+                let unblocked = released
+                    || self.eligible(previous).is_err()
                     || (previous.placement.is_none() && self.is_idle());
                 self.field = Some(field);
                 if unblocked {
@@ -379,9 +412,10 @@ impl Engine {
 
     fn schedule(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
-        let dismissed = self.dismissed.as_ref().is_some_and(|dismissal| {
-            dismissal.field.matches(field) && dismissal.before == field.before
-        });
+        let dismissed = self
+            .dismissed
+            .as_ref()
+            .is_some_and(|dismissal| dismissal.holds(field));
         if dismissed
             || self.config.trigger_mode == TriggerMode::Manual
             || field.placement.is_none()
@@ -431,6 +465,7 @@ impl Engine {
         }
         self.phase = Phase::Showing(Shown {
             text,
+            cuts: Vec::new(),
             shown_at: Some(Instant::now()),
             engaged: false,
             counted: false,
@@ -472,6 +507,7 @@ impl Engine {
         } else {
             self.phase = Phase::Showing(Shown {
                 text: rest,
+                cuts: Vec::new(),
                 shown_at: None,
                 engaged: true,
                 counted: true,
@@ -481,63 +517,59 @@ impl Engine {
     }
 
     fn on_drawn(&mut self, drawn: Drawn, out: &mut Vec<Action>) {
-        let (Phase::Showing(shown), Some(field)) = (&mut self.phase, &self.field) else {
+        let Phase::Showing(shown) = &mut self.phase else {
             return;
         };
-        let (text, len) = match drawn {
-            Drawn::Whole => return self.count_shown(),
-            Drawn::Prefix(len) => match cut(&shown.text, len, &field.after) {
-                Some(text) => (text, len),
-                None => return self.give_up(out),
-            },
-            Drawn::Nothing => return self.give_up(out),
+        let Drawn::Shown(index) = drawn else {
+            return self.give_up(out);
         };
-        let adopted = shown.text.get(..len) == Some(text.as_str());
-        shown.text = text;
-        if adopted {
-            self.count_shown();
-        } else {
-            self.show_current(out);
+        let Some(text) = shown.cuts.get(index) else {
+            return self.give_up(out);
+        };
+        shown.text = text.clone();
+        if !std::mem::replace(&mut shown.counted, true) {
+            self.counts.record_shown();
         }
     }
 
-    fn count_shown(&mut self) {
-        if let Phase::Showing(shown) = &mut self.phase
-            && !std::mem::replace(&mut shown.counted, true)
-        {
-            self.counts.record_shown();
-        }
+    pub fn crowded(&self) -> bool {
+        self.field.as_ref().is_some_and(|field| {
+            self.dismissed.as_ref().is_some_and(|dismissal| {
+                matches!(dismissal.release, Release::EditOrMove(_)) && dismissal.holds(field)
+            })
+        })
     }
 
     fn give_up(&mut self, out: &mut Vec<Action>) {
         self.withdraw(out);
         self.forced = None;
-        self.hold_dismissal();
-    }
-
-    fn hold_dismissal(&mut self) {
-        self.dismissed = self.field.as_ref().map(|field| Dismissal {
-            field: FieldKey::of(field),
-            before: field.before.clone(),
-        });
+        self.dismissed = self
+            .field
+            .as_ref()
+            .map(|field| Dismissal::of(field, Release::EditOrMove(field.placement)));
     }
 
     fn show_current(&mut self, out: &mut Vec<Action>) {
-        let (Phase::Showing(shown), Some(field)) = (&self.phase, &self.field) else {
+        let (Phase::Showing(shown), Some(field)) = (&mut self.phase, &self.field) else {
             return;
         };
         let Some(placement) = field.placement else {
             self.withdraw(out);
             return;
         };
+        let cuts = candidates(&shown.text, &field.after);
+        if cuts.is_empty() {
+            return self.give_up(out);
+        }
         let placement = match placement {
             Placement::Inline(caret) if !matches!(field.after.suffix(), Suffix::Blank) => {
                 Placement::BelowCaret(caret)
             }
             placement => placement,
         };
+        shown.cuts.clone_from(&cuts);
         out.push(Action::Show {
-            text: shown.text.clone(),
+            cuts,
             placement,
             style: field.style.clone(),
         });
@@ -588,7 +620,7 @@ mod tests {
             generation,
             result: Ok(completion(text)),
         });
-        engine.handle(Event::Drawn(Drawn::Whole));
+        engine.handle(Event::Drawn(Drawn::Shown(0)));
         out
     }
 
@@ -870,7 +902,7 @@ mod tests {
             result: Ok(cut),
         });
         assert!(
-            matches!(&out[0], Action::Show { text, .. } if text == " contract by"),
+            matches!(&out[0], Action::Show { cuts, .. } if cuts[0] == " contract by"),
             "{out:?}"
         );
     }
@@ -1220,7 +1252,7 @@ mod tests {
             let out = engine.handle(Event::AcceptWord);
             assert_eq!(out[0], Action::Insert(word.into()));
             assert!(
-                matches!(&out[1], Action::Show { text, .. } if text == rest),
+                matches!(&out[1], Action::Show { cuts, .. } if cuts[0] == rest),
                 "{out:?}"
             );
             assert_eq!(out.len(), 2, "{out:?}");
@@ -1324,7 +1356,7 @@ mod tests {
         assert_eq!(engine.suggestion(), Some(" there, how are you?"));
         let out = engine.handle(Event::Field(Some(field("Hi t"))));
         assert!(
-            matches!(out.as_slice(), [Action::Show { text, .. }] if text == "here, how are you?"),
+            matches!(out.as_slice(), [Action::Show { cuts, .. }] if cuts[0] == "here, how are you?"),
             "{out:?}"
         );
     }

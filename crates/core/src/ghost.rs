@@ -1,8 +1,7 @@
 use crate::Rgb;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::text::is_word_like;
-use crate::types::{Drawn, Rect};
+use crate::types::Rect;
 
 pub const CONTRAST_FLOOR: f32 = 3.0;
 pub const MAX_ALPHA: u32 = 230;
@@ -169,20 +168,10 @@ struct Cursor {
     room: i32,
 }
 
-pub fn drawn(text: &str, lines: &[Line]) -> Drawn {
-    let Some(reach) = lines.last().map(|line| line.end) else {
-        return Drawn::Nothing;
-    };
-    if reach >= text.trim_end().len() {
-        return Drawn::Whole;
-    }
-    text.split_word_bound_indices()
-        .take_while(|(start, segment)| start + segment.len() <= reach)
-        .filter(|(_, segment)| is_word_like(segment))
+pub fn fits(text: &str, lines: &[Line]) -> bool {
+    lines
         .last()
-        .map_or(Drawn::Nothing, |(start, segment)| {
-            Drawn::Prefix(start + segment.len())
-        })
+        .is_some_and(|line| line.end >= text.trim_end().len())
 }
 
 pub fn strong_span(

@@ -33,8 +33,7 @@ pub struct FieldSnapshot {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drawn {
-    Whole,
-    Prefix(usize),
+    Shown(usize),
     Nothing,
 }
 

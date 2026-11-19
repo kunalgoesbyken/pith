@@ -27,6 +27,7 @@ pub fn skip_label(reason: SkipReason) -> &'static str {
         SkipReason::TextAfterCaret => "text after the cursor",
         SkipReason::TooShort => "not enough text yet",
         SkipReason::NotProse => "not prose",
+        SkipReason::NoRoom => "no room for the suggestion",
     }
 }
 

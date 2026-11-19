@@ -260,7 +260,8 @@ impl Harness {
                     self.flight = None;
                     self.live = None;
                 }
-                Action::Show { text, .. } => {
+                Action::Show { cuts, .. } => {
+                    let text = &cuts[0];
                     self.expect(!text.trim().is_empty(), "blank suggestion shown");
                     self.expect(!text.contains(LINE_BREAKS), "multiline suggestion shown");
                     self.expect(
@@ -573,9 +574,10 @@ impl Harness {
         if !live {
             return;
         }
-        let Some(Action::Show { text: shown, .. }) = actions.first() else {
+        let Some(Action::Show { cuts, .. }) = actions.first() else {
             return;
         };
+        let shown = &cuts[0];
         let Ok(done) = result else {
             self.fail("error result was shown");
         };

@@ -27,7 +27,7 @@ pub use config::{
 };
 pub use engine::{Action, Engine, Event};
 pub use ghost::{
-    FADE_ALPHAS, FADE_FRAME_MS, Flow, Ink, Line, drawn, flow_bounds, ink, is_rtl, layout,
+    FADE_ALPHAS, FADE_FRAME_MS, Flow, Ink, Line, fits, flow_bounds, ink, is_rtl, layout,
     lines_that_fit, median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
 };
 pub use log::{init_log, log};

@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use pith_core::{Action, Completion, Event, log};
+use pith_core::{Action, Completion, Drawn, Event, SkipReason, log};
 
 use super::{App, InsertMode, TIMER_DEBOUNCE};
 use crate::clipboard::{Trigger, paste};
@@ -79,10 +79,20 @@ impl App {
                 }
                 Action::CancelCompletion => self.worker.cancel(),
                 Action::Show {
-                    text,
+                    cuts,
                     placement,
                     style,
-                } => drawn = Some(self.overlay.show(&text, placement, &style)),
+                } => {
+                    let outcome = self.overlay.show(&cuts, placement, &style);
+                    if let Drawn::Shown(index) = outcome {
+                        self.effects.observe(&Action::Show {
+                            cuts: vec![cuts[index].clone()],
+                            placement,
+                            style,
+                        });
+                    }
+                    drawn = Some(outcome);
+                }
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => self.effects.insert(text),
                 Action::AutoPaused(apps) => {
@@ -95,6 +105,9 @@ impl App {
         }
         if let Some(drawn) = drawn {
             self.dispatch(Event::Drawn(drawn));
+            self.presenter
+                .set_skip(self.engine.crowded().then_some(SkipReason::NoRoom));
+            self.refresh();
         }
     }
 

@@ -59,6 +59,8 @@ const FIT_SUFFIX: &str = ".";
 
 const FIT_EDGE_PX: i32 = 42;
 
+const CROWDED_EDGE_PX: i32 = 24;
+
 const FIT_MIN_WORDS: usize = 5;
 
 const MIDLINE_SUFFIXES: [&str; 3] = [".", "?", "."];
@@ -455,7 +457,7 @@ fn trace(action: &Action) {
 
 fn shown_text(action: &Action) -> String {
     match action {
-        Action::Show { text, .. } => text.clone(),
+        Action::Show { cuts, .. } => cuts.first().cloned().unwrap_or_default(),
         _ => String::new(),
     }
 }
@@ -1070,7 +1072,7 @@ fn midline_fit(rig: &mut Rig) {
         rect.left + monitor.right - FIT_EDGE_PX - caret_x,
         rect.top,
     );
-    rig.settle(Duration::from_millis(700));
+    let drawn = visible_text(&rig.settle(Duration::from_millis(700)));
     let pill = overlay_window()
         .map(window_rect)
         .filter(|_| overlay_visible());
@@ -1083,24 +1085,27 @@ fn midline_fit(rig: &mut Rig) {
             monitor.right
         ),
     );
-    rig.key(KeyAction::AcceptAll);
-    let seen = rig.settle(Duration::from_millis(700));
-    let landed = inserted(&seen).concat();
-    let rest = remainder.strip_prefix(landed.as_str()).unwrap_or_default();
-    let whole_words = landed
+    let shown = drawn.clone().unwrap_or_default();
+    let rest = remainder.strip_prefix(shown.as_str()).unwrap_or_default();
+    let whole_words = shown
         .chars()
         .next_back()
         .zip(rest.chars().next())
         .is_none_or(|(last, next)| !(last.is_alphanumeric() && next.is_alphanumeric()));
+    rig.check(
+        "a remainder that does not fit is drawn cut to whole words",
+        !shown.is_empty() && !rest.is_empty() && whole_words,
+        format!("rest {remainder:?}, drawn {drawn:?}"),
+    );
+    rig.key(KeyAction::AcceptAll);
+    let seen = rig.settle(Duration::from_millis(700));
+    let landed = inserted(&seen).concat();
     println!("[INFO] pill fit {landed:?} of {remainder:?}");
     rig.check(
-        "a remainder that does not fit is cut to whole words and only those are accepted",
-        !landed.is_empty()
-            && !rest.is_empty()
-            && whole_words
-            && get_text(field.edit) == format!("{prefix}{word}{landed}{suffix}"),
+        "accepting inserts exactly the text that was drawn",
+        landed == shown && get_text(field.edit) == format!("{prefix}{word}{landed}{suffix}"),
         format!(
-            "rest {remainder:?}, inserts {:?}, tail {:?}",
+            "drawn {drawn:?}, inserts {:?}, tail {:?}",
             inserted(&seen),
             tail(&get_text(field.edit))
         ),
@@ -1112,6 +1117,42 @@ fn midline_fit(rig: &mut Rig) {
     let seen = rig.settle(Duration::from_millis(1500));
     rig.check(
         "suggesting goes on after an accept from a cut pill",
+        seen.iter().any(is_request),
+        format!("{} requests", requests(&seen).len()),
+    );
+}
+
+fn midline_crowded(rig: &mut Rig) {
+    let field = rig.a;
+    let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
+    let rect = window_rect(HWND(field.host as _));
+    let Some((prefix, _, _)) = midline_suggestion(rig, &midline_cases(), 1) else {
+        return rig.check("crowded setup", false, "no suggestion".into());
+    };
+    let (caret_x, _) = caret_screen(field.edit, utf16_len(prefix));
+    move_host(
+        field,
+        rect.left + monitor.right - CROWDED_EDGE_PX - caret_x,
+        rect.top,
+    );
+    let seen = rig.settle(Duration::from_millis(700));
+    rig.check(
+        "a pill with no room for one word hides the suggestion",
+        visible_text(&seen).is_none() && !overlay_visible(),
+        format!("{:?}", visible_text(&seen)),
+    );
+    let base = get_text(field.edit);
+    rig.key(KeyAction::AcceptAll);
+    let seen = rig.settle(Duration::from_millis(500));
+    rig.check(
+        "accept inserts nothing when nothing was drawn",
+        inserted(&seen).is_empty() && get_text(field.edit) == base,
+        format!("{:?}", inserted(&seen)),
+    );
+    move_host(field, rect.left, rect.top);
+    let seen = rig.settle(Duration::from_millis(1500));
+    rig.check(
+        "moving the window gives the suggestion another try",
         seen.iter().any(is_request),
         format!("{} requests", requests(&seen).len()),
     );
@@ -2339,7 +2380,7 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 25] = [
+        let scenarios: [(&str, Scenario); 26] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
@@ -2347,6 +2388,7 @@ fn main() {
             ("after", text_after_caret),
             ("midline", midline),
             ("fit", midline_fit),
+            ("crowded", midline_crowded),
             ("multiline", multi_line),
             ("fidelity", reader_fidelity),
             ("scripts", scripts),
