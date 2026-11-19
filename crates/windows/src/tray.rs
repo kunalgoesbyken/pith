@@ -125,9 +125,9 @@ fn tooltip_for<'a>(view: &TrayView, resting: &'a str) -> &'a str {
     }
 }
 
-fn glyph(active: bool, taskbar: Taskbar, size: u32) -> Icon {
+fn glyph(active: bool, taskbar: Taskbar, size: u32) -> Option<Icon> {
     let look = brand::tray(taskbar, active);
-    Icon::from_rgba(brand::render(size, &look), size, size).expect("icon")
+    Icon::from_rgba(brand::render(size, &look), size, size).ok()
 }
 
 impl Tray {
@@ -159,7 +159,7 @@ impl Tray {
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
             .with_tooltip(&resting_tooltip)
-            .with_icon(glyph(active, appearance.taskbar, appearance.icon_px))
+            .with_icon(glyph(active, appearance.taskbar, appearance.icon_px)?)
             .build()
             .ok()?;
         Some(Self {
@@ -201,12 +201,11 @@ impl Tray {
         if before.is_none_or(|old| old.status != view.status) {
             self.status.set_text(menu_text(&view.status));
         }
-        if before.is_none_or(|old| {
+        let icon_changed = before.is_none_or(|old| {
             (old.active, old.taskbar, old.icon_px) != (view.active, view.taskbar, view.icon_px)
-        }) {
-            let _ = self
-                .icon
-                .set_icon(Some(glyph(view.active, view.taskbar, view.icon_px)));
+        });
+        if icon_changed && let Some(icon) = glyph(view.active, view.taskbar, view.icon_px) {
+            let _ = self.icon.set_icon(Some(icon));
         }
         if before.is_none_or(|old| old.power_paused() != view.power_paused()) {
             let _ = self

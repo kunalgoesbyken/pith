@@ -173,7 +173,9 @@ impl App {
     }
 
     fn key_hint(&self) -> Option<String> {
-        if !self.presenter.needs_key_hint() {
+        let mut seen = self.presenter.recorded();
+        seen.add(self.engine.counts());
+        if !seen.needs_key_hint() {
             return None;
         }
         self.prefs.saved().accept_keys.first().map(Chord::label)

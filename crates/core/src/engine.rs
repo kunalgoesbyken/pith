@@ -187,6 +187,10 @@ impl Engine {
         }
     }
 
+    pub fn counts(&self) -> Counts {
+        self.counts
+    }
+
     pub fn take_counts(&mut self) -> Counts {
         std::mem::take(&mut self.counts)
     }

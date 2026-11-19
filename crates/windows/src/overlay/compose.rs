@@ -28,12 +28,10 @@ pub fn compose<R>(
     finish: impl FnOnce(&Frame, Placed, usize) -> R,
 ) -> Option<R> {
     let form = Form::of(request.placement, true);
-    let hint = match form {
-        Form::Ghost(_) => None,
-        Form::UnderCaret(_) | Form::UnderField(_) => {
-            request.key_hint.map(|key| Hint::new(screen, monitor, key))
-        }
-    };
+    let hint = request
+        .key_hint
+        .filter(|_| form.carries_keycap())
+        .map(|key| Hint::new(screen, monitor, key));
     let face = match form {
         Form::Ghost(caret) => inline::face(screen, monitor, caret, request.text),
         Form::UnderCaret(_) | Form::UnderField(_) => anchored::face(screen, monitor),

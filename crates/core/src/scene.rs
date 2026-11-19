@@ -82,6 +82,10 @@ impl Form {
         }
     }
 
+    pub fn carries_keycap(self) -> bool {
+        !matches!(self, Self::Ghost(_))
+    }
+
     pub fn target(self) -> Rect {
         match self {
             Self::Ghost(rect) | Self::UnderCaret(rect) | Self::UnderField(rect) => rect,
@@ -171,10 +175,7 @@ fn place_under_caret(surface: &Surface, text: &str, rtl: bool, caret: Rect) -> O
 }
 
 pub fn fit_cuts(labels: &[Label], form: Form, surface: &Surface) -> Option<(usize, Placed)> {
-    let offered = match form {
-        Form::Ghost(_) => None,
-        Form::UnderCaret(_) | Form::UnderField(_) => surface.keycap,
-    };
+    let offered = surface.keycap.filter(|_| form.carries_keycap());
     labels
         .iter()
         .enumerate()

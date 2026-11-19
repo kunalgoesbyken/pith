@@ -79,8 +79,8 @@ impl Presenter {
         self.model = model;
     }
 
-    pub fn needs_key_hint(&self) -> bool {
-        self.ledger.stats().total().needs_key_hint()
+    pub fn recorded(&self) -> Counts {
+        self.ledger.stats().total()
     }
 
     pub fn set_appearance(&mut self, appearance: Appearance, prefs: &Preferences) {

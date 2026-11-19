@@ -1,5 +1,7 @@
+use windows::Win32::Foundation::POINT;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
+use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTOPRIMARY, MonitorFromPoint};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetSystemMetricsForDpi, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     SM_CXSMICON, SPI_GETCLIENTAREAANIMATION, SPI_SETCLIENTAREAANIMATION, SPI_SETICONMETRICS,
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW, WM_DISPLAYCHANGE, WM_DPICHANGED,
@@ -7,7 +9,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::BOOL;
 
-use crate::ui::{Taskbar, Theme, is_theme_change};
+use crate::ui::{BASE_DPI, Taskbar, Theme, is_theme_change};
+
+const DEFAULT_ICON_PX: u32 = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Appearance {
@@ -42,8 +46,19 @@ fn animations_enabled() -> bool {
     enabled.as_bool()
 }
 
+fn primary_dpi() -> u32 {
+    let primary = unsafe { MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY) };
+    let (mut dpi_x, mut dpi_y) = (BASE_DPI, BASE_DPI);
+    let _ = unsafe { GetDpiForMonitor(primary, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
+    dpi_x
+}
+
 fn icon_px() -> u32 {
-    unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) as u32 }
+    let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, primary_dpi()) };
+    u32::try_from(size)
+        .ok()
+        .filter(|size| *size > 0)
+        .unwrap_or(DEFAULT_ICON_PX)
 }
 
 pub fn is_appearance_change(message: u32, wparam: WPARAM, lparam: LPARAM) -> bool {

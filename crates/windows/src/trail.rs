@@ -1,3 +1,5 @@
+use pith_core::Rgb;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Block {
     pub x: f32,
@@ -45,6 +47,10 @@ impl Block {
         let dy = (py - self.y - half.1).abs() - (half.1 - self.radius);
         dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) <= self.radius
     }
+}
+
+pub fn trail_colors(caret: Rgb, trail: Rgb) -> [Rgb; 3] {
+    [caret, trail, trail]
 }
 
 pub const MARK_WIDTH: f32 = 174.0;

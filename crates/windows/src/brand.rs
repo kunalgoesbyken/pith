@@ -1,6 +1,6 @@
 use pith_core::{CHANNEL_MAX, Rgb, Scheme};
 
-use crate::trail::{Block, MARK_HEIGHT, MARK_WIDTH, TRAIL};
+use crate::trail::{Block, MARK_HEIGHT, MARK_WIDTH, TRAIL, trail_colors};
 use crate::ui::{INK, Taskbar};
 
 const SNAPPED: [[Block; 3]; 6] = [
@@ -63,7 +63,7 @@ pub const APP: Look = Look {
 pub fn tray(taskbar: Taskbar, active: bool) -> Look {
     let (caret, trail) = taskbar.glyph();
     let colors = match (active, taskbar) {
-        (true, _) => [caret, trail, trail],
+        (true, _) => trail_colors(caret, trail),
         (false, Taskbar::Contrast { dim, .. }) => [dim; 3],
         (false, _) => [PAUSED_GREY; 3],
     };
