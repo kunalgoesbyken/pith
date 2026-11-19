@@ -17,18 +17,21 @@ async fn glyph(text: &TextProxy<'_>, offset: i32) -> Option<Rect> {
     })
 }
 
-pub(crate) async fn rect(text: &TextProxy<'_>, caret: i32, count: i32) -> Option<Rect> {
-    if caret > 0 {
-        let previous = text.get_text(caret - 1, caret).await.ok()?;
-        if !previous.ends_with(['\r', '\n'])
-            && let Some(last) = glyph(text, caret - 1).await
-        {
-            return Some(Rect {
-                x: last.x + last.width,
-                width: CARET_WIDTH,
-                ..last
-            });
-        }
+pub(crate) async fn rect(
+    text: &TextProxy<'_>,
+    caret: i32,
+    count: i32,
+    previous_breaks_line: bool,
+) -> Option<Rect> {
+    if caret > 0
+        && !previous_breaks_line
+        && let Some(last) = glyph(text, caret - 1).await
+    {
+        return Some(Rect {
+            x: last.x + last.width,
+            width: CARET_WIDTH,
+            ..last
+        });
     }
     if caret < count {
         let next = glyph(text, caret).await?;

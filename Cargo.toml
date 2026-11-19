@@ -32,8 +32,6 @@ zbus = { version = "5", default-features = false, features = ["async-io"] }
 futures-lite = "2"
 async-channel = "2"
 async-io = "2"
-wayland-client = "0.31"
-wayland-protocols-misc = { version = "0.3", features = ["client"] }
 
 [profile.release]
 lto = "thin"

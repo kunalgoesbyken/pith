@@ -1,33 +1,75 @@
+use async_channel::Receiver;
 use atspi::events::{Event, ObjectEvents};
 use atspi::proxy::accessible::ObjectRefExt;
-use atspi::{ObjectRefOwned, State};
+use atspi::{AtspiError, ObjectRefOwned, State};
 use zbus::Connection;
+
+use crate::bounded::{Bounded, bounded};
+use crate::identity::Identity;
+
+pub(crate) struct Focus {
+    pub(crate) target: ObjectRefOwned,
+    identity: Option<Identity>,
+}
+
+pub(crate) enum Effect {
+    Changed,
+    Unchanged,
+    Stopped,
+}
 
 #[derive(Default)]
 pub(crate) struct Tracker {
-    focused: Option<ObjectRefOwned>,
+    focus: Option<Focus>,
+}
+
+impl Focus {
+    fn new(target: ObjectRefOwned) -> Self {
+        Self {
+            target,
+            identity: None,
+        }
+    }
+
+    pub(crate) async fn identity(
+        &mut self,
+        connection: &Connection,
+    ) -> Result<&Identity, AtspiError> {
+        let identity = match self.identity.take() {
+            Some(known) => known,
+            None => Identity::resolve(connection, &self.target).await?,
+        };
+        Ok(self.identity.insert(identity))
+    }
 }
 
 impl Tracker {
-    pub(crate) fn focused(&self) -> Option<&ObjectRefOwned> {
-        self.focused.as_ref()
+    pub(crate) fn focus_mut(&mut self) -> Option<&mut Focus> {
+        self.focus.as_mut()
     }
 
     fn is_focused(&self, item: &ObjectRefOwned) -> bool {
-        self.focused.as_ref() == Some(item)
+        self.focus
+            .as_ref()
+            .is_some_and(|focus| focus.target == *item)
     }
 
-    pub(crate) async fn apply(&mut self, connection: &Connection, event: Event) -> bool {
+    pub(crate) async fn apply(
+        &mut self,
+        connection: &Connection,
+        stopped: &Receiver<()>,
+        event: Event,
+    ) -> Effect {
         let Event::Object(event) = event else {
-            return false;
+            return Effect::Unchanged;
         };
-        match event {
+        let changed = match event {
             ObjectEvents::StateChanged(change) if change.state == State::Focused => {
                 if change.enabled {
-                    self.focused = Some(change.item);
+                    self.focus = Some(Focus::new(change.item));
                     true
                 } else if self.is_focused(&change.item) {
-                    self.focused = None;
+                    self.focus = None;
                     true
                 } else {
                     false
@@ -36,16 +78,25 @@ impl Tracker {
             ObjectEvents::TextCaretMoved(moved) => {
                 if self.is_focused(&moved.item) {
                     true
-                } else if holds_focus(connection, &moved.item).await {
-                    self.focused = Some(moved.item);
-                    true
                 } else {
-                    false
+                    match bounded(stopped, holds_focus(connection, &moved.item)).await {
+                        Bounded::Done(true) => {
+                            self.focus = Some(Focus::new(moved.item));
+                            true
+                        }
+                        Bounded::Done(false) | Bounded::TimedOut => false,
+                        Bounded::Stopped => return Effect::Stopped,
+                    }
                 }
             }
             ObjectEvents::TextChanged(changed) => self.is_focused(&changed.item),
             ObjectEvents::TextSelectionChanged(selection) => self.is_focused(&selection.item),
             _ => false,
+        };
+        if changed {
+            Effect::Changed
+        } else {
+            Effect::Unchanged
         }
     }
 }

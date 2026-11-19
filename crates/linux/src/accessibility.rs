@@ -1,6 +1,6 @@
 use atspi::connection::{read_session_accessibility, set_session_accessibility};
-use futures_lite::future::block_on;
 
+use crate::bounded::within;
 use crate::error::ReaderError;
 
 pub struct Consent(());
@@ -11,35 +11,33 @@ impl Consent {
     }
 }
 
-pub enum Accessibility {
-    RequireEnabled,
-    EnableWithConsent(Consent),
-}
-
 pub(crate) enum Lease {
     AlreadyEnabled,
     EnabledByPith,
 }
 
-impl Accessibility {
-    pub(crate) async fn acquire(self) -> Result<Lease, ReaderError> {
+impl Lease {
+    pub(crate) async fn acquire(consent: Option<Consent>) -> Result<Self, ReaderError> {
         if read_session_accessibility().await? {
-            return Ok(Lease::AlreadyEnabled);
+            return Ok(Self::AlreadyEnabled);
         }
-        match self {
-            Self::RequireEnabled => Err(ReaderError::AccessibilityOff),
-            Self::EnableWithConsent(_) => {
+        match consent {
+            None => Err(ReaderError::AccessibilityOff),
+            Some(Consent(())) => {
                 set_session_accessibility(true).await?;
-                Ok(Lease::EnabledByPith)
+                Ok(Self::EnabledByPith)
             }
         }
     }
-}
 
-impl Drop for Lease {
-    fn drop(&mut self) {
+    pub(crate) async fn release(self) {
         if matches!(self, Self::EnabledByPith) {
-            let _ = block_on(set_session_accessibility(false));
+            let _ = within(async {
+                if read_session_accessibility().await.unwrap_or(false) {
+                    let _ = set_session_accessibility(false).await;
+                }
+            })
+            .await;
         }
     }
 }

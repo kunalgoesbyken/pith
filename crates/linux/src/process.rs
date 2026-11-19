@@ -7,6 +7,7 @@ use zbus::names::{BusName, UniqueName};
 
 const PROC_ROOT: &str = "/proc";
 const EXECUTABLE_LINK: &str = "exe";
+const REPLACED_SUFFIX: &str = " (deleted)";
 
 pub(crate) async fn owner_pid(
     connection: &Connection,
@@ -25,5 +26,10 @@ pub(crate) fn process_name(pid: u32) -> Option<String> {
             .join(EXECUTABLE_LINK),
     )
     .ok()?;
-    Some(executable.file_name()?.to_string_lossy().into_owned())
+    let name = executable.file_name()?.to_string_lossy();
+    Some(
+        name.strip_suffix(REPLACED_SUFFIX)
+            .unwrap_or(&name)
+            .to_string(),
+    )
 }

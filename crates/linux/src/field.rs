@@ -4,14 +4,23 @@ use atspi::proxy::accessible::ObjectRefExt;
 use atspi::proxy::proxy_ext::ProxyExt;
 use atspi::proxy::text::TextProxy;
 use atspi::{AtspiError, ObjectRefOwned, Role, State};
-use pith_core::{Config, FieldSnapshot, place};
+use pith_core::{
+    AFTER_CHARS, Config, FieldParts, FieldSnapshot, LINE_BREAKS, Surrounding, is_redacted, place,
+};
 use zbus::Connection;
 
-use crate::process::{owner_pid, process_name};
-use crate::{caret, style, window};
+use crate::focus::Focus;
+use crate::reading::Reading;
+use crate::text::{split_at_chars, without_astral_fillers};
+use crate::{caret, style};
 
-const AFTER_CHARS: i32 = 200;
-const ASTRAL_FILLER: char = '\u{feff}';
+const TEAR_RETRIES: usize = 2;
+
+struct View {
+    caret: i32,
+    count: i32,
+    surrounding: Option<Surrounding>,
+}
 
 fn field_id(target: &ObjectRefOwned) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -19,65 +28,106 @@ fn field_id(target: &ObjectRefOwned) -> u64 {
     hasher.finish()
 }
 
-async fn surrounding(
+async fn position(text: &TextProxy<'_>) -> Result<Option<(i32, i32)>, AtspiError> {
+    let count = text.character_count().await?;
+    let caret = text.caret_offset().await?;
+    Ok((caret >= 0 && count >= 0).then_some((caret.min(count), count)))
+}
+
+async fn window(
     text: &TextProxy<'_>,
     caret: i32,
     count: i32,
     lookback: usize,
-) -> Result<(String, String), AtspiError> {
+) -> Result<(Surrounding, i32), AtspiError> {
     let start = caret
         .saturating_sub(i32::try_from(lookback).unwrap_or(i32::MAX))
         .max(0);
-    let end = caret.saturating_add(AFTER_CHARS).min(count);
-    Ok((
-        text.get_text(start, caret)
-            .await?
-            .replace(ASTRAL_FILLER, ""),
-        text.get_text(caret, end).await?.replace(ASTRAL_FILLER, ""),
-    ))
+    let end = caret
+        .saturating_add(i32::try_from(AFTER_CHARS).unwrap_or(i32::MAX))
+        .min(count);
+    let raw = text.get_text(start, end).await?;
+    let (before, after) = split_at_chars(&raw, usize::try_from(caret - start).unwrap_or(0));
+    let surrounding = Surrounding {
+        before: without_astral_fillers(before),
+        after: without_astral_fillers(after),
+    };
+    Ok((surrounding, text.caret_offset().await?))
+}
+
+async fn view(
+    text: &TextProxy<'_>,
+    redacted: bool,
+    lookback: usize,
+) -> Result<Option<View>, AtspiError> {
+    let Some((mut caret, mut count)) = position(text).await? else {
+        return Ok(None);
+    };
+    if redacted {
+        return Ok(Some(View {
+            caret,
+            count,
+            surrounding: None,
+        }));
+    }
+    let mut retries = 0;
+    loop {
+        let (surrounding, settled) = window(text, caret, count, lookback).await?;
+        if settled == caret || retries == TEAR_RETRIES {
+            return Ok(Some(View {
+                caret,
+                count,
+                surrounding: Some(surrounding),
+            }));
+        }
+        retries += 1;
+        let Some(moved) = position(text).await? else {
+            return Ok(None);
+        };
+        (caret, count) = moved;
+    }
 }
 
 pub(crate) async fn read(
     connection: &Connection,
-    target: &ObjectRefOwned,
+    focus: &mut Focus,
     config: &Config,
-) -> Result<Option<FieldSnapshot>, AtspiError> {
+) -> Result<Reading, AtspiError> {
+    let target = focus.target.clone();
     let node = target.as_accessible_proxy(connection).await?;
     let role = node.get_role().await?;
     if !node.get_state().await?.contains(State::Editable) || role == Role::Terminal {
-        return Ok(None);
+        return Ok(Reading::Nothing);
     }
     let Ok(text) = node.proxies().await?.text().await else {
-        return Ok(None);
+        return Ok(Reading::Nothing);
     };
-    let pid = owner_pid(connection, target.name().ok_or(AtspiError::MissingName)?).await?;
-    if pid == std::process::id() {
-        return Ok(None);
+    let identity = focus.identity(connection).await?;
+    if identity.pid == std::process::id() {
+        return Ok(Reading::Nothing);
     }
-    let app = process_name(pid);
-    let blocked = app.as_deref().is_none_or(|name| config.is_blocked(name));
     let is_password = role == Role::PasswordText;
-    let count = text.character_count().await?;
-    let caret = text.caret_offset().await?;
-    if caret < 0 || count < 0 {
-        return Ok(None);
-    }
-    let caret = caret.min(count);
-    let (before, after) = if is_password || blocked {
-        Default::default()
-    } else {
-        surrounding(&text, caret, count, config.lookback_chars()).await?
+    let redacted = is_redacted(config, identity.app.as_deref(), is_password);
+    let Some(view) = view(&text, redacted, config.lookback_chars()).await? else {
+        return Ok(Reading::Nothing);
     };
-    Ok(Some(FieldSnapshot {
-        field_id: field_id(target),
-        app: app.unwrap_or_default(),
-        window_title: window::title(connection, target).await?,
-        before,
-        after,
-        has_selection: caret::has_selection(&text).await,
-        is_password,
-        composing: false,
-        placement: place(caret::rect(&text, caret, count).await, None, &[]),
-        style: style::read(&text, caret).await,
-    }))
+    let previous_breaks_line = view
+        .surrounding
+        .as_ref()
+        .is_some_and(|text| text.before.ends_with(LINE_BREAKS));
+    let rect = caret::rect(&text, view.caret, view.count, previous_breaks_line).await;
+    Ok(Reading::Field(Box::new(FieldSnapshot::from_parts(
+        config,
+        FieldParts {
+            field_id: field_id(&target),
+            app: identity.app.clone(),
+            window_title: identity.title.clone(),
+            surrounding: view.surrounding,
+            has_selection: caret::has_selection(&text).await,
+            is_password,
+            composing: false,
+            placement: place(rect, None, &[]),
+            style: style::read(&text, view.caret).await,
+        },
+    ))))
 }
