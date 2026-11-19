@@ -14,13 +14,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub use pith_core::Rgb;
 use pith_core::Scheme;
 
-use crate::registry::apps_use_dark_theme;
+use crate::registry::{apps_use_dark_theme, system_uses_dark_theme};
 
 const WHITE: Rgb = Rgb::WHITE;
 pub const INK: Rgb = Rgb(0x1C1814);
-pub const CITRUS: Rgb = Rgb(0xE0600A);
-pub const AMBER: Rgb = Rgb(0xF5A04A);
-pub const CREAM: Rgb = Rgb(0xFBF3E6);
 pub fn d2d(color: Rgb) -> D2D1_COLOR_F {
     let [r, g, b] = color.unit_channels();
     D2D1_COLOR_F { r, g, b, a: 1.0 }
@@ -89,9 +86,9 @@ pub struct Palette {
 impl Palette {
     fn light() -> Self {
         Self {
-            page: Rgb(0xF3F3F3),
+            page: Scheme::LIGHT.page,
             card: Scheme::LIGHT.card,
-            card_stroke: Rgb(0xE5E5E5),
+            card_stroke: Scheme::LIGHT.stroke,
             text: Scheme::LIGHT.text,
             text_secondary: Scheme::LIGHT.text_secondary,
             control: Rgb(0xFBFBFB),
@@ -101,7 +98,7 @@ impl Palette {
             strong_stroke: Rgb(0x7A7A7A),
             track: Rgb(0xD0D0D0),
             accent: Accent::LIGHT,
-            mark_ghost: Rgb(0xBBB2A6),
+            mark_ghost: Scheme::LIGHT.text,
             danger: Rgb(0xC42B1C),
             success: Rgb(0x0F7B0F),
         }
@@ -109,9 +106,9 @@ impl Palette {
 
     fn dark() -> Self {
         Self {
-            page: Rgb(0x202020),
+            page: Scheme::DARK.page,
             card: Scheme::DARK.card,
-            card_stroke: Rgb(0x3A3A3A),
+            card_stroke: Scheme::DARK.stroke,
             text: Scheme::DARK.text,
             text_secondary: Scheme::DARK.text_secondary,
             control: Rgb(0x373737),
@@ -121,7 +118,7 @@ impl Palette {
             strong_stroke: Rgb(0x9B9B9B),
             track: Rgb(0x5C5C5C),
             accent: Accent::DARK,
-            mark_ghost: Rgb(0x6B645C),
+            mark_ghost: Scheme::DARK.text,
             danger: Rgb(0xFF99A4),
             success: Rgb(0x6CCB5F),
         }
@@ -153,10 +150,16 @@ impl Palette {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Light,
+    Dark,
+    Contrast,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Theme {
     pub palette: Palette,
-    pub dark: bool,
-    pub contrast: bool,
+    pub mode: Mode,
 }
 
 thread_local! {
@@ -183,22 +186,63 @@ fn high_contrast() -> bool {
     read.is_ok() && contrast.dwFlags.0 & HCF_HIGHCONTRASTON.0 != 0
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Taskbar {
+    #[default]
+    Dark,
+    Light,
+    Contrast {
+        text: Rgb,
+        dim: Rgb,
+    },
+}
+
+impl Taskbar {
+    pub fn of(theme: &Theme) -> Self {
+        match theme.mode {
+            Mode::Contrast => Self::Contrast {
+                text: theme.palette.text,
+                dim: theme.palette.text_secondary,
+            },
+            Mode::Light | Mode::Dark if system_uses_dark_theme() => Self::Dark,
+            Mode::Light | Mode::Dark => Self::Light,
+        }
+    }
+
+    pub fn glyph(self) -> (Rgb, Rgb) {
+        match self {
+            Self::Dark => (Scheme::DARK.accent, Scheme::DARK.text),
+            Self::Light => (Scheme::LIGHT.accent, Scheme::LIGHT.text),
+            Self::Contrast { text, .. } => (text, text),
+        }
+    }
+}
+
 impl Theme {
     pub fn detect() -> Self {
-        let contrast = high_contrast();
-        let dark = !contrast
-            && FORCED_DARK
-                .with(Cell::get)
-                .unwrap_or_else(apps_use_dark_theme);
-        let palette = match (contrast, dark) {
-            (true, _) => Palette::contrast(),
-            (false, true) => Palette::dark(),
-            (false, false) => Palette::light(),
+        let mode = if high_contrast() {
+            Mode::Contrast
+        } else if FORCED_DARK
+            .with(Cell::get)
+            .unwrap_or_else(apps_use_dark_theme)
+        {
+            Mode::Dark
+        } else {
+            Mode::Light
         };
-        Self {
-            palette,
-            dark,
-            contrast,
-        }
+        let palette = match mode {
+            Mode::Contrast => Palette::contrast(),
+            Mode::Dark => Palette::dark(),
+            Mode::Light => Palette::light(),
+        };
+        Self { palette, mode }
+    }
+
+    pub fn is_dark(&self) -> bool {
+        self.mode == Mode::Dark
+    }
+
+    pub fn is_contrast(&self) -> bool {
+        self.mode == Mode::Contrast
     }
 }

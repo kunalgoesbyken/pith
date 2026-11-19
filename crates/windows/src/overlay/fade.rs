@@ -1,4 +1,3 @@
-use pith_core::{FADE_ALPHAS, FADE_FRAME_MS};
 use windows::Win32::Foundation::{COLORREF, HWND};
 use windows::Win32::Graphics::Gdi::{AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -6,6 +5,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     UpdateLayeredWindow,
 };
 
+const FADE_FRAME_MS: u32 = 16;
+const FADE_ALPHAS: [u8; 6] = [112, 141, 169, 198, 226, 255];
 pub const TIMER: usize = 1;
 const LAST_STEP: usize = FADE_ALPHAS.len() - 1;
 
@@ -22,15 +23,18 @@ pub fn step(window: HWND) -> usize {
     unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) as usize }
 }
 
-pub fn reset(window: HWND) {
+pub fn reset(window: HWND, animated: bool) {
+    let first = if animated { 0 } else { LAST_STEP };
     unsafe {
-        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+        SetWindowLongPtrW(window, GWLP_USERDATA, first as isize);
     }
 }
 
 pub fn start(window: HWND) {
-    unsafe {
-        SetTimer(Some(window), TIMER, FADE_FRAME_MS, None);
+    if step(window) < LAST_STEP {
+        unsafe {
+            SetTimer(Some(window), TIMER, FADE_FRAME_MS, None);
+        }
     }
 }
 

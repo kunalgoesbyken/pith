@@ -8,6 +8,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
+use crate::appearance::is_appearance_change;
+
 const WM_WAKE: u32 = WM_APP + 1;
 
 #[derive(Clone, Default)]
@@ -33,6 +35,7 @@ pub enum Signal {
     Timer(usize),
     Hotkey(i32),
     Power,
+    Appearance,
 }
 
 thread_local! {
@@ -50,6 +53,7 @@ unsafe extern "system" fn control_procedure(
         WM_TIMER => Some(Signal::Timer(wparam.0)),
         WM_HOTKEY => Some(Signal::Hotkey(wparam.0 as i32)),
         WM_POWERBROADCAST if wparam.0 as u32 == PBT_POWERSETTINGCHANGE => Some(Signal::Power),
+        _ if is_appearance_change(message, wparam, lparam) => Some(Signal::Appearance),
         _ => None,
     };
     if let Some(signal) = signal {
@@ -75,12 +79,12 @@ pub fn control_window() -> windows::core::Result<HWND> {
             WINDOW_EX_STYLE(0),
             class,
             w!("pith-control"),
-            WINDOW_STYLE(0),
+            WS_POPUP,
             0,
             0,
             0,
             0,
-            Some(HWND_MESSAGE),
+            None,
             None,
             Some(instance.into()),
             None,

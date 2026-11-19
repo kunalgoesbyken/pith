@@ -192,6 +192,24 @@ impl Canvas {
         }
     }
 
+    pub fn fill_round_at(&self, origin: (f32, f32), size: (f32, f32), radius: f32, color: Rgb) {
+        let shape = D2D1_ROUNDED_RECT {
+            rect: D2D_RECT_F {
+                left: origin.0,
+                top: origin.1,
+                right: origin.0 + size.0,
+                bottom: origin.1 + size.1,
+            },
+            radiusX: radius,
+            radiusY: radius,
+        };
+        unsafe {
+            self.resources
+                .target
+                .FillRoundedRectangle(&shape, self.paint_with(color));
+        }
+    }
+
     pub fn stroke_round(&self, bounds: RECT, radius: i32, color: Rgb, thickness: i32) {
         let half = thickness as f32 / 2.0;
         let mut rect = float_rect(bounds);
@@ -229,19 +247,6 @@ impl Canvas {
             self.resources
                 .target
                 .FillEllipse(&shape, self.paint_with(color));
-        }
-    }
-
-    pub fn ring(&self, center: (f32, f32), radius: f32, thickness: f32, color: Rgb) {
-        let shape = D2D1_ELLIPSE {
-            point: point(center.0, center.1),
-            radiusX: radius,
-            radiusY: radius,
-        };
-        unsafe {
-            self.resources
-                .target
-                .DrawEllipse(&shape, self.paint_with(color), thickness, None);
         }
     }
 

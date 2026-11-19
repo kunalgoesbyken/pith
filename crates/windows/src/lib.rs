@@ -1,5 +1,6 @@
 #![cfg(windows)]
 
+mod appearance;
 pub mod brand;
 mod caret;
 mod clipboard;
@@ -20,6 +21,7 @@ mod rival;
 mod run;
 mod settings;
 mod spell;
+mod trail;
 mod tray;
 mod ui;
 mod update;
@@ -31,10 +33,13 @@ pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
 };
 pub use overlay::OVERLAY_CLASS;
+#[doc(hidden)]
+pub use overlay::{Picture, Sample, preview};
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use rival::Rival;
 pub use run::{Inbound, Inbox, InsertMode, Options, run};
 pub use settings::{SettingsWindow, StatsView};
 pub use tray::TrayCommand;
-pub use ui::force_dark_theme;
+#[doc(hidden)]
+pub use ui::{Taskbar, force_dark_theme};
 pub use util::{hardware, open_path, single_instance};

@@ -7,8 +7,6 @@ use crate::types::Rect;
 
 pub const CONTRAST_FLOOR: f32 = 3.0;
 pub const MAX_ALPHA: u32 = 230;
-pub const FADE_FRAME_MS: u32 = 16;
-pub const FADE_ALPHAS: [u8; 4] = [112, 176, 232, 255];
 
 const NEXT_WORD_BOOST_PERCENT: u32 = 135;
 

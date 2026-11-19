@@ -82,7 +82,7 @@ fn pick(state: Interaction, rest: Rgb, hot: Rgb, pressed: Rgb) -> Rgb {
 
 fn standard(theme: &Theme, state: Interaction, text: Rgb) -> Fill {
     let palette = &theme.palette;
-    let engaged = theme.contrast && (state.hot || state.pressed);
+    let engaged = theme.is_contrast() && (state.hot || state.pressed);
     Fill {
         fill: pick(
             state,

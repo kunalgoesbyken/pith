@@ -1,22 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-8 -20 200 104" width="400" height="208" role="img" aria-label="Pith">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-8 -26 237 104" width="474" height="208" role="img" aria-label="Pith">
   <style>
-    .caret { stroke: #E0600A; }
-    .ghost { stroke: #1C1814; stroke-opacity: 0.3; }
+    .caret { stroke: #CC4C08; }
     .ink { stroke: #1C1814; }
+    .tail { fill: #7A7A7A; }
     .dot { fill: #1C1814; }
     @media (prefers-color-scheme: dark) {
       .caret { stroke: #F5A04A; }
-      .ghost { stroke: #FBF3E6; stroke-opacity: 0.38; }
       .ink { stroke: #FBF3E6; }
+      .tail { fill: #8C867D; }
       .dot { fill: #FBF3E6; }
     }
   </style>
   <g fill="none" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
-    <circle class="ghost" cx="25" cy="31" r="18"/>
-    <line class="caret" x1="7" y1="7" x2="7" y2="68"/>
-    <line class="ink" x1="71" y1="13" x2="71" y2="49"/>
-    <path class="ink" d="M99 -1V37a12 12 0 0 0 12 12h4M93 13h26"/>
-    <path class="ink" d="M141 -7V49M141 31a18 18 0 0 1 36 0V49"/>
+    <line class="caret" x1="7" y1="-7" x2="7" y2="61"/>
+    <line class="ink" x1="32" y1="27" x2="58" y2="27"/>
+    <line class="ink" x1="108" y1="13" x2="108" y2="49"/>
+    <path class="ink" d="M136 -1V37a12 12 0 0 0 12 12h4M130 13h26"/>
+    <path class="ink" d="M178 -7V49M178 31a18 18 0 0 1 36 0V49"/>
   </g>
-  <circle class="dot" cx="71" cy="-7" r="8.5"/>
+  <circle class="tail" cx="80" cy="27" r="7"/>
+  <circle class="dot" cx="108" cy="-7" r="8.5"/>
 </svg>

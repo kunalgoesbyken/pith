@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use pith_core::{
-    Action, Completion, CompletionRequest, Config, FieldSnapshot, Keymap, ModelPreset, PauseSpan,
-    Placement, Reach, SkipReason, Suffix, check,
+    Action, Completion, CompletionRequest, Config, FieldSnapshot, Keymap, ModelPreset,
+    PILL_ELEVATION, PauseSpan, Placement, Reach, Scale, SkipReason, Suffix, check,
 };
 use pith_infer::{Backend, Worker};
 use pith_windows::{
@@ -27,7 +27,7 @@ use windows::Win32::UI::Controls::{
     EM_SETSEL, EM_UNDO,
 };
 use windows::Win32::UI::HiDpi::{
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -496,10 +496,7 @@ struct Rig {
 
 impl Rig {
     fn key(&self, action: KeyAction) {
-        let control = unsafe {
-            FindWindowExW(Some(HWND_MESSAGE), None, w!("PithControl"), None)
-                .expect("control window")
-        };
+        let control = unsafe { FindWindowW(w!("PithControl"), None).expect("control window") };
         let id = hotkey_id(&self.keymap, action);
         unsafe {
             PostMessageW(Some(control), WM_HOTKEY, WPARAM(id as usize), LPARAM(0))
@@ -1030,9 +1027,7 @@ fn midline_fit(rig: &mut Rig) {
         rect.top,
     );
     let drawn = visible_text(&rig.settle(Duration::from_millis(700)));
-    let pill = overlay_window()
-        .map(window_rect)
-        .filter(|_| overlay_visible());
+    let pill = pill_body();
     rig.check(
         "the cut pill stays on screen inside the room next to the caret",
         pill.is_some_and(|p| p.right <= monitor.right && p.left >= caret_x - 12),
@@ -1134,9 +1129,7 @@ fn midline(rig: &mut Rig) {
     );
     std::thread::sleep(Duration::from_millis(200));
     let (caret_x, caret_y) = caret_screen(field.edit, utf16_len(prefix));
-    let pill = overlay_window()
-        .map(window_rect)
-        .filter(|_| overlay_visible());
+    let pill = pill_body();
     rig.check(
         "the pill starts at the caret, stays off the text after it and is wide enough for the suggestion",
         pill.is_some_and(|p| {
@@ -1963,6 +1956,18 @@ fn overlay_at_screen_edge(rig: &mut Rig) {
     move_host(field, rect.left, rect.top);
 }
 
+fn pill_body() -> Option<RECT> {
+    let hwnd = overlay_window().filter(|_| overlay_visible())?;
+    let margin = Scale(unsafe { GetDpiForWindow(hwnd) }).px(PILL_ELEVATION);
+    let outer = window_rect(hwnd);
+    Some(RECT {
+        left: outer.left + margin,
+        top: outer.top + margin,
+        right: outer.right - margin,
+        bottom: outer.bottom - margin,
+    })
+}
+
 fn overlay_anchors_without_a_usable_caret(rig: &mut Rig) {
     let field = rig.a;
     let rect = window_rect(HWND(field.host as _));
@@ -1974,9 +1979,7 @@ fn overlay_anchors_without_a_usable_caret(rig: &mut Rig) {
     std::thread::sleep(Duration::from_millis(500));
     let monitor = monitor_rect(monitor_of(HWND(field.host as _)));
     let edit = window_rect(HWND(field.edit as _));
-    let pill = overlay_window()
-        .map(window_rect)
-        .filter(|_| overlay_visible());
+    let pill = pill_body();
     rig.check(
         "caret off the monitor anchors the suggestion to the field, inside the monitor and clear of its text",
         pill.is_some_and(|p| {

@@ -6,6 +6,7 @@ use windows::core::w;
 
 use super::preferences::Preferences;
 use super::{App, Options};
+use crate::appearance::Appearance;
 use crate::foreground::Foreground;
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::registry;
@@ -39,12 +40,13 @@ pub struct Presenter {
     skip: Option<SkipReason>,
     notice: Option<String>,
     update: Update,
+    appearance: Appearance,
 }
 
 impl Presenter {
-    pub fn new(config: &Config, options: &Options) -> Self {
+    pub fn new(config: &Config, options: &Options, appearance: Appearance) -> Self {
         let tray = if options.tray {
-            Tray::create(config.enabled, &config.reach())
+            Tray::create(config.enabled, &config.reach(), &appearance)
         } else {
             None
         };
@@ -69,11 +71,21 @@ impl Presenter {
             skip: None,
             notice: options.notice.clone(),
             update: Update::default(),
+            appearance,
         }
     }
 
     pub fn set_model(&mut self, model: Model) {
         self.model = model;
+    }
+
+    pub fn needs_key_hint(&self) -> bool {
+        self.ledger.stats().total().needs_key_hint()
+    }
+
+    pub fn set_appearance(&mut self, appearance: Appearance, prefs: &Preferences) {
+        self.appearance = appearance;
+        self.refresh_tray(prefs);
     }
 
     pub fn update(&self) -> &Update {
@@ -155,6 +167,8 @@ impl Presenter {
         tray.show(TrayView {
             status: self.status_line(prefs),
             active: prefs.enabled(),
+            taskbar: self.appearance.taskbar,
+            icon_px: self.appearance.icon_px,
             pause: prefs.shown_pause(),
             foreground: self.foreground.app().map(|name| ForegroundApp {
                 name: name.to_string(),

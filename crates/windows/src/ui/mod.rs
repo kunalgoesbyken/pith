@@ -23,7 +23,7 @@ pub use metrics::{
 };
 pub use opaque::make_opaque;
 pub use slot::Slot;
-pub use theme::{AMBER, CITRUS, CREAM, INK, Rgb, Theme, colorref, force_dark_theme};
+pub use theme::{INK, Mode, Rgb, Taskbar, Theme, colorref, force_dark_theme};
 
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{SPI_SETHIGHCONTRAST, WM_SETTINGCHANGE};

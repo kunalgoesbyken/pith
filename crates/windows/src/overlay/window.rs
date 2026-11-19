@@ -76,9 +76,15 @@ impl Layered {
         self.visible
     }
 
-    pub fn present(&mut self, screen: &ScreenDc, raster: &Raster, destination: POINT) {
+    pub fn present(
+        &mut self,
+        screen: &ScreenDc,
+        raster: &Raster,
+        destination: POINT,
+        animated: bool,
+    ) {
         if !self.visible {
-            fade::reset(self.hwnd);
+            fade::reset(self.hwnd, animated);
         }
         unsafe {
             let _ = UpdateLayeredWindow(

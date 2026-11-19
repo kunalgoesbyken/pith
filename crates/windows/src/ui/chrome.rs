@@ -54,14 +54,14 @@ fn extend_frame(hwnd: HWND, by: i32) {
 }
 
 pub fn apply(hwnd: HWND, theme: &Theme) -> bool {
-    let dark = i32::from(theme.dark);
+    let dark = i32::from(theme.is_dark());
     let _ = set_attribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark);
     let _ = set_attribute::<DWM_WINDOW_CORNER_PREFERENCE>(
         hwnd,
         DWMWA_WINDOW_CORNER_PREFERENCE,
         &DWMWCP_ROUND,
     );
-    let mica = !theme.contrast
+    let mica = !theme.is_contrast()
         && build_number() >= MICA_BUILD
         && set_attribute::<DWM_SYSTEMBACKDROP_TYPE>(
             hwnd,

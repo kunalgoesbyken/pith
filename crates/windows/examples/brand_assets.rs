@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use pith_windows::Taskbar;
 use pith_windows::brand::{self, Look};
 
 mod common;
@@ -8,9 +9,9 @@ use common::png;
 
 const ICON_PATH: &str = "assets/pith.ico";
 const SHOTS_DIR: &str = "target/brand-shots";
-const ICON_SIZES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, 256];
-const TRAY_SIZES: [u32; 4] = [16, 20, 24, 32];
-const APP_SIZES: [u32; 7] = [16, 20, 24, 32, 40, 48, 64];
+const ICON_SIZES: [u32; 6] = [16, 20, 24, 32, 48, 256];
+const TRAY_SIZES: [u32; 5] = [16, 20, 24, 28, 32];
+const APP_SIZES: [u32; 6] = [16, 20, 24, 32, 48, 64];
 const LIGHT: [u8; 4] = [0xF3, 0xF3, 0xF3, 0xFF];
 const DARK: [u8; 4] = [0x20, 0x20, 0x20, 0xFF];
 const MAGNIFIED: u32 = 128;
@@ -55,7 +56,7 @@ fn blend(pixel: &[u8], background: [u8; 4]) -> [u8; 4] {
     ]
 }
 
-fn sheet(name: &str, rows: &[([u8; 4], &Look)], sizes: &[u32]) {
+fn sheet(name: &str, rows: &[([u8; 4], Look)], sizes: &[u32]) {
     let zoom = |size: u32| (MAGNIFIED / size).max(1);
     let cell = sizes.iter().map(|&size| size * zoom(size)).max().unwrap() + GAP;
     let width = cell * sizes.len() as u32;
@@ -90,16 +91,16 @@ fn main() {
     std::fs::write(ICON_PATH, ico(&brand::APP)).unwrap();
     println!("{ICON_PATH}");
     let tray = [
-        (LIGHT, &brand::ACTIVE),
-        (DARK, &brand::ACTIVE),
-        (LIGHT, &brand::PAUSED),
-        (DARK, &brand::PAUSED),
+        (LIGHT, brand::tray(Taskbar::Light, true)),
+        (DARK, brand::tray(Taskbar::Dark, true)),
+        (LIGHT, brand::tray(Taskbar::Light, false)),
+        (DARK, brand::tray(Taskbar::Dark, false)),
     ];
     sheet("tray", &tray, &TRAY_SIZES);
     sheet(
         "app",
-        &[(LIGHT, &brand::APP), (DARK, &brand::APP)],
+        &[(LIGHT, brand::APP), (DARK, brand::APP)],
         &APP_SIZES,
     );
-    sheet("app-256", &[(LIGHT, &brand::APP)], &[256]);
+    sheet("app-256", &[(LIGHT, brand::APP)], &[256]);
 }

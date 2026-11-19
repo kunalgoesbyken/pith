@@ -157,6 +157,10 @@ pub fn apps_use_dark_theme() -> bool {
     read_dword(THEME_KEY, "AppsUseLightTheme") == Some(0)
 }
 
+pub fn system_uses_dark_theme() -> bool {
+    read_dword(THEME_KEY, "SystemUsesLightTheme") == Some(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

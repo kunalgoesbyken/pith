@@ -65,6 +65,8 @@ impl Overlay {
             field: None,
             line_height: font.line_height(),
             measure: &measure,
+            elevated: translucent,
+            keycap: None,
         };
         let labels: Vec<Label> = cuts.iter().map(|text| Label::cut(text)).collect();
         let Some((index, placed)) = fit_cuts(&labels, form, &surface) else {

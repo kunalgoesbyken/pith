@@ -34,7 +34,7 @@ mod typo;
 
 pub use apps::{Access, inserts_by_paste};
 pub use chord::{Chord, Key};
-pub use color::{Rgb, argb};
+pub use color::{CHANNEL_MAX, Rgb, argb};
 pub use config::{
     Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, Reach, TriggerMode, app_name,
 };
@@ -42,8 +42,8 @@ pub use emphasis::Emphasis;
 pub use engine::{Action, Engine, Event};
 pub use field::{AFTER_CHARS, FieldParts, Surrounding, is_redacted};
 pub use ghost::{
-    FADE_ALPHAS, FADE_FRAME_MS, Flow, Ink, Line, fits, flow_bounds, ink, is_rtl, layout,
-    lines_that_fit, median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
+    Flow, Ink, Line, fits, flow_bounds, ink, is_rtl, layout, lines_that_fit, median_by_luminance,
+    next_word_alpha, opacity_alpha, strong_span,
 };
 pub use hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
@@ -56,7 +56,8 @@ pub use prompt::{CompletionRequest, build, suggestion};
 pub use replacing::SelectOutcome;
 pub use scale::{BASE_DPI, Scale};
 pub use scene::{
-    Form, PILL_FONT_PX, Placed, Point, Size, Surface, fit_cuts, inline_anchor, inline_font_px,
+    Form, KEYCAP_FONT_PX, KeycapLabel, PILL_ELEVATION, PILL_FONT_PX, Placed, Point, Size, Surface,
+    fit_cuts, inline_anchor, inline_font_px, keycap_label_origin,
 };
 pub use setting::{Length, Setting, Suggestions, clamp_opacity};
 pub use shading::{Pill, PillStyle, Scheme, Shading};

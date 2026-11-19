@@ -4,10 +4,9 @@ use pith_core::Rgb;
 use windows::Win32::Foundation::{COLORREF, SIZE};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
-    ETO_OPTIONS, ETO_RTLREADING, ExtTextOutW, HBITMAP, HDC, HGDIOBJ, SelectObject, SetBkMode,
-    SetTextColor, TRANSPARENT,
+    ETO_OPTIONS, ETO_RTLREADING, HBITMAP, HDC, HGDIOBJ, SelectObject, SetBkMode, SetTextColor,
+    TRANSPARENT,
 };
-use windows::core::PCWSTR;
 
 use super::face::Face;
 use super::scene::Scene;
@@ -24,7 +23,7 @@ pub struct Raster<'a> {
 }
 
 impl<'a> Raster<'a> {
-    pub fn render(scene: &'a Scene) -> Option<Self> {
+    pub fn render(scene: &Scene<'a>) -> Option<Self> {
         let size = SIZE {
             cx: scene.placed.size.width,
             cy: scene.placed.size.height,
@@ -37,6 +36,11 @@ impl<'a> Raster<'a> {
 
     pub fn source(&self) -> HDC {
         self.face.memory
+    }
+
+    pub fn pixels(&self) -> Vec<u32> {
+        let length = (self.size.cx * self.size.cy) as usize;
+        unsafe { std::slice::from_raw_parts(self.bits, length) }.to_vec()
     }
 
     fn allocate(face: &'a Face, size: SIZE) -> Option<Self> {
@@ -77,19 +81,17 @@ impl<'a> Raster<'a> {
         unsafe {
             SetBkMode(memory, TRANSPARENT);
             SetTextColor(memory, COLORREF(Rgb::WHITE.bgr()));
-            for line in &scene.placed.lines {
-                let units: Vec<u16> = scene.text[line.start..line.end].encode_utf16().collect();
-                let _ = ExtTextOutW(
-                    memory,
-                    line.x - scene.placed.origin.x,
-                    line.y - scene.placed.origin.y,
-                    options,
-                    None,
-                    PCWSTR(units.as_ptr()),
-                    units.len() as u32,
-                    None,
-                );
-            }
+        }
+        for line in &scene.placed.lines {
+            let at = (
+                line.x - scene.placed.origin.x,
+                line.y - scene.placed.origin.y,
+            );
+            self.face
+                .paint(memory, &scene.text[line.start..line.end], at, options);
+        }
+        if let (Some(hint), Some(keycap)) = (scene.hint, scene.placed.keycap) {
+            hint.paint(memory, keycap);
         }
     }
 

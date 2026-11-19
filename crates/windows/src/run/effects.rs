@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use pith_core::{Action, Completion, Correction, Drawn, Event, log};
+use pith_core::{Action, Chord, Completion, Correction, Drawn, Event, log};
 
 use super::{App, Inbound, InsertMode, TIMER_DEBOUNCE, TIMER_REPLACE};
 use crate::clipboard::{Trigger, paste};
@@ -123,7 +123,8 @@ impl App {
                     placement,
                     style,
                 } => {
-                    let outcome = self.overlay.show(&cuts, placement, &style);
+                    let hint = self.key_hint();
+                    let outcome = self.overlay.show(&cuts, placement, &style, hint.as_deref());
                     if let Drawn::Shown(index) = outcome
                         && let Some(cut) = cuts.into_iter().nth(index)
                     {
@@ -169,6 +170,13 @@ impl App {
     pub(super) fn replace_timed_out(&mut self) {
         self.kill_timer(TIMER_REPLACE);
         self.dispatch(Event::ReplaceTimedOut(self.effects.pending_replace));
+    }
+
+    fn key_hint(&self) -> Option<String> {
+        if !self.presenter.needs_key_hint() {
+            return None;
+        }
+        self.prefs.saved().accept_keys.first().map(Chord::label)
     }
 
     pub(super) fn debounce_elapsed(&mut self) {

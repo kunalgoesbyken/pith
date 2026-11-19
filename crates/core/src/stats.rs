@@ -8,6 +8,7 @@ use crate::stored::write_atomically;
 
 const CHARS_PER_WORD: u64 = 5;
 const SECONDS_PER_MINUTE: u64 = 60;
+const HINTED_ACCEPTS: u64 = 3;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Day(u32);
@@ -44,6 +45,10 @@ impl Counts {
             .words
             .saturating_add(text.unicode_words().count() as u64);
         self.chars = self.chars.saturating_add(text.chars().count() as u64);
+    }
+
+    pub fn needs_key_hint(&self) -> bool {
+        self.accepted.saturating_add(self.accepted_words) < HINTED_ACCEPTS
     }
 
     pub fn add(&mut self, other: Counts) {

@@ -1,8 +1,9 @@
 use windows::Win32::Foundation::SIZE;
 use windows::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateFontW, DEFAULT_CHARSET,
-    DEFAULT_PITCH, DeleteDC, DeleteObject, FW_NORMAL, GetTextExtentPoint32W, GetTextMetricsW, HDC,
-    HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, SelectObject, TEXTMETRICW,
+    DEFAULT_PITCH, DeleteDC, DeleteObject, ETO_OPTIONS, ExtTextOutW, FW_NORMAL,
+    GetTextExtentPoint32W, GetTextMetricsW, HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, SelectObject,
+    TEXTMETRICW,
 };
 use windows::core::PCWSTR;
 
@@ -48,6 +49,24 @@ impl Face {
                 font,
                 previous,
             }
+        }
+    }
+
+    pub fn paint(&self, target: HDC, text: &str, at: (i32, i32), options: ETO_OPTIONS) {
+        let units: Vec<u16> = text.encode_utf16().collect();
+        unsafe {
+            let previous = SelectObject(target, self.font.into());
+            let _ = ExtTextOutW(
+                target,
+                at.0,
+                at.1,
+                options,
+                None,
+                PCWSTR(units.as_ptr()),
+                units.len() as u32,
+                None,
+            );
+            SelectObject(target, previous);
         }
     }
 

@@ -3,6 +3,7 @@ use std::ops::Range;
 use pith_core::{Emphasis, Placed, Shading};
 
 use super::face::Face;
+use super::hint::Hint;
 use super::screen::{Monitor, ScreenDc};
 
 #[derive(Clone, Copy)]
@@ -13,12 +14,14 @@ pub struct Frame<'a> {
     pub screen: &'a ScreenDc,
     pub monitor: Monitor,
     pub face: &'a Face,
+    pub hint: Option<&'a Hint>,
 }
 
 pub struct Scene<'a> {
     pub text: &'a str,
     pub rtl: bool,
     pub face: &'a Face,
+    pub hint: Option<&'a Hint>,
     pub placed: Placed,
     emphasis: Emphasis,
     shading: Shading,
@@ -39,6 +42,7 @@ impl<'a> Scene<'a> {
             text: frame.text,
             rtl: frame.rtl,
             face,
+            hint: frame.hint,
             placed,
             emphasis,
             shading,

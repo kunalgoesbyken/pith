@@ -1,41 +1,42 @@
 mod anchored;
+mod compose;
 mod face;
 mod fade;
+mod hint;
 mod inline;
 mod pill;
+mod preview;
 mod raster;
 mod scene;
 mod screen;
 mod window;
 
-use pith_core::{
-    Drawn, Form, Label, PillStyle, Placed, Placement, Rgb, Surface, TextStyle, fit_cuts,
-    inline_anchor, is_rtl,
-};
-use windows::Win32::Foundation::POINT;
+use pith_core::{Drawn, Form, Label, Placed, Placement, Rgb, TextStyle, inline_anchor};
 
+use compose::{Request, compose, render};
 use inline::Backdrop;
-use raster::Raster;
-use scene::{Frame, Scene};
+use scene::Frame;
 use screen::{Monitor, ScreenDc, focused_field, sample_background};
 use window::Layered;
+
+pub use preview::{Picture, Sample, preview};
 pub use window::OVERLAY_CLASS;
 
-use crate::ui::Theme;
+use crate::appearance::Appearance;
 
 pub struct Overlay {
     window: Layered,
     background: Rgb,
-    style: PillStyle,
+    appearance: Appearance,
     opacity: u8,
 }
 
 impl Overlay {
-    pub fn create(opacity: u8) -> windows::core::Result<Self> {
+    pub fn create(opacity: u8, appearance: Appearance) -> windows::core::Result<Self> {
         Ok(Self {
             window: Layered::create()?,
             background: Rgb::WHITE,
-            style: pill::style(&Theme::detect()),
+            appearance,
             opacity,
         })
     }
@@ -44,9 +45,19 @@ impl Overlay {
         self.opacity = opacity;
     }
 
-    pub fn show(&mut self, cuts: &[String], placement: Placement, style: &TextStyle) -> Drawn {
+    pub fn set_appearance(&mut self, appearance: Appearance) {
+        self.appearance = appearance;
+    }
+
+    pub fn show(
+        &mut self,
+        cuts: &[String],
+        placement: Placement,
+        style: &TextStyle,
+        key_hint: Option<&str>,
+    ) -> Drawn {
         let labels: Vec<Label> = cuts.iter().map(|text| Label::cut(text)).collect();
-        self.draw(&labels, placement, style)
+        self.draw(&labels, placement, style, key_hint)
     }
 
     pub fn offer(&mut self, label: &Label, placement: Placement) -> Drawn {
@@ -58,39 +69,37 @@ impl Overlay {
             std::slice::from_ref(label),
             placement,
             &TextStyle::default(),
+            None,
         )
     }
 
-    fn draw(&mut self, labels: &[Label], placement: Placement, style: &TextStyle) -> Drawn {
-        let form = Form::of(placement, true);
+    fn draw(
+        &mut self,
+        labels: &[Label],
+        placement: Placement,
+        style: &TextStyle,
+        key_hint: Option<&str>,
+    ) -> Drawn {
+        let request = Request {
+            labels,
+            placement,
+            text: style,
+            theme: self.appearance.theme,
+            key_hint,
+        };
         let screen = ScreenDc::get();
-        let monitor = Monitor::nearest(form.target());
-        let face = match form {
-            Form::Ghost(caret) => inline::face(&screen, monitor, caret, style),
-            Form::UnderCaret(_) | Form::UnderField(_) => anchored::face(&screen, monitor),
-        };
-        let measure = |segment: &str| face.measure(segment);
-        let surface = Surface {
-            work: monitor.work,
-            scale: monitor.scale,
-            field: focused_field(),
-            line_height: face.line_height,
-            measure: &measure,
-        };
-        if let Some((index, placed)) = fit_cuts(labels, form, &surface) {
-            let Label { text, strong } = &labels[index];
-            let frame = Frame {
-                text,
-                strong,
-                rtl: is_rtl(text),
-                screen: &screen,
-                monitor,
-                face: &face,
-            };
-            return self.present(&frame, placement, style, placed, index);
-        }
-        self.window.hide();
-        Drawn::Nothing
+        let monitor = Monitor::nearest(Form::of(placement, true).target());
+        compose(
+            &request,
+            monitor,
+            &screen,
+            focused_field(),
+            |frame, placed, index| self.present(frame, &request, placed, index),
+        )
+        .unwrap_or_else(|| {
+            self.window.hide();
+            Drawn::Nothing
+        })
     }
 
     pub fn hide(&mut self) {
@@ -101,46 +110,23 @@ impl Overlay {
         if self.window.visible() {
             return;
         }
-        match placement {
-            Placement::Inline(caret) => {
-                let anchor = inline_anchor(caret, frame.rtl);
-                self.background = sample_background(frame.screen, caret, anchor, frame.rtl);
-            }
-            Placement::Anchored(_) | Placement::BelowCaret(_) => {
-                self.style = pill::style(&Theme::detect());
-            }
+        if let Placement::Inline(caret) = placement {
+            let anchor = inline_anchor(caret, frame.rtl);
+            self.background = sample_background(frame.screen, caret, anchor, frame.rtl);
         }
     }
 
-    fn present(
-        &mut self,
-        frame: &Frame,
-        placement: Placement,
-        style: &TextStyle,
-        placed: Placed,
-        index: usize,
-    ) -> Drawn {
-        self.capture(frame, placement);
-        let shading = match placement {
-            Placement::Inline(_) => {
-                let backdrop = Backdrop {
-                    color: self.background,
-                    opacity: self.opacity,
-                };
-                inline::shading(style, backdrop)
-            }
-            Placement::Anchored(_) | Placement::BelowCaret(_) => {
-                anchored::shading(frame, &placed, self.style)
-            }
+    fn present(&mut self, frame: &Frame, request: &Request, placed: Placed, index: usize) -> Drawn {
+        self.capture(frame, request.placement);
+        let backdrop = Backdrop {
+            color: self.background,
+            opacity: self.opacity,
         };
-        let destination = POINT {
-            x: placed.destination.x,
-            y: placed.destination.y,
-        };
-        let scene = Scene::new(frame, placed, shading);
-        match Raster::render(&scene) {
-            Some(raster) => {
-                self.window.present(frame.screen, &raster, destination);
+        match render(frame, request, placed, backdrop) {
+            Some((raster, destination)) => {
+                let animated = self.appearance.animated;
+                self.window
+                    .present(frame.screen, &raster, destination, animated);
                 Drawn::Shown(index)
             }
             None => {

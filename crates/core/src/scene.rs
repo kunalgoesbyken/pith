@@ -4,13 +4,21 @@ use crate::{
 };
 
 pub const PILL_FONT_PX: f32 = 14.0;
+pub const KEYCAP_FONT_PX: f32 = 12.0;
 pub const PILL_EDGE: i32 = 1;
+pub const PILL_ELEVATION: i32 = 12;
+pub const PILL_RADIUS: i32 = 6;
+pub const PILL_WRAPPED_RADIUS: i32 = 8;
+pub const KEYCAP_RADIUS: i32 = 4;
 const FONT_TO_CARET_HEIGHT: f32 = 0.72;
 const MIN_FONT_PX: i32 = 9;
 const MAX_FONT_PX: i32 = 72;
-const PADDING_X: i32 = 10;
-const PADDING_Y: i32 = 5;
-const GAP: i32 = 4;
+const PADDING_X: i32 = 12;
+const PADDING_Y: i32 = 6;
+const GAP: i32 = 6;
+const KEYCAP_PADDING_X: i32 = 6;
+const KEYCAP_PADDING_Y: i32 = 2;
+const KEYCAP_GAP: i32 = 8;
 const MIN_WIDTH: i32 = 240;
 const MAX_LINES: usize = 4;
 
@@ -32,6 +40,30 @@ pub struct Placed {
     pub origin: Point,
     pub destination: Point,
     pub size: Size,
+    pub margin: i32,
+    pub keycap: Option<Rect>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeycapLabel {
+    pub width: i32,
+    pub line_height: i32,
+}
+
+impl KeycapLabel {
+    fn size(self, scale: Scale) -> Size {
+        Size {
+            width: self.width + 2 * scale.px(KEYCAP_PADDING_X),
+            height: self.line_height + 2 * scale.px(KEYCAP_PADDING_Y),
+        }
+    }
+}
+
+pub fn keycap_label_origin(keycap: Rect, scale: Scale) -> Point {
+    Point {
+        x: keycap.x + scale.px(KEYCAP_PADDING_X),
+        y: keycap.y + scale.px(KEYCAP_PADDING_Y),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +103,8 @@ pub struct Surface<'a> {
     pub field: Option<Rect>,
     pub line_height: i32,
     pub measure: &'a dyn Fn(&str) -> i32,
+    pub elevated: bool,
+    pub keycap: Option<KeycapLabel>,
 }
 
 pub fn inline_anchor(caret: Rect, rtl: bool) -> i32 {
@@ -113,6 +147,8 @@ fn place_inline(surface: &Surface, text: &str, rtl: bool, caret: Rect) -> Option
             width: (right - left).max(1),
             height: last - first + surface.line_height,
         },
+        margin: 0,
+        keycap: None,
     })
 }
 
@@ -135,30 +171,81 @@ fn place_under_caret(surface: &Surface, text: &str, rtl: bool, caret: Rect) -> O
 }
 
 pub fn fit_cuts(labels: &[Label], form: Form, surface: &Surface) -> Option<(usize, Placed)> {
+    let offered = match form {
+        Form::Ghost(_) => None,
+        Form::UnderCaret(_) | Form::UnderField(_) => surface.keycap,
+    };
     labels
         .iter()
         .enumerate()
         .find_map(|(index, Label { text, .. })| {
             let rtl = is_rtl(text);
-            let placed = match form {
-                Form::Ghost(caret) => place_inline(surface, text, rtl, caret),
-                Form::UnderCaret(caret) => place_under_caret(surface, text, rtl, caret),
-                Form::UnderField(element) => place_under_field(surface, text, rtl, element),
-            };
-            placed
-                .filter(|placed| fits(text, &placed.lines))
-                .map(|placed| (index, placed))
+            offered
+                .into_iter()
+                .map(Some)
+                .chain([None])
+                .find_map(|keycap| {
+                    let surface = Surface { keycap, ..*surface };
+                    let placed = match form {
+                        Form::Ghost(caret) => place_inline(&surface, text, rtl, caret),
+                        Form::UnderCaret(caret) => place_under_caret(&surface, text, rtl, caret),
+                        Form::UnderField(element) => {
+                            place_under_field(&surface, text, rtl, element)
+                        }
+                    };
+                    placed
+                        .filter(|placed| fits(text, &placed.lines))
+                        .map(|placed| (index, placed))
+                })
         })
 }
 
-fn place_pill(surface: &Surface, text: &str, rtl: bool, anchor: Rect, room: i32) -> Option<Placed> {
-    let scale = surface.scale;
-    let (padding_x, padding_y) = (scale.px(PADDING_X), scale.px(PADDING_Y));
-    let room = room - 2 * padding_x;
-    if room < 1 {
-        return None;
+struct Metrics {
+    padding_x: i32,
+    padding_y: i32,
+    margin: i32,
+    keycap_gap: i32,
+    keycap: Option<Size>,
+}
+
+impl Metrics {
+    fn of(surface: &Surface) -> Self {
+        let scale = surface.scale;
+        Self {
+            padding_x: scale.px(PADDING_X),
+            padding_y: scale.px(PADDING_Y),
+            margin: if surface.elevated {
+                scale.px(PILL_ELEVATION)
+            } else {
+                0
+            },
+            keycap_gap: scale.px(KEYCAP_GAP),
+            keycap: surface.keycap.map(|keycap| keycap.size(scale)),
+        }
     }
-    let flow = Flow {
+
+    fn keycap_room(&self) -> i32 {
+        self.keycap.map_or(0, |size| size.width + self.keycap_gap)
+    }
+
+    fn keycap_rect(&self, rtl: bool, text_width: i32, height: i32) -> Option<Rect> {
+        let size = self.keycap?;
+        let start = self.margin + self.padding_x;
+        Some(Rect {
+            x: if rtl {
+                start
+            } else {
+                start + text_width + self.keycap_gap
+            },
+            y: self.margin + (height - size.height) / 2,
+            width: size.width,
+            height: size.height,
+        })
+    }
+}
+
+fn pill_flow(surface: &Surface, rtl: bool, room: i32) -> Flow {
+    Flow {
         caret: Rect {
             x: if rtl { room } else { -1 },
             y: 0,
@@ -175,35 +262,49 @@ fn place_pill(surface: &Surface, text: &str, rtl: bool, anchor: Rect, room: i32)
         },
         rtl,
         max_lines: MAX_LINES,
-    };
+    }
+}
+
+fn place_pill(surface: &Surface, text: &str, rtl: bool, anchor: Rect, room: i32) -> Option<Placed> {
+    let metrics = Metrics::of(surface);
+    let keycap_room = metrics.keycap_room();
+    let room = room - 2 * metrics.padding_x - keycap_room;
+    if room < 1 {
+        return None;
+    }
+    let flow = pill_flow(surface, rtl, room);
     let lines = layout(text, &flow, surface.measure);
     if lines.first()?.y != flow.top {
         return None;
     }
     let left = lines.iter().map(|line| line.x).min()?;
     let right = lines.iter().map(|line| line.x + line.width).max()?;
-    let height = lines.len() as i32 * surface.line_height + 2 * padding_y;
+    let height = lines.len() as i32 * surface.line_height + 2 * metrics.padding_y;
     let pill = anchor_pill(
         anchor,
-        right - left + 2 * padding_x,
+        right - left + 2 * metrics.padding_x + keycap_room,
         height,
-        scale.px(GAP),
+        surface.scale.px(GAP),
         surface.work,
         rtl,
     )?;
+    let margin = metrics.margin;
+    let shift = if rtl { keycap_room } else { 0 };
     Some(Placed {
         lines,
         origin: Point {
-            x: left - padding_x,
-            y: -padding_y,
+            x: left - metrics.padding_x - margin - shift,
+            y: -metrics.padding_y - margin,
         },
         destination: Point {
-            x: pill.x,
-            y: pill.y,
+            x: pill.x - margin,
+            y: pill.y - margin,
         },
         size: Size {
-            width: pill.width,
-            height: pill.height,
+            width: pill.width + 2 * margin,
+            height: pill.height + 2 * margin,
         },
+        margin,
+        keycap: metrics.keycap_rect(rtl, right - left, height),
     })
 }

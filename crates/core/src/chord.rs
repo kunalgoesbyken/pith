@@ -55,6 +55,25 @@ impl Chord {
         Ok(chord)
     }
 
+    fn spell(&self, key: &str) -> String {
+        let modifiers = [
+            (self.ctrl, "Ctrl"),
+            (self.shift, "Shift"),
+            (self.alt, "Alt"),
+            (self.win, "Win"),
+        ];
+        modifiers
+            .into_iter()
+            .filter(|(held, _)| *held)
+            .map(|(_, name)| format!("{name}+"))
+            .chain([key.to_string()])
+            .collect()
+    }
+
+    pub fn label(&self) -> String {
+        self.spell(&self.key.label())
+    }
+
     fn ensure_safe(&self, source: &str) -> Result<(), String> {
         let types_text = matches!(self.key, Key::Char(_) | Key::Space);
         let command = self.ctrl || self.alt || self.win;
@@ -69,6 +88,16 @@ impl Chord {
             ));
         }
         Ok(())
+    }
+}
+
+impl Key {
+    pub fn label(&self) -> String {
+        match self {
+            Key::Right => "\u{2192}".to_string(),
+            Key::Char(c) => c.to_uppercase().to_string(),
+            other => other.to_string(),
+        }
     }
 }
 
@@ -87,18 +116,7 @@ impl fmt::Display for Key {
 
 impl fmt::Display for Chord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let modifiers = [
-            (self.ctrl, "Ctrl"),
-            (self.shift, "Shift"),
-            (self.alt, "Alt"),
-            (self.win, "Win"),
-        ];
-        for (held, name) in modifiers {
-            if held {
-                write!(f, "{name}+")?;
-            }
-        }
-        write!(f, "{}", self.key)
+        f.write_str(&self.spell(&self.key.to_string()))
     }
 }
 

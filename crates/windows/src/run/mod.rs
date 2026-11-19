@@ -16,6 +16,7 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::appearance::Appearance;
 use crate::control::{Signal, control_window, next_signal};
 use crate::erase::erase;
 use crate::events::Hooks;
@@ -81,11 +82,12 @@ impl App {
         (inbox, inbound): (Inbox, Receiver<Inbound>),
         options: Options,
     ) -> windows::core::Result<Self> {
+        let appearance = Appearance::detect();
         let speller = Speller::spawn({
             let spelled = inbox.clone();
             move |generation, spelling| spelled.post(Inbound::Spelled(generation, spelling))
         });
-        let presenter = Presenter::new(&config, &options);
+        let presenter = Presenter::new(&config, &options, appearance);
         let prefs = Preferences::new(
             config.clone(),
             options.config_path,
@@ -94,7 +96,7 @@ impl App {
         );
         let mut app = Self {
             control,
-            overlay: Overlay::create(config.ghost_opacity)?,
+            overlay: Overlay::create(config.ghost_opacity, appearance)?,
             keyboard: Keyboard::new(&config.keymap(), control, options.global_keys),
             presenter,
             effects: Effects::new(options.insert, options.observer),
@@ -137,9 +139,16 @@ impl App {
             Signal::Timer(TIMER_REPLACE) => self.replace_timed_out(),
             Signal::Timer(_) => {}
             Signal::Power => self.power_changed(),
+            Signal::Appearance => self.appearance_changed(),
             Signal::Hotkey(id) => self.hotkey_pressed(id),
         }
         false
+    }
+
+    fn appearance_changed(&mut self) {
+        let appearance = Appearance::detect();
+        self.overlay.set_appearance(appearance);
+        self.presenter.set_appearance(appearance, &self.prefs);
     }
 
     fn poll(&mut self) -> bool {

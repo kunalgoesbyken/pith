@@ -4,15 +4,15 @@ use pith_core::{Access, Pause, PauseSpan, Reach};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows::Win32::UI::Shell::{
     NIF_INFO, NIIF_INFO, NIM_MODIFY, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
     Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
-use windows::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
 
+use crate::appearance::Appearance;
 use crate::brand;
 use crate::reach::tooltip;
+use crate::ui::Taskbar;
 use crate::update::Update;
 
 pub const POWER_TOOLTIP: &str = "Pith \u{b7} paused while battery saver is on";
@@ -47,6 +47,8 @@ pub struct ForegroundApp {
 pub struct TrayView {
     pub status: String,
     pub active: bool,
+    pub taskbar: Taskbar,
+    pub icon_px: u32,
     pub pause: Option<Pause>,
     pub foreground: Option<ForegroundApp>,
     pub update: Update,
@@ -88,10 +90,6 @@ fn fill(target: &mut [u16], text: &str) {
     }
 }
 
-fn tray_icon_size() -> u32 {
-    unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) as u32 }
-}
-
 fn icon_id(hwnd: HWND) -> Option<u32> {
     (1..=256).find(|&id| {
         let identifier = NOTIFYICONIDENTIFIER {
@@ -127,18 +125,13 @@ fn tooltip_for<'a>(view: &TrayView, resting: &'a str) -> &'a str {
     }
 }
 
-fn glyph(active: bool) -> Icon {
-    let size = tray_icon_size();
-    let look = if active {
-        &brand::ACTIVE
-    } else {
-        &brand::PAUSED
-    };
-    Icon::from_rgba(brand::render(size, look), size, size).expect("icon")
+fn glyph(active: bool, taskbar: Taskbar, size: u32) -> Icon {
+    let look = brand::tray(taskbar, active);
+    Icon::from_rgba(brand::render(size, &look), size, size).expect("icon")
 }
 
 impl Tray {
-    pub fn create(active: bool, reach: &Reach) -> Option<Self> {
+    pub fn create(active: bool, reach: &Reach, appearance: &Appearance) -> Option<Self> {
         let menu = Menu::new();
         let status = MenuItem::new("Starting", false, None);
         let pauses: Vec<(MenuItem, PauseSpan)> = PauseSpan::CHOICES
@@ -166,7 +159,7 @@ impl Tray {
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
             .with_tooltip(&resting_tooltip)
-            .with_icon(glyph(active))
+            .with_icon(glyph(active, appearance.taskbar, appearance.icon_px))
             .build()
             .ok()?;
         Some(Self {
@@ -208,8 +201,12 @@ impl Tray {
         if before.is_none_or(|old| old.status != view.status) {
             self.status.set_text(menu_text(&view.status));
         }
-        if before.is_none_or(|old| old.active != view.active) {
-            let _ = self.icon.set_icon(Some(glyph(view.active)));
+        if before.is_none_or(|old| {
+            (old.active, old.taskbar, old.icon_px) != (view.active, view.taskbar, view.icon_px)
+        }) {
+            let _ = self
+                .icon
+                .set_icon(Some(glyph(view.active, view.taskbar, view.icon_px)));
         }
         if before.is_none_or(|old| old.power_paused() != view.power_paused()) {
             let _ = self
