@@ -263,6 +263,7 @@ pub fn run(
     };
     let keyboard = Keyboard::new(&config.keymap(), grabs, held);
     let tray = Tray::spawn(inbox.clone(), options.autostart);
+    let style = style::open(options.data_dir.as_deref(), &config);
     let prefs = Preferences::new(
         config,
         Some(options.config_path),
@@ -273,7 +274,6 @@ pub fn run(
     let effects = Effects::new(options.insert, options.observer, clipboard);
     #[cfg(not(feature = "e2e"))]
     let effects = Effects::new(InsertPolicy::Auto, clipboard);
-    let style = style::open(options.data_dir.as_deref(), &config);
     let mut app = App {
         engine: Engine::new(prefs.effective()),
         prefs,
