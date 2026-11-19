@@ -1,15 +1,13 @@
 use std::pin::pin;
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_channel::{Receiver, Sender, unbounded};
+use async_io::Timer;
 use atspi::AccessibilityConnection;
 use atspi::events::Event;
-use atspi::events::object::{
-    StateChangedEvent, TextCaretMovedEvent, TextChangedEvent, TextSelectionChangedEvent,
-};
+use atspi::events::object::{StateChangedEvent, TextCaretMovedEvent, TextSelectionChangedEvent};
 use futures_lite::future::{block_on, or, poll_once};
 use futures_lite::{Stream, StreamExt};
 use pith_core::{Config, log};
@@ -17,32 +15,54 @@ use zbus::Connection;
 
 use crate::accessibility::{Consent, Lease};
 use crate::bounded::{Bounded, STARTUP_DEADLINE, bounded, stop_requested, within};
-use crate::error::ReaderError;
+use crate::error::{InsertError, Inserted, ReaderError};
 use crate::field::read;
 use crate::focus::{Effect, Focus, Tracker};
+use crate::held::Held;
+use crate::insert::insert;
 use crate::reading::Reading;
+use crate::settle::Settling;
+use crate::x11::Desktop;
 
 const READ_ATTEMPTS: usize = 3;
 const SPAWN_TIMEOUT: Duration = Duration::from_secs(15);
 
-pub type ReadingCallback = Box<dyn Fn(Result<Reading, ReaderError>) + Send>;
+pub enum Report {
+    Reading(Reading, Option<u64>),
+    Inserted(Result<Inserted, InsertError>),
+}
+
+pub type ReportCallback = Box<dyn Fn(Result<Report, ReaderError>) + Send>;
+
+enum Command {
+    Read(u64),
+    Insert(String),
+}
 
 pub struct Reader {
     stop: Sender<()>,
-    wake: Sender<()>,
-    config: Arc<Mutex<Config>>,
+    commands: Sender<Command>,
     thread: Option<JoinHandle<()>>,
 }
 
 struct Control {
-    config: Arc<Mutex<Config>>,
     stopped: Receiver<()>,
-    woken: Receiver<()>,
+    commands: Receiver<Command>,
+}
+
+struct Setup {
+    config: Config,
+    consent: Option<Consent>,
+    desktop: Desktop,
+    held: Held,
 }
 
 struct Session {
     connection: AccessibilityConnection,
     lease: Lease,
+    config: Config,
+    desktop: Desktop,
+    held: Held,
 }
 
 enum Exit {
@@ -52,35 +72,67 @@ enum Exit {
 
 enum Next {
     Event(Box<Event>),
-    Reconfigured,
+    Command(Command),
+    Settle,
     Stopped,
     Closed,
+}
+
+#[derive(Default)]
+struct Pending {
+    changed: bool,
+    report: bool,
+    served: Option<u64>,
+    inserts: Vec<String>,
+}
+
+impl Pending {
+    fn command(&mut self, command: Command) {
+        match command {
+            Command::Read(id) => {
+                self.changed = true;
+                self.served = Some(self.served.map_or(id, |served| served.max(id)));
+            }
+            Command::Insert(text) => self.inserts.push(text),
+        }
+    }
 }
 
 impl Reader {
     pub fn spawn(
         config: Config,
         consent: Option<Consent>,
-        on_reading: ReadingCallback,
+        desktop: Desktop,
+        held: Held,
+        on_report: ReportCallback,
     ) -> Result<Self, ReaderError> {
         let (stop, stopped) = unbounded();
-        let (wake, woken) = unbounded();
+        let (commands, received) = unbounded();
         let (ready, started) = mpsc::channel();
-        let config = Arc::new(Mutex::new(config));
         let control = Control {
-            config: config.clone(),
             stopped,
-            woken,
+            commands: received,
         };
         let thread = std::thread::Builder::new()
             .name("pith-atspi".into())
-            .spawn(move || serve(control, consent, ready, on_reading))
+            .spawn(move || {
+                serve(
+                    control,
+                    Setup {
+                        config,
+                        consent,
+                        desktop,
+                        held,
+                    },
+                    ready,
+                    on_report,
+                )
+            })
             .map_err(ReaderError::Spawn)?;
         match started.recv_timeout(SPAWN_TIMEOUT) {
             Ok(Ok(())) => Ok(Self {
                 stop,
-                wake,
-                config,
+                commands,
                 thread: Some(thread),
             }),
             Ok(Err(error)) => {
@@ -95,9 +147,12 @@ impl Reader {
         }
     }
 
-    pub fn set_config(&self, config: &Config) {
-        *self.config.lock().unwrap_or_else(PoisonError::into_inner) = config.clone();
-        let _ = self.wake.try_send(());
+    pub fn request(&self, id: u64) {
+        let _ = self.commands.try_send(Command::Read(id));
+    }
+
+    pub fn insert(&self, text: String) {
+        let _ = self.commands.try_send(Command::Insert(text));
     }
 }
 
@@ -114,7 +169,6 @@ async fn connect() -> Result<AccessibilityConnection, ReaderError> {
     let connection = AccessibilityConnection::new().await?;
     connection.register_event::<StateChangedEvent>().await?;
     connection.register_event::<TextCaretMovedEvent>().await?;
-    connection.register_event::<TextChangedEvent>().await?;
     connection
         .register_event::<TextSelectionChangedEvent>()
         .await?;
@@ -122,10 +176,22 @@ async fn connect() -> Result<AccessibilityConnection, ReaderError> {
 }
 
 impl Session {
-    async fn open(consent: Option<Consent>) -> Result<Self, ReaderError> {
+    async fn open(setup: Setup) -> Result<Self, ReaderError> {
+        let Setup {
+            config,
+            consent,
+            desktop,
+            held,
+        } = setup;
         let lease = Lease::acquire(consent).await?;
         match within(STARTUP_DEADLINE, connect()).await {
-            Some(Ok(connection)) => Ok(Self { connection, lease }),
+            Some(Ok(connection)) => Ok(Self {
+                connection,
+                lease,
+                config,
+                desktop,
+                held,
+            }),
             Some(Err(error)) => {
                 lease.release().await;
                 Err(error)
@@ -137,56 +203,72 @@ impl Session {
         }
     }
 
-    async fn run(&self, control: &Control, on_reading: &ReadingCallback) -> Exit {
+    async fn run(&self, control: &Control, on_report: &ReportCallback) -> Exit {
         let bus = self.connection.connection();
         let mut events = pin!(self.connection.event_stream().filter_map(Result::ok));
         let mut tracker = Tracker::default();
         let mut last: Option<Reading> = None;
+        let mut settling = Settling::new();
         loop {
-            let mut changed = false;
+            let mut pending = Pending::default();
             let mut batch = Vec::new();
-            match next(&mut events, control).await {
+            match next(&mut events, control, settling.due).await {
                 Next::Event(event) => batch.push(*event),
-                Next::Reconfigured => {
-                    while control.woken.try_recv().is_ok() {}
-                    changed = true;
-                }
+                Next::Command(command) => pending.command(command),
+                Next::Settle => pending.changed = true,
                 Next::Stopped => return Exit::Stopped,
                 Next::Closed => return Exit::BusClosed,
             }
-            while let Some(pending) = poll_once(events.next()).await {
-                match pending {
+            while let Some(pending_event) = poll_once(events.next()).await {
+                match pending_event {
                     Some(event) => batch.push(event),
                     None => return Exit::BusClosed,
                 }
             }
+            while let Ok(command) = control.commands.try_recv() {
+                pending.command(command);
+            }
             for event in batch {
                 match tracker.apply(bus, &control.stopped, event).await {
-                    Effect::Changed => changed = true,
+                    Effect::Changed => pending.changed = true,
                     Effect::Unchanged => {}
                     Effect::Stopped => return Exit::Stopped,
                 }
             }
-            if !changed {
+            pending.changed |= tracker.loss_pending();
+            for text in std::mem::take(&mut pending.inserts) {
+                let outcome = match tracker.focus_mut() {
+                    Some(focus) => match bounded(&control.stopped, insert(bus, focus, &text)).await
+                    {
+                        Bounded::Done(outcome) => outcome,
+                        Bounded::TimedOut => Err(InsertError::TimedOut),
+                        Bounded::Stopped => return Exit::Stopped,
+                    },
+                    None => Err(InsertError::NoField),
+                };
+                on_report(Ok(Report::Inserted(outcome)));
+                pending.changed = true;
+                pending.report = true;
+            }
+            if !pending.changed {
                 continue;
             }
-            let config = control
-                .config
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
+            tracker.settle_loss(bus, self.held.is_held()).await;
+            let works = self.desktop.work_areas();
             let reading = match tracker.focus_mut() {
-                Some(focus) if config.enabled => {
-                    match snapshot(bus, &control.stopped, focus, &config).await {
+                Some(focus) if self.config.enabled => {
+                    match snapshot(bus, &control.stopped, focus, &self.config, &works).await {
                         Some(reading) => reading,
                         None => return Exit::Stopped,
                     }
                 }
                 _ => Reading::Nothing,
             };
-            if last.as_ref() != Some(&reading) {
+            let changed = last.as_ref() != Some(&reading);
+            settling.observe(&reading, changed, tracker.loss_pending());
+            if changed || pending.report || pending.served.is_some() {
                 last = Some(reading.clone());
-                on_reading(Ok(reading));
+                on_report(Ok(Report::Reading(reading, pending.served)));
             }
         }
     }
@@ -197,9 +279,10 @@ async fn snapshot(
     stopped: &Receiver<()>,
     focus: &mut Focus,
     config: &Config,
+    works: &[pith_core::Rect],
 ) -> Option<Reading> {
     for _ in 0..READ_ATTEMPTS {
-        match bounded(stopped, read(bus, focus, config)).await {
+        match bounded(stopped, read(bus, focus, config, works)).await {
             Bounded::Done(Ok(reading)) => return Some(reading),
             Bounded::Done(Err(error)) => log(&format!("atspi read failed: {error}")),
             Bounded::TimedOut => log("atspi read timed out"),
@@ -209,7 +292,11 @@ async fn snapshot(
     Some(Reading::Nothing)
 }
 
-async fn next(events: &mut (impl Stream<Item = Event> + Unpin), control: &Control) -> Next {
+async fn next(
+    events: &mut (impl Stream<Item = Event> + Unpin),
+    control: &Control,
+    settle_at: Option<Instant>,
+) -> Next {
     or(
         async {
             match events.next().await {
@@ -222,10 +309,23 @@ async fn next(events: &mut (impl Stream<Item = Event> + Unpin), control: &Contro
                 stop_requested(&control.stopped).await;
                 Next::Stopped
             },
-            async {
-                let _ = control.woken.recv().await;
-                Next::Reconfigured
-            },
+            or(
+                async {
+                    match control.commands.recv().await {
+                        Ok(command) => Next::Command(command),
+                        Err(_) => Next::Stopped,
+                    }
+                },
+                async {
+                    match settle_at {
+                        Some(at) => {
+                            Timer::at(at).await;
+                        }
+                        None => std::future::pending().await,
+                    }
+                    Next::Settle
+                },
+            ),
         ),
     )
     .await
@@ -233,11 +333,11 @@ async fn next(events: &mut (impl Stream<Item = Event> + Unpin), control: &Contro
 
 fn serve(
     control: Control,
-    consent: Option<Consent>,
+    setup: Setup,
     ready: mpsc::Sender<Result<(), ReaderError>>,
-    on_reading: ReadingCallback,
+    on_report: ReportCallback,
 ) {
-    let session = match block_on(Session::open(consent)) {
+    let session = match block_on(Session::open(setup)) {
         Ok(session) => session,
         Err(error) => {
             let _ = ready.send(Err(error));
@@ -245,9 +345,9 @@ fn serve(
         }
     };
     let _ = ready.send(Ok(()));
-    if let Exit::BusClosed = block_on(session.run(&control, &on_reading)) {
-        on_reading(Ok(Reading::Nothing));
-        on_reading(Err(ReaderError::BusClosed));
+    if let Exit::BusClosed = block_on(session.run(&control, &on_report)) {
+        on_report(Ok(Report::Reading(Reading::Nothing, None)));
+        on_report(Err(ReaderError::BusClosed));
     }
     block_on(session.lease.release());
 }

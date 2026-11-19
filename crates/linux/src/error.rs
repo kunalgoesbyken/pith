@@ -32,3 +32,44 @@ impl From<AtspiError> for ReaderError {
         Self::Bus(error)
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Inserted {
+    Confirmed,
+    Unconfirmed,
+}
+
+#[derive(Debug)]
+pub enum InsertError {
+    NoField,
+    Unsupported,
+    Rejected,
+    TimedOut,
+    Bus(AtspiError),
+}
+
+impl fmt::Display for InsertError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoField => f.write_str("no field has the focus"),
+            Self::Unsupported => f.write_str("the field does not accept inserted text"),
+            Self::Rejected => f.write_str("the field refused the inserted text"),
+            Self::TimedOut => f.write_str("the field did not answer in time"),
+            Self::Bus(error) => write!(f, "accessibility bus: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for InsertError {}
+
+impl From<AtspiError> for InsertError {
+    fn from(error: AtspiError) -> Self {
+        Self::Bus(error)
+    }
+}
+
+impl From<zbus::Error> for InsertError {
+    fn from(error: zbus::Error) -> Self {
+        Self::Bus(error.into())
+    }
+}

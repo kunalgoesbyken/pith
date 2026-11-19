@@ -1,4 +1,6 @@
 use atspi::CoordType;
+use atspi::proxy::accessible::AccessibleProxy;
+use atspi::proxy::proxy_ext::ProxyExt;
 use atspi::proxy::text::TextProxy;
 use pith_core::Rect;
 
@@ -50,4 +52,17 @@ pub(crate) async fn has_selection(text: &TextProxy<'_>) -> bool {
     text.get_selection(0)
         .await
         .is_ok_and(|(start, end)| start != end)
+}
+
+pub(crate) async fn element(node: &AccessibleProxy<'_>) -> Option<Rect> {
+    let component = node.proxies().await.ok()?.component().await.ok()?;
+    let screen = component.get_extents(CoordType::Screen).await.ok()?;
+    let window = component.get_extents(CoordType::Window).await.ok()?;
+    let (x, y, width, height) = screen;
+    (screen != window && width > 0 && height > 0).then_some(Rect {
+        x,
+        y,
+        width,
+        height,
+    })
 }

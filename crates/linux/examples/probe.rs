@@ -4,7 +4,7 @@ mod probe {
     use std::sync::mpsc::channel;
 
     use pith_core::Config;
-    use pith_linux::{Consent, Reader, Reading};
+    use pith_linux::{Consent, Desktop, Display, Held, Reader, Reading, Report};
 
     const ALLOW_ACCESSIBILITY: &str = "--allow-accessibility";
     const BLOCK_APP: &str = "--block";
@@ -40,11 +40,20 @@ mod probe {
             }
         };
         let (readings, received) = channel();
+        let desktop = match Display::connect().and_then(Desktop::new) {
+            Ok(desktop) => desktop,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::FAILURE;
+            }
+        };
         let reader = Reader::spawn(
             options.config,
             options.consent,
-            Box::new(move |reading| {
-                let _ = readings.send(reading);
+            desktop,
+            Held::default(),
+            Box::new(move |report| {
+                let _ = readings.send(report);
             }),
         );
         let _reader = match reader {
@@ -57,14 +66,17 @@ mod probe {
         eprintln!("{READY_LINE}");
         for reading in received {
             match reading {
-                Ok(Reading::Field(field)) => match serde_json::to_string(&field) {
-                    Ok(line) => println!("{line}"),
-                    Err(error) => {
-                        eprintln!("{error}");
-                        return ExitCode::FAILURE;
+                Ok(Report::Inserted(_)) => {}
+                Ok(Report::Reading(Reading::Field(field), _)) => {
+                    match serde_json::to_string(&field) {
+                        Ok(line) => println!("{line}"),
+                        Err(error) => {
+                            eprintln!("{error}");
+                            return ExitCode::FAILURE;
+                        }
                     }
-                },
-                Ok(Reading::Nothing) => println!("null"),
+                }
+                Ok(Report::Reading(Reading::Nothing, _)) => println!("null"),
                 Err(error) => {
                     eprintln!("{error}");
                     return ExitCode::FAILURE;

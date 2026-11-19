@@ -5,7 +5,8 @@ use atspi::proxy::proxy_ext::ProxyExt;
 use atspi::proxy::text::TextProxy;
 use atspi::{AtspiError, ObjectRefOwned, Role, State};
 use pith_core::{
-    AFTER_CHARS, Config, FieldParts, FieldSnapshot, LINE_BREAKS, Surrounding, is_redacted, place,
+    AFTER_CHARS, Config, FieldParts, FieldSnapshot, LINE_BREAKS, Rect, Surrounding, is_redacted,
+    place,
 };
 use zbus::Connection;
 
@@ -93,6 +94,7 @@ pub(crate) async fn read(
     connection: &Connection,
     focus: &mut Focus,
     config: &Config,
+    works: &[Rect],
 ) -> Result<Reading, AtspiError> {
     let target = focus.target.clone();
     let node = target.as_accessible_proxy(connection).await?;
@@ -107,8 +109,11 @@ pub(crate) async fn read(
     if identity.pid == std::process::id() {
         return Ok(Reading::Nothing);
     }
+    let Some(app) = identity.app.as_deref() else {
+        return Ok(Reading::Nothing);
+    };
     let is_password = role == Role::PasswordText;
-    let redacted = is_redacted(config, identity.app.as_deref(), is_password);
+    let redacted = is_redacted(config, Some(app), is_password);
     let Some(view) = view(&text, redacted, config.lookback_chars()).await? else {
         return Ok(Reading::Nothing);
     };
@@ -117,18 +122,22 @@ pub(crate) async fn read(
         .as_ref()
         .is_some_and(|text| text.before.ends_with(LINE_BREAKS));
     let rect = caret::rect(&text, view.caret, view.count, previous_breaks_line).await;
+    let element = match rect {
+        Some(_) => None,
+        None => caret::element(&node).await,
+    };
     Ok(Reading::Field(Box::new(FieldSnapshot::from_parts(
         config,
         FieldParts {
             field_id: field_id(&target),
-            app: identity.app.clone(),
+            app: Some(app.to_string()),
             window_title: window::title(connection, &target).await.unwrap_or_default(),
             surrounding: view.surrounding,
             has_selection: caret::has_selection(&text).await,
             is_password,
             composing: false,
             language: None,
-            placement: place(rect, None, &[]),
+            placement: place(rect, element, works),
             style: style::read(&text, view.caret).await,
         },
     ))))

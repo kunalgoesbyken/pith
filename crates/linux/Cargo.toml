@@ -4,13 +4,28 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+e2e = []
+
+[[example]]
+name = "probe"
+required-features = ["e2e"]
+
+[[example]]
+name = "ghost"
+required-features = ["e2e"]
+
 [target.'cfg(target_os = "linux")'.dependencies]
 pith-core.workspace = true
+pith-infer.workspace = true
 atspi.workspace = true
 zbus.workspace = true
 futures-lite.workspace = true
 async-channel.workspace = true
 async-io.workspace = true
+x11rb.workspace = true
+signal-hook.workspace = true
+cosmic-text.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 serde_json.workspace = true

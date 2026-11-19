@@ -21,6 +21,7 @@ pub(crate) enum Effect {
 #[derive(Default)]
 pub(crate) struct Tracker {
     focus: Option<Focus>,
+    lost: Option<ObjectRefOwned>,
 }
 
 impl Focus {
@@ -54,6 +55,19 @@ impl Tracker {
             .is_some_and(|focus| focus.target == *item)
     }
 
+    pub(crate) fn loss_pending(&self) -> bool {
+        self.lost.is_some()
+    }
+
+    pub(crate) async fn settle_loss(&mut self, connection: &Connection, held: bool) {
+        let Some(lost) = self.lost.take_if(|_| !held) else {
+            return;
+        };
+        if self.is_focused(&lost) && !holds_focus(connection, &lost).await {
+            self.focus = None;
+        }
+    }
+
     pub(crate) async fn apply(
         &mut self,
         connection: &Connection,
@@ -67,11 +81,12 @@ impl Tracker {
             ObjectEvents::StateChanged(change) if change.state == State::Focused => {
                 if change.enabled {
                     self.focus = Some(Focus::new(change.item));
-                    true
-                } else if self.is_focused(&change.item) {
-                    self.focus = None;
+                    self.lost = None;
                     true
                 } else {
+                    if self.is_focused(&change.item) {
+                        self.lost = Some(change.item);
+                    }
                     false
                 }
             }
@@ -91,7 +106,6 @@ impl Tracker {
                     }
                 }
             }
-            ObjectEvents::TextChanged(changed) => self.is_focused(&changed.item),
             ObjectEvents::TextSelectionChanged(selection) => self.is_focused(&selection.item),
             _ => false,
         };
