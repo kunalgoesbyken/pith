@@ -3,7 +3,7 @@ mod common;
 use common::{Rng, fragment, is_boundary, text};
 use pith_core::{
     Action, After, Completion, Config, Correction, Drawn, Engine, Event, FieldSnapshot,
-    LINE_BREAKS, Placement, Rect, Spelling, StopReason, check,
+    LINE_BREAKS, Placement, Rect, Spelling, StopReason, TriggerMode, check,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -145,6 +145,7 @@ struct Harness {
     shown: Option<String>,
     lagging: bool,
     offer: Option<Correction>,
+    selecting: Option<Correction>,
     checking: Option<(u64, String)>,
     armed: bool,
     dismissed: Option<(u64, String)>,
@@ -210,6 +211,7 @@ impl Harness {
             shown: None,
             lagging: false,
             offer: None,
+            selecting: None,
             checking: None,
             armed: false,
             dismissed: None,
@@ -236,6 +238,8 @@ impl Harness {
         let pre_offer = self.offer.clone();
         let accepting = matches!(event, Event::AcceptAll | Event::AcceptWord);
         let spelled = matches!(event, Event::Spelled { .. });
+        let spelled_selection = matches!(event, Event::Selected(true));
+        let pending = self.selecting.clone();
         match &event {
             Event::Field(field) => self.sent = field.clone(),
             Event::SetConfig(config) => self.config = config.clone(),
@@ -245,7 +249,8 @@ impl Harness {
         self.trace.push(format!("  -> {actions:?}"));
         let mut scheduled_now = false;
         let mut inserted = None;
-        let mut replaced = None;
+        let mut replacing = false;
+        let mut overwritten = None;
         for action in &actions {
             match action {
                 Action::ScheduleDebounce { generation, .. } => {
@@ -299,6 +304,10 @@ impl Harness {
                 } => {
                     let field = self.sent.as_ref();
                     self.expect(self.config.typo_fix, "spell check with typo fix off");
+                    self.expect(
+                        self.config.trigger_mode == TriggerMode::Auto,
+                        "spell check in manual mode",
+                    );
                     self.expect(
                         field.is_some_and(|f| {
                             f.language.as_deref() == Some(language.as_str())
@@ -369,8 +378,35 @@ impl Harness {
                         }),
                         "replace for text that is not before the caret",
                     );
+                    self.expect(self.selecting.is_none(), "replace while one is pending");
                     self.stats.replaces += 1;
-                    replaced = Some(correction.clone());
+                    replacing = true;
+                    self.selecting = Some(correction.clone());
+                }
+                Action::Overwrite(text) => {
+                    self.expect(spelled_selection, "overwrite without a selection result");
+                    self.expect(
+                        self.selecting
+                            .as_ref()
+                            .is_some_and(|correction| correction.corrected() == *text),
+                        "overwrite with text that was not asked for",
+                    );
+                    self.expect(
+                        self.selecting.as_ref().is_some_and(|correction| {
+                            self.sent.as_ref().is_some_and(|f| {
+                                f.has_selection || f.before.ends_with(&correction.current())
+                            })
+                        }),
+                        "overwrite after the text moved",
+                    );
+                    overwritten = Some(text.clone());
+                }
+                Action::Collapse { field_id } => {
+                    self.expect(spelled_selection, "collapse without a selection result");
+                    self.expect(
+                        pending.is_some() && *field_id != 0,
+                        "collapse without a pending replace",
+                    );
                 }
                 Action::Show { cuts, .. } => {
                     let text = &cuts[0];
@@ -426,10 +462,30 @@ impl Harness {
         if let (Some(inserted), Some(field)) = (&inserted, &mut self.sent) {
             field.before.push_str(inserted);
         }
-        if let (Some(correction), Some(field)) = (&replaced, &mut self.sent) {
+        if let (Some(correction), Some(field), Some(_)) = (&pending, &mut self.sent, &overwritten) {
             let start = field.before.len() - correction.current().len();
             field.before.truncate(start);
             field.before.push_str(&correction.corrected());
+        }
+        if let Event::Selected(selected) = &event {
+            self.expect(
+                pending.is_none() || self.selecting == pending,
+                "selection result left the replace pending",
+            );
+            if pending.is_some() {
+                self.selecting = None;
+            }
+            self.expect(
+                *selected || (overwritten.is_none() && !actions.iter().any(is_collapse)),
+                "a failed selection acted",
+            );
+            self.expect(
+                pending.is_some() || actions.is_empty(),
+                "selection result without a replace acted",
+            );
+        }
+        if self.selecting.is_some() && matches!(event, Event::Field(_)) {
+            self.expect(actions.is_empty(), "a field change acted during a replace");
         }
         self.expect(
             self.shown.as_deref() == self.engine.suggestion(),
@@ -466,7 +522,7 @@ impl Harness {
         }
         if accepting && pre_offer.is_some() {
             self.expect(
-                replaced.is_some() && self.offer.is_none(),
+                replacing && self.offer.is_none(),
                 "accepting a correction did not replace it",
             );
         }
@@ -485,10 +541,12 @@ impl Harness {
             | Event::SetConfig(_)
             | Event::AcceptAll
             | Event::AcceptWord
+            | Event::Selected(_)
             | Event::Field(None) => {
                 let changed = match &event {
                     Event::Field(Some(_)) => before_key != context_key(&self.sent),
                     Event::AcceptAll | Event::AcceptWord => pre.is_some(),
+                    Event::Selected(_) => pending.is_some(),
                     _ => true,
                 };
                 if changed && !scheduled_now {
@@ -570,12 +628,18 @@ impl Harness {
                 let config = Config {
                     enabled: self.rng.chance(60),
                     typo_fix: self.rng.chance(80),
+                    trigger_mode: if self.rng.chance(15) {
+                        TriggerMode::Manual
+                    } else {
+                        TriggerMode::Auto
+                    },
                     min_chars_before: if self.rng.chance(50) { 3 } else { 6 },
                     ..self.config.clone()
                 };
                 self.send(Event::SetConfig(config));
             }
-            92..=95 => self.spell(),
+            92..=93 => self.spell(),
+            94..=95 => self.select(),
             _ => self.complete(false),
         }
     }
@@ -609,6 +673,20 @@ impl Harness {
         }
     }
 
+    fn select(&mut self) {
+        let selected = self.rng.chance(70);
+        let actions = self.send(Event::Selected(selected));
+        if actions
+            .iter()
+            .any(|action| matches!(action, Action::Overwrite(_)))
+        {
+            self.world = self.sent.clone();
+            if self.rng.chance(60) {
+                self.publish();
+            }
+        }
+    }
+
     fn spell(&mut self) {
         let Some((generation, word)) = self.checking.clone() else {
             return;
@@ -618,10 +696,12 @@ impl Harness {
         } else {
             (generation + 1 + self.rng.below(3) as u64, false)
         };
-        let spelling = match self.rng.below(7) {
+        let spelling = match self.rng.below(9) {
             0 => Spelling::Correct,
             1 => Spelling::Autocorrect(format!("{word}s")),
             2 => Spelling::Autocorrect(String::new()),
+            7 => Spelling::Autocorrect(format!("{word} {word}")),
+            8 => Spelling::Suggested("x".repeat(40)),
             3 => Spelling::Autocorrect(word.clone()),
             4 => Spelling::Autocorrect("a\nb".into()),
             5 => Spelling::Suggested(format!("{word}s")),
@@ -641,7 +721,7 @@ impl Harness {
                 Spelling::Autocorrect(replacement) => {
                     !replacement.is_empty()
                         && *replacement != word
-                        && !replacement.contains(LINE_BREAKS)
+                        && !replacement.contains(char::is_whitespace)
                 }
                 Spelling::Suggested(replacement) => *replacement == format!("{word}s"),
             };
@@ -849,10 +929,10 @@ impl Harness {
             Event::AcceptWord
         };
         let actions = self.send(event);
-        if matches!(
-            actions.first(),
-            Some(Action::Insert(_) | Action::Replace { .. })
-        ) {
+        if matches!(actions.first(), Some(Action::Replace { .. })) && self.rng.chance(85) {
+            self.select();
+        }
+        if matches!(actions.first(), Some(Action::Insert(_))) {
             self.world = self.sent.clone();
             if self.rng.chance(60) {
                 self.publish();
@@ -883,4 +963,8 @@ fn engine_invariants_hold_over_random_event_sequences() {
     assert!(totals.checks > 200, "{}", totals.checks);
     assert!(totals.offers > 30, "{}", totals.offers);
     assert!(totals.replaces > 5, "{}", totals.replaces);
+}
+
+fn is_collapse(action: &Action) -> bool {
+    matches!(action, Action::Collapse { .. })
 }

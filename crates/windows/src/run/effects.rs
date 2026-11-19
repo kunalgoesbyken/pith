@@ -87,7 +87,11 @@ impl App {
                     generation,
                     language,
                     word,
-                } => self.speller.check(generation, language, word),
+                } => {
+                    if let Some(speller) = &self.speller {
+                        speller.check(generation, language, word);
+                    }
+                }
                 Action::Offer {
                     correction,
                     placement,
@@ -105,6 +109,8 @@ impl App {
                     field_id,
                     correction,
                 } => self.replace(field_id, correction),
+                Action::Overwrite(text) => self.effects.insert(text),
+                Action::Collapse { field_id } => self.reader.collapse(field_id),
                 Action::Show {
                     cuts,
                     placement,
@@ -140,15 +146,10 @@ impl App {
 
     fn replace(&mut self, field_id: u64, correction: Correction) {
         let inbox = self.inbox.clone();
-        let corrected = correction.corrected();
         self.reader.select(Selection {
             field_id,
             text: correction.current(),
-            done: Box::new(move |selected| {
-                if selected {
-                    inbox.post(Inbound::Corrected(corrected));
-                }
-            }),
+            done: Box::new(move |selected| inbox.post(Inbound::Selected(selected))),
         });
     }
 

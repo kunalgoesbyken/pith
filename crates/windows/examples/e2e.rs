@@ -2297,7 +2297,7 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 30] = [
+        let scenarios: [(&str, Scenario); 31] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
@@ -2327,6 +2327,7 @@ fn main() {
             ("typo", typo::offer_and_apply),
             ("typodismiss", typo::dismiss_and_decline),
             ("typostale", typo::stale_accept),
+            ("typopast", typo::typed_past),
             ("typoskip", typo::skips),
         ];
         for (name, scenario) in scenarios {

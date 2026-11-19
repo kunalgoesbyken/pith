@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pith_core::{Spelling, log};
+use pith_core::Spelling;
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Globalization::{
     CORRECTIVE_ACTION_GET_SUGGESTIONS, CORRECTIVE_ACTION_REPLACE, ISpellChecker,
@@ -9,10 +9,15 @@ use windows::Win32::Globalization::{
 };
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+    CoUninitialize,
 };
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::{PCWSTR, PWSTR};
 
+use crate::language::input_language;
 use crate::util::wide;
+
+const WARM_UP_WORD: &str = "the";
 
 struct Check {
     generation: u64,
@@ -25,13 +30,13 @@ pub struct Speller {
 }
 
 impl Speller {
-    pub fn spawn(on_result: impl Fn(u64, Spelling) + Send + 'static) -> Self {
+    pub fn spawn(on_result: impl Fn(u64, Spelling) + Send + 'static) -> Option<Self> {
         let (requests, queue) = channel();
         std::thread::Builder::new()
             .name("pith-spell".into())
             .spawn(move || serve(queue, on_result))
-            .expect("spawn spell thread");
-        Self { requests }
+            .ok()?;
+        Some(Self { requests })
     }
 
     pub fn check(&self, generation: u64, language: String, word: String) {
@@ -43,25 +48,62 @@ impl Speller {
     }
 }
 
-fn factory() -> Option<ISpellCheckerFactory> {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER).ok()
+struct Apartment;
+
+impl Apartment {
+    fn enter() -> Option<Self> {
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
+            .is_ok()
+            .then_some(Self)
+    }
+}
+
+impl Drop for Apartment {
+    fn drop(&mut self) {
+        unsafe { CoUninitialize() };
+    }
+}
+
+fn create_factory() -> Option<ISpellCheckerFactory> {
+    unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }.ok()
+}
+
+#[derive(Default)]
+struct Checkers {
+    factory: Option<ISpellCheckerFactory>,
+    by_language: HashMap<String, Option<ISpellChecker>>,
+}
+
+impl Checkers {
+    fn spelling(&mut self, language: &str, word: &str) -> Spelling {
+        if self.factory.is_none() {
+            self.factory = create_factory();
+        }
+        let Some(factory) = &self.factory else {
+            return Spelling::Correct;
+        };
+        self.by_language
+            .entry(language.to_string())
+            .or_insert_with(|| checker_for(factory, language))
+            .as_ref()
+            .map_or(Spelling::Correct, |checker| verdict(checker, word))
     }
 }
 
 fn serve(queue: Receiver<Check>, on_result: impl Fn(u64, Spelling)) {
-    let Some(factory) = factory() else {
-        return log("spell checking unavailable");
-    };
-    let mut checkers: HashMap<String, Option<ISpellChecker>> = HashMap::new();
+    let apartment = Apartment::enter();
+    let mut checkers = Checkers::default();
+    if apartment.is_some() {
+        let language = input_language(unsafe { GetForegroundWindow() });
+        if let Some(language) = language {
+            checkers.spelling(&language, WARM_UP_WORD);
+        }
+    }
     while let Ok(request) = queue.recv() {
-        let checker = checkers
-            .entry(request.language.clone())
-            .or_insert_with(|| checker_for(&factory, &request.language));
-        let spelling = checker
-            .as_ref()
-            .map_or(Spelling::Correct, |checker| verdict(checker, &request.word));
+        let spelling = match apartment {
+            Some(_) => checkers.spelling(&request.language, &request.word),
+            None => Spelling::Correct,
+        };
         on_result(request.generation, spelling);
     }
 }

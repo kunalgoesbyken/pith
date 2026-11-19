@@ -12,15 +12,22 @@ pub struct Preferences {
     pauses: Pauses,
     config_path: Option<PathBuf>,
     recommended: ModelPreset,
+    spelling: bool,
 }
 
 impl Preferences {
-    pub fn new(saved: Config, config_path: Option<PathBuf>, recommended: ModelPreset) -> Self {
+    pub fn new(
+        saved: Config,
+        config_path: Option<PathBuf>,
+        recommended: ModelPreset,
+        spelling: bool,
+    ) -> Self {
         let mut preferences = Self {
             saved,
             pauses: Pauses::default(),
             config_path,
             recommended,
+            spelling,
         };
         preferences.read_power();
         preferences
@@ -53,6 +60,7 @@ impl Preferences {
     pub fn effective(&self) -> Config {
         Config {
             enabled: self.enabled(),
+            typo_fix: self.saved.typo_fix && self.spelling,
             ..self.saved.clone()
         }
     }

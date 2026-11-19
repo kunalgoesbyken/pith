@@ -63,7 +63,7 @@ struct App {
     effects: Effects,
     reader: Reader,
     worker: Worker,
-    speller: Speller,
+    speller: Option<Speller>,
     overlay: Overlay,
     data_dir: Option<PathBuf>,
     erasing: Option<PathBuf>,
@@ -80,20 +80,28 @@ impl App {
         (inbox, inbound): (Inbox, Receiver<Inbound>),
         options: Options,
     ) -> windows::core::Result<Self> {
+        let speller = Speller::spawn({
+            let spelled = inbox.clone();
+            move |generation, spelling| spelled.post(Inbound::Spelled(generation, spelling))
+        });
+        let presenter = Presenter::new(&config, &options);
+        let prefs = Preferences::new(
+            config.clone(),
+            options.config_path,
+            options.recommended,
+            speller.is_some(),
+        );
         let mut app = Self {
             control,
             overlay: Overlay::create(config.ghost_opacity)?,
             keyboard: Keyboard::new(&config.keymap(), control, options.global_keys),
-            presenter: Presenter::new(&config, &options),
+            presenter,
             effects: Effects::new(options.insert, options.observer),
-            prefs: Preferences::new(config.clone(), options.config_path, options.recommended),
-            engine: Engine::new(config.clone()),
+            engine: Engine::new(prefs.effective()),
+            prefs,
             reader,
             worker,
-            speller: Speller::spawn({
-                let spelled = inbox.clone();
-                move |generation, spelling| spelled.post(Inbound::Spelled(generation, spelling))
-            }),
+            speller,
             data_dir: options.data_dir,
             erasing: None,
             inbox,

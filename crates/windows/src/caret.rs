@@ -1,6 +1,7 @@
 use std::ffi::c_void;
 
 use pith_core::{Rect, Rgb, TextStyle};
+use unicode_segmentation::UnicodeSegmentation;
 use windows::Win32::Foundation::{E_FAIL, HWND, POINT};
 use windows::Win32::Graphics::Gdi::MapWindowPoints;
 use windows::Win32::System::Com::SAFEARRAY;
@@ -73,33 +74,49 @@ fn selected_text(element: &IUIAutomationElement) -> Result<String> {
     }
 }
 
+fn unit_counts(text: &str) -> Vec<i32> {
+    let counts = [
+        text.graphemes(true).count(),
+        text.chars().count(),
+        text.encode_utf16().count(),
+    ];
+    let mut units: Vec<i32> = counts
+        .into_iter()
+        .filter_map(|count| i32::try_from(count).ok())
+        .collect();
+    units.dedup();
+    units
+}
+
 pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> Result<()> {
     unsafe {
         if has_selection(element) {
             return Err(E_FAIL.into());
         }
         let caret = caret_range(element)?;
-        let range = caret.Clone()?;
-        let wanted = text.encode_utf16().count();
-        let mut reached = 0;
-        while reached < wanted {
-            if range.MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -1)?
-                == 0
-            {
-                return Err(E_FAIL.into());
+        for units in unit_counts(text) {
+            let range = caret.Clone()?;
+            let moved = range.MoveEndpointByUnit(
+                TextPatternRangeEndpoint_Start,
+                TextUnit_Character,
+                -units,
+            )?;
+            if moved != -units || range.GetText(-1)? != text {
+                continue;
             }
-            reached = range.GetText(-1)?.len();
+            range.Select()?;
+            if selected_text(element)? == text {
+                return Ok(());
+            }
+            caret.Select()?;
+            break;
         }
-        if range.GetText(-1)? != text {
-            return Err(E_FAIL.into());
-        }
-        range.Select()?;
-        if selected_text(element)? == text {
-            return Ok(());
-        }
-        caret.Select()?;
         Err(E_FAIL.into())
     }
+}
+
+pub fn collapse_selection(element: &IUIAutomationElement) -> Result<()> {
+    unsafe { caret_range(element)?.Select() }
 }
 
 pub fn text_around(

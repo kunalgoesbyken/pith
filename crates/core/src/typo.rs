@@ -151,7 +151,8 @@ impl Finished {
         };
         let usable = !replacement.is_empty()
             && replacement != self.word
-            && !replacement.contains(LINE_BREAKS);
+            && !replacement.contains(char::is_whitespace)
+            && replacement.graphemes(true).count() <= MAX_WORD_GRAPHEMES;
         usable.then_some(Correction {
             word: self.word,
             replacement,

@@ -171,7 +171,7 @@ pub fn dismiss_and_decline(rig: &mut Rig) {
 
 pub fn stale_accept(rig: &mut Rig) {
     let field = rig.a;
-    finish_word(rig, field, "I think recieve");
+    finish_word(rig, field, "I think occured");
     rig.check(
         "typo stale: setup offers the correction",
         wait_for_offer(rig).is_some(),
@@ -182,10 +182,10 @@ pub fn stale_accept(rig: &mut Rig) {
     let seen = rig.settle(Duration::from_millis(1000));
     rig.check(
         "typo stale: accept after the text moved on replaces nothing",
-        replaced(&seen).is_none() && get_text(field.edit) == "I think recieve z",
+        replaced(&seen).is_none() && get_text(field.edit) == "I think occured z",
         format!("{:?}, {seen:?}", get_text(field.edit)),
     );
-    finish_word(rig, field, "I think recieve");
+    finish_word(rig, field, "I think wich");
     rig.check(
         "typo stale: setup offers the correction again",
         wait_for_offer(rig).is_some(),
@@ -196,8 +196,36 @@ pub fn stale_accept(rig: &mut Rig) {
     let seen = rig.settle(Duration::from_millis(1000));
     rig.check(
         "typo stale: accept over a selection replaces nothing",
-        replaced(&seen).is_none() && get_text(field.edit) == "I think recieve ",
+        replaced(&seen).is_none() && get_text(field.edit) == "I think wich ",
         format!("{:?}", get_text(field.edit)),
+    );
+}
+
+pub fn typed_past(rig: &mut Rig) {
+    let field = rig.a;
+    finish_word(rig, field, "I think seperate");
+    rig.check(
+        "typo past: setup offers the correction",
+        wait_for_offer(rig).is_some(),
+        String::new(),
+    );
+    send_text(field.edit, "z");
+    let seen = rig.settle(Duration::from_millis(600));
+    rig.check(
+        "typo past: typing on withdraws the correction",
+        seen.iter().any(is_hide) && replaced(&seen).is_none(),
+        format!("{seen:?}"),
+    );
+    let end = text_length(field.edit);
+    select_range(field.edit, end - 2, end);
+    send_text(field.edit, "");
+    std::thread::sleep(SNAPSHOT_GAP);
+    send_text(field.edit, BOUNDARY);
+    let seen = rig.settle(Duration::from_millis(1200));
+    rig.check(
+        "typo past: a word typed past is not offered again",
+        offered(&seen).is_none() && get_text(field.edit) == "I think seperate ",
+        format!("{:?}, {seen:?}", get_text(field.edit)),
     );
 }
 

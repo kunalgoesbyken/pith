@@ -15,8 +15,8 @@ use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetForegroun
 use windows::core::{Interface, Result};
 
 use crate::caret::{
-    caret_range, caret_rect, composing, font, has_selection, runtime_id, select_before_caret,
-    text_around,
+    caret_range, caret_rect, collapse_selection, composing, font, has_selection, runtime_id,
+    select_before_caret, text_around,
 };
 use crate::language::input_language;
 use crate::util::{is_elevated, process_name, rect_of, window_pid, window_title, work_areas};
@@ -50,6 +50,7 @@ pub enum Poke {
     Changed,
     Key(u64),
     Select(Selection),
+    Collapse(u64),
 }
 
 pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, Option<u64>) + Send>;
@@ -88,6 +89,10 @@ impl Reader {
 
     pub fn select(&self, selection: Selection) {
         let _ = self.pokes.send(Poke::Select(selection));
+    }
+
+    pub fn collapse(&self, field_id: u64) {
+        let _ = self.pokes.send(Poke::Collapse(field_id));
     }
 
     pub fn sender(&self) -> Sender<Poke> {
@@ -129,6 +134,7 @@ fn serve(
                 Poke::Changed => {}
                 Poke::Key(id) => served = served.max(Some(id)),
                 Poke::Select(selection) => select(&automation, source, selection),
+                Poke::Collapse(field_id) => collapse(&automation, source, field_id),
             }
         }
         let current = config
@@ -199,6 +205,14 @@ fn select(automation: &IUIAutomation, source: Source, selection: Selection) {
         .filter(|target| runtime_id(&target.element) == field_id)
         .is_some_and(|target| select_before_caret(&target.element, &text).is_ok());
     done(selected);
+}
+
+fn collapse(automation: &IUIAutomation, source: Source, field_id: u64) {
+    if let Ok(target) = target(automation, source)
+        && runtime_id(&target.element) == field_id
+    {
+        let _ = collapse_selection(&target.element);
+    }
 }
 
 fn read(

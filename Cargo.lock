@@ -1584,6 +1584,7 @@ dependencies = [
  "pith-infer",
  "png",
  "tray-icon",
+ "unicode-segmentation",
  "windows",
  "windows-numerics",
 ]
