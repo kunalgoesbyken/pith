@@ -1,13 +1,28 @@
-use std::sync::mpsc::Sender;
+#[cfg(not(feature = "e2e"))]
+use pith_linux::Options;
 
-use pith_core::Action;
-use pith_linux::InsertPolicy;
+#[cfg(not(feature = "e2e"))]
+use crate::setup::Cli;
+use crate::setup::Extra;
 
-#[derive(Default)]
-pub struct Hooks {
-    pub insert: InsertPolicy,
-    pub observer: Option<Sender<Action>>,
-}
+pub const ALLOW_ACCESSIBILITY: &str = "--allow-accessibility";
+
+pub const FLAGS: &[Extra] = &[
+    Extra {
+        name: ALLOW_ACCESSIBILITY,
+        takes_value: false,
+    },
+    #[cfg(feature = "e2e")]
+    Extra {
+        name: enabled::INSERT_FLAG,
+        takes_value: true,
+    },
+    #[cfg(feature = "e2e")]
+    Extra {
+        name: enabled::RECORD_FLAG,
+        takes_value: true,
+    },
+];
 
 #[cfg(feature = "e2e")]
 mod enabled {
@@ -16,14 +31,13 @@ mod enabled {
     use std::sync::mpsc::{Sender, channel};
 
     use pith_core::Action;
-    use pith_linux::InsertPolicy;
+    use pith_linux::{InsertPolicy, Options};
     use serde_json::json;
 
-    use super::Hooks;
-    use crate::setup::flag;
+    use crate::setup::Cli;
 
-    const INSERT_FLAG: &str = "--insert";
-    const RECORD_FLAG: &str = "--record";
+    pub const INSERT_FLAG: &str = "--insert";
+    pub const RECORD_FLAG: &str = "--record";
 
     fn record(path: &str) -> Result<Sender<Action>, String> {
         let mut file = File::create(path).map_err(|error| format!("{RECORD_FLAG}: {error}"))?;
@@ -43,26 +57,26 @@ mod enabled {
         Ok(sender)
     }
 
-    pub fn from_args(args: &[String]) -> Result<Hooks, String> {
-        let insert = match flag(args, INSERT_FLAG).as_deref() {
-            None | Some("auto") => InsertPolicy::default(),
-            Some("accessibility") => InsertPolicy::accessibility_only(),
-            Some("clipboard") => InsertPolicy::clipboard_only(),
+    pub fn apply(cli: &Cli, options: &mut Options) -> Result<(), String> {
+        options.insert = match cli.value(INSERT_FLAG) {
+            None | Some("auto") => InsertPolicy::Auto,
+            Some("accessibility") => InsertPolicy::Accessibility,
+            Some("clipboard") => InsertPolicy::Clipboard,
             Some(other) => {
                 return Err(format!(
                     "{INSERT_FLAG}: {other} is not auto, accessibility or clipboard"
                 ));
             }
         };
-        let observer = flag(args, RECORD_FLAG).as_deref().map(record).transpose()?;
-        Ok(Hooks { insert, observer })
+        options.observer = cli.value(RECORD_FLAG).map(record).transpose()?;
+        Ok(())
     }
 }
 
 #[cfg(feature = "e2e")]
-pub use enabled::from_args;
+pub use enabled::apply;
 
 #[cfg(not(feature = "e2e"))]
-pub fn from_args(_args: &[String]) -> Result<Hooks, String> {
-    Ok(Hooks::default())
+pub fn apply(_cli: &Cli, _options: &mut Options) -> Result<(), String> {
+    Ok(())
 }

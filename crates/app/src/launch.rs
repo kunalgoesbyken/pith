@@ -1,40 +1,33 @@
-use pith_core::{Completion, init_log, log};
-use pith_infer::Stage;
+use pith_core::{init_log, log};
 use pith_windows::{Inbound, Inbox, InsertMode, Options, Source, hardware, run, single_instance};
 
-use crate::setup::{Paths, WorkerEvents, directories, load_config, recommend, spawn_worker};
+use crate::setup::{Cli, Paths, WorkerMessage, directories, load_config, recommend, spawn_worker};
 
 const SINGLE_INSTANCE_NAME: &str = "Local\\PithSingleInstance";
 const POLL_MS: u32 = 250;
 const ONBOARDED_MARKER: &str = "onboarded";
-
-impl WorkerEvents for Inbox {
-    fn preparing(&self, stage: Stage) {
-        self.post(Inbound::Preparing(stage));
-    }
-
-    fn ready(&self, status: Result<String, String>) {
-        self.post(Inbound::Ready(status));
-    }
-
-    fn done(&self, generation: u64, result: Result<Completion, String>) {
-        self.post(Inbound::Done(generation, result));
-    }
-}
 
 fn start() -> Result<(), String> {
     let dirs = directories()?;
     let paths = Paths::of(&dirs);
     init_log(&paths.log);
     let args: Vec<String> = std::env::args().collect();
-    let (config, config_error) = load_config(&paths.config, &args)?;
+    let cli = Cli::parse(&args, &[])?;
+    let (config, config_error) = load_config(&paths.config, &cli)?;
     if !single_instance(SINGLE_INSTANCE_NAME) {
         log("another instance is running");
         return Ok(());
     }
     let (inbox, receiver) = Inbox::channel();
     let recommended = recommend(hardware());
-    let worker = spawn_worker(&config, recommended, paths.models.clone(), inbox.clone());
+    let events = inbox.clone();
+    let worker = spawn_worker(&config, recommended, paths.models.clone(), move |message| {
+        events.post(match message {
+            WorkerMessage::Preparing(stage) => Inbound::Preparing(stage),
+            WorkerMessage::Ready(status) => Inbound::Ready(status),
+            WorkerMessage::Done(generation, result) => Inbound::Done(generation, result),
+        });
+    });
     let onboarded = dirs.data_local_dir().join(ONBOARDED_MARKER);
     let options = Options {
         source: Source::Focused,

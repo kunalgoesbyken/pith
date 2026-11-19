@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::apps::{Access, Surface, editors_among, same_app, surface};
+use crate::apps::{Access, Surface, allowable_among, same_app, surface};
 use crate::chord::{Chord, Key};
+use crate::hosts::is_unlisted_id;
 use crate::preset::ModelPreset;
 use crate::stored::{read, write_atomically};
 
@@ -455,7 +456,7 @@ impl Config {
             return Err("each key can be bound to only one action, and Esc hides".into());
         }
         let blocked = &self.blocked_apps;
-        self.allowed_apps = editors_among(&self.allowed_apps)
+        self.allowed_apps = allowable_among(&self.allowed_apps)
             .into_iter()
             .filter(|app| !blocked.iter().any(|name| same_app(name, app)))
             .collect();
@@ -546,6 +547,8 @@ impl Config {
             _ if listed(&self.blocked_apps) => Access::Off,
             Some(Surface::Editor) if listed(&self.allowed_apps) => Access::OptedIn,
             Some(Surface::Editor) => Access::OffByDefault,
+            None if is_unlisted_id(app) && listed(&self.allowed_apps) => Access::OptedIn,
+            None if is_unlisted_id(app) => Access::OffByDefault,
             None => Access::On,
         }
     }

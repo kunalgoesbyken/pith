@@ -5,7 +5,8 @@ use pith_infer::Stage;
 
 use super::App;
 use super::RunError;
-use crate::error::{InsertError, Inserted, ReaderError};
+use super::keyboard::HOLD_LIMIT;
+use crate::error::{InsertError, Inserted, ReaderError, Target};
 use crate::reader::Report;
 use crate::reading::Reading;
 use crate::x11::{DisplayError, Stroke};
@@ -69,8 +70,16 @@ impl App {
             Reading::Field(field) => Some(*field),
             Reading::Nothing => None,
         };
-        self.effects
-            .verify(snapshot.as_ref().map(|field| field.before.as_str()));
+        self.current = snapshot.as_ref().map(|field| Target {
+            field_id: field.field_id,
+            app: field.app.clone(),
+        });
+        let config = self.engine.config();
+        let usable = config.enabled
+            && snapshot
+                .as_ref()
+                .is_some_and(|field| !config.is_blocked(&field.app));
+        self.keyboard.keys.set_trigger(usable);
         self.dispatch(Event::Field(snapshot));
         if self.keyboard.serves(served) {
             self.release_keys();
@@ -78,8 +87,8 @@ impl App {
     }
 
     fn inserted(&mut self, outcome: Result<Inserted, InsertError>) {
-        self.effects.inserted(outcome);
-        if !self.effects.inserting() {
+        self.effects.inserted(outcome, self.current.as_ref());
+        if !self.effects.inserting(HOLD_LIMIT) {
             self.keyboard.let_go();
             self.timers.clear_key_deadline();
         }

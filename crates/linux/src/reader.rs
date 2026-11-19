@@ -15,17 +15,19 @@ use zbus::Connection;
 
 use crate::accessibility::{Consent, Lease};
 use crate::bounded::{Bounded, STARTUP_DEADLINE, bounded, stop_requested, within};
-use crate::error::{InsertError, Inserted, ReaderError};
+use crate::error::{InsertError, Inserted, ReaderError, Target};
 use crate::field::read;
 use crate::focus::{Effect, Focus, Tracker};
 use crate::held::Held;
 use crate::insert::insert;
 use crate::reading::Reading;
+use crate::session::Quit;
 use crate::settle::Settling;
 use crate::x11::Desktop;
 
 const READ_ATTEMPTS: usize = 3;
 const SPAWN_TIMEOUT: Duration = Duration::from_secs(15);
+const SPAWN_POLL: Duration = Duration::from_millis(100);
 
 pub enum Report {
     Reading(Reading, Option<u64>),
@@ -36,7 +38,7 @@ pub type ReportCallback = Box<dyn Fn(Result<Report, ReaderError>) + Send>;
 
 enum Command {
     Read(u64),
-    Insert(String),
+    Insert(String, Target),
 }
 
 pub struct Reader {
@@ -83,7 +85,7 @@ struct Pending {
     changed: bool,
     report: bool,
     served: Option<u64>,
-    inserts: Vec<String>,
+    inserts: Vec<(String, Target)>,
 }
 
 impl Pending {
@@ -93,7 +95,7 @@ impl Pending {
                 self.changed = true;
                 self.served = Some(self.served.map_or(id, |served| served.max(id)));
             }
-            Command::Insert(text) => self.inserts.push(text),
+            Command::Insert(text, target) => self.inserts.push((text, target)),
         }
     }
 }
@@ -104,6 +106,7 @@ impl Reader {
         consent: Option<Consent>,
         desktop: Desktop,
         held: Held,
+        quit: &Quit,
         on_report: ReportCallback,
     ) -> Result<Self, ReaderError> {
         let (stop, stopped) = unbounded();
@@ -129,21 +132,31 @@ impl Reader {
                 )
             })
             .map_err(ReaderError::Spawn)?;
-        match started.recv_timeout(SPAWN_TIMEOUT) {
-            Ok(Ok(())) => Ok(Self {
-                stop,
-                commands,
-                thread: Some(thread),
-            }),
-            Ok(Err(error)) => {
-                let _ = thread.join();
-                Err(error)
+        let deadline = Instant::now() + SPAWN_TIMEOUT;
+        loop {
+            match started.recv_timeout(SPAWN_POLL) {
+                Ok(Ok(())) => {
+                    return Ok(Self {
+                        stop,
+                        commands,
+                        thread: Some(thread),
+                    });
+                }
+                Ok(Err(error)) => {
+                    let _ = thread.join();
+                    return Err(error);
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(ReaderError::Stopped),
+                Err(RecvTimeoutError::Timeout) if quit.is_requested() => {
+                    stop.close();
+                    return Err(ReaderError::Stopped);
+                }
+                Err(RecvTimeoutError::Timeout) if Instant::now() >= deadline => {
+                    stop.close();
+                    return Err(ReaderError::StartupTimedOut);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
             }
-            Err(RecvTimeoutError::Timeout) => {
-                stop.close();
-                Err(ReaderError::StartupTimedOut)
-            }
-            Err(RecvTimeoutError::Disconnected) => Err(ReaderError::Stopped),
         }
     }
 
@@ -151,8 +164,8 @@ impl Reader {
         let _ = self.commands.try_send(Command::Read(id));
     }
 
-    pub fn insert(&self, text: String) {
-        let _ = self.commands.try_send(Command::Insert(text));
+    pub fn insert(&self, text: String, target: Target) {
+        let _ = self.commands.try_send(Command::Insert(text, target));
     }
 }
 
@@ -215,7 +228,10 @@ impl Session {
             match next(&mut events, control, settling.due).await {
                 Next::Event(event) => batch.push(*event),
                 Next::Command(command) => pending.command(command),
-                Next::Settle => pending.changed = true,
+                Next::Settle => {
+                    pending.changed = true;
+                    pending.report = settling.take_forced();
+                }
                 Next::Stopped => return Exit::Stopped,
                 Next::Closed => return Exit::BusClosed,
             }
@@ -236,16 +252,23 @@ impl Session {
                 }
             }
             pending.changed |= tracker.loss_pending();
-            for text in std::mem::take(&mut pending.inserts) {
+            for (text, target) in std::mem::take(&mut pending.inserts) {
                 let outcome = match tracker.focus_mut() {
-                    Some(focus) => match bounded(&control.stopped, insert(bus, focus, &text)).await
-                    {
-                        Bounded::Done(outcome) => outcome,
-                        Bounded::TimedOut => Err(InsertError::TimedOut),
-                        Bounded::Stopped => return Exit::Stopped,
-                    },
+                    Some(focus) => {
+                        match bounded(&control.stopped, insert(bus, focus, &text, &target)).await {
+                            Bounded::Done(outcome) => outcome,
+                            Bounded::TimedOut => Err(InsertError::TimedOut),
+                            Bounded::Stopped => return Exit::Stopped,
+                        }
+                    }
                     None => Err(InsertError::NoField),
                 };
+                if matches!(
+                    outcome,
+                    Ok(Inserted::Unconfirmed) | Err(InsertError::TimedOut)
+                ) {
+                    settling.recheck();
+                }
                 on_report(Ok(Report::Inserted(outcome)));
                 pending.changed = true;
                 pending.report = true;

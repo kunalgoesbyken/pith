@@ -1,78 +1,122 @@
 use std::collections::VecDeque;
-use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
-use pith_core::{Action, Completion, Drawn, Event, log};
+use pith_core::{Action, Completion, Drawn, Event, Placement, TextStyle, inserts_by_paste, log};
 
 use super::{App, InsertPolicy};
-use crate::error::{InsertError, Inserted};
-use crate::x11::Clipboard;
+use crate::error::{InsertError, Inserted, Target};
+use crate::x11::{Clipboard, PasteTarget};
+
+struct Inserting {
+    text: String,
+    target: Target,
+    focus: Option<PasteTarget>,
+    since: Instant,
+}
 
 pub(super) struct Effects {
     policy: InsertPolicy,
-    observer: Option<Sender<Action>>,
+    #[cfg(feature = "e2e")]
+    observer: Option<std::sync::mpsc::Sender<Action>>,
     clipboard: Option<Clipboard>,
-    inserting: VecDeque<String>,
-    unconfirmed: Vec<String>,
+    inserting: VecDeque<Inserting>,
     started: Option<Instant>,
 }
 
 impl Effects {
     pub(super) fn new(
         policy: InsertPolicy,
-        observer: Option<Sender<Action>>,
+        #[cfg(feature = "e2e")] observer: Option<std::sync::mpsc::Sender<Action>>,
         clipboard: Option<Clipboard>,
     ) -> Self {
         Self {
             policy,
+            #[cfg(feature = "e2e")]
             observer,
             clipboard,
             inserting: VecDeque::new(),
-            unconfirmed: Vec::new(),
             started: None,
         }
     }
 
+    #[cfg(feature = "e2e")]
     fn observe(&self, action: &Action) {
         if let Some(observer) = &self.observer {
             let _ = observer.send(action.clone());
         }
     }
 
-    pub(super) fn inserting(&self) -> bool {
-        !self.inserting.is_empty()
+    #[cfg(not(feature = "e2e"))]
+    fn observe(&self, _action: &Action) {}
+
+    #[cfg(feature = "e2e")]
+    fn observe_shown(
+        &self,
+        outcome: Drawn,
+        cuts: Vec<String>,
+        placement: Placement,
+        style: TextStyle,
+    ) {
+        if let Drawn::Shown(index) = outcome
+            && let Some(cut) = cuts.into_iter().nth(index)
+        {
+            self.observe(&Action::Show {
+                cuts: vec![cut],
+                placement,
+                style,
+            });
+        }
     }
 
-    pub(super) fn inserted(&mut self, outcome: Result<Inserted, InsertError>) {
-        let Some(text) = self.inserting.pop_front() else {
+    #[cfg(not(feature = "e2e"))]
+    fn observe_shown(
+        &self,
+        _outcome: Drawn,
+        _cuts: Vec<String>,
+        _placement: Placement,
+        _style: TextStyle,
+    ) {
+    }
+
+    pub(super) fn inserting(&self, limit: Duration) -> bool {
+        self.inserting
+            .iter()
+            .any(|pending| pending.since.elapsed() < limit)
+    }
+
+    pub(super) fn inserted(
+        &mut self,
+        outcome: Result<Inserted, InsertError>,
+        current: Option<&Target>,
+    ) {
+        let Some(pending) = self.inserting.pop_front() else {
             return;
         };
         match outcome {
             Ok(Inserted::Confirmed) => {}
-            Ok(Inserted::Unconfirmed) | Err(InsertError::TimedOut) => self.unconfirmed.push(text),
-            Err(InsertError::NoField) => log("no field had the focus, nothing was inserted"),
+            Ok(Inserted::Unconfirmed) | Err(InsertError::TimedOut) => {
+                log("the field did not confirm the inserted text, so nothing more is inserted");
+            }
+            Err(InsertError::NoField) => log("the focus moved, nothing was inserted"),
             Err(error) => {
                 log(&format!("insert through accessibility failed: {error}"));
-                if self.policy.falls_back() {
-                    self.paste(text);
+                if self.policy.falls_back() && current == Some(&pending.target) {
+                    self.paste(pending.text, pending.focus);
                 }
             }
         }
     }
 
-    pub(super) fn verify(&mut self, before: Option<&str>) {
-        for text in std::mem::take(&mut self.unconfirmed) {
-            let missing = before.is_some_and(|before| !before.ends_with(&text));
-            if missing && self.policy.falls_back() {
-                self.paste(text);
-            }
+    fn paste(&self, text: String, focus: Option<PasteTarget>) {
+        match (&self.clipboard, focus) {
+            (Some(clipboard), Some(focus)) => clipboard.paste(text, focus),
+            _ => log("no clipboard or no focused window to paste into"),
         }
     }
 
-    fn paste(&self, text: String) {
-        match &self.clipboard {
-            Some(clipboard) => clipboard.paste(text),
-            None => log("no clipboard to paste through"),
+    pub(super) fn finish(&mut self) {
+        if let Some(clipboard) = self.clipboard.take() {
+            clipboard.finish();
         }
     }
 
@@ -126,15 +170,7 @@ impl App {
                     style,
                 } => {
                     let outcome = self.overlay.show(&cuts, placement, &style);
-                    if let Drawn::Shown(index) = outcome
-                        && let Some(cut) = cuts.into_iter().nth(index)
-                    {
-                        self.effects.observe(&Action::Show {
-                            cuts: vec![cut],
-                            placement,
-                            style,
-                        });
-                    }
+                    self.effects.observe_shown(outcome, cuts, placement, style);
                     drawn = Some(outcome);
                 }
                 Action::CheckSpelling { .. }
@@ -157,11 +193,21 @@ impl App {
     }
 
     fn insert(&mut self, text: String) {
-        if self.effects.policy.via_accessibility {
-            self.effects.inserting.push_back(text.clone());
-            self.reader.insert(text);
+        let Some(target) = self.current.clone() else {
+            log("no field is known, nothing was inserted");
+            return;
+        };
+        let focus = self.effects.clipboard.as_ref().and_then(Clipboard::focus);
+        if self.effects.policy.via_accessibility() && !inserts_by_paste(&target.app) {
+            self.effects.inserting.push_back(Inserting {
+                text: text.clone(),
+                target: target.clone(),
+                focus,
+                since: Instant::now(),
+            });
+            self.reader.insert(text, target);
         } else {
-            self.effects.paste(text);
+            self.effects.paste(text, focus);
         }
     }
 

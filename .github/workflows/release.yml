@@ -26,13 +26,13 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-      - run: cargo test --workspace
-      - run: cargo build --release
+      - run: cargo test --locked --workspace
+      - run: cargo build --locked --release
       - name: Version
         id: version
         shell: pwsh
         run: |
-          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
           $version = ($metadata.packages | Where-Object name -eq pith).version
           if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$version") {
             throw "tag $env:GITHUB_REF_NAME does not match the crate version v$version"

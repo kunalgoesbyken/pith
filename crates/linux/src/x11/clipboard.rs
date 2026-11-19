@@ -1,5 +1,7 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use pith_core::log;
@@ -16,10 +18,12 @@ use super::display::{Display, DisplayError};
 use super::keymap::Keyboard;
 
 const FETCH_WAIT: Duration = Duration::from_millis(300);
+const SAVE_WAIT: Duration = Duration::from_millis(2000);
 const FIRST_REQUEST_WAIT: Duration = Duration::from_millis(1000);
 const REQUEST_QUIET: Duration = Duration::from_millis(300);
 const FOCUS_SETTLE: Duration = Duration::from_millis(150);
 const NO_TIME: u32 = 0;
+const ATOM_BYTES: usize = 4;
 const MAX_REPLY_WORDS: u32 = u32::MAX / 4;
 
 x11rb::atom_manager! {
@@ -27,15 +31,23 @@ x11rb::atom_manager! {
         CLIPBOARD,
         UTF8_STRING,
         TARGETS,
+        INCR,
         PITH_CLIPBOARD,
+        CLIPBOARD_MANAGER,
+        SAVE_TARGETS,
+        TEXT_PLAIN_UTF8: b"text/plain;charset=utf-8",
+        TEXT_HTML: b"text/html",
     }
 }
+
+type Formats = Vec<(Atom, Vec<u8>)>;
 
 struct Shared {
     display: Arc<Display>,
     window: Window,
     atoms: Atoms,
-    offer: Mutex<Option<String>>,
+    offer: Mutex<Option<Formats>>,
+    owned: AtomicBool,
 }
 
 struct Replies {
@@ -43,32 +55,45 @@ struct Replies {
     served: Receiver<()>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PasteTarget(Window);
+
 struct Request {
     text: String,
-    target: Window,
+    target: PasteTarget,
+}
+
+enum Job {
+    Paste(Request),
+    Save,
 }
 
 enum Previous {
     Empty,
-    Text(String),
+    Saved(Formats),
     Unreadable,
 }
 
 pub struct Clipboard {
     shared: Arc<Shared>,
-    pastes: Sender<Request>,
+    jobs: Sender<Job>,
+    worker: JoinHandle<()>,
 }
 
 impl Shared {
-    fn offer(&self) -> Option<String> {
+    fn offer(&self) -> Option<Formats> {
         self.offer
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
-    fn set_offer(&self, text: Option<String>) {
-        *self.offer.lock().unwrap_or_else(PoisonError::into_inner) = text;
+    fn set_offer(&self, formats: Option<Formats>) {
+        *self.offer.lock().unwrap_or_else(PoisonError::into_inner) = formats;
+    }
+
+    fn owns(&self) -> bool {
+        self.owned.load(Ordering::SeqCst)
     }
 
     fn own(&self, owner: Window) -> Result<(), DisplayError> {
@@ -76,7 +101,15 @@ impl Shared {
             .connection
             .set_selection_owner(owner, self.atoms.CLIPBOARD, NO_TIME)?;
         self.display.connection.flush()?;
+        self.owned.store(owner != x11rb::NONE, Ordering::SeqCst);
         Ok(())
+    }
+
+    fn text_formats(&self, text: &str) -> Formats {
+        [self.atoms.UTF8_STRING, self.atoms.TEXT_PLAIN_UTF8]
+            .into_iter()
+            .map(|atom| (atom, text.as_bytes().to_vec()))
+            .collect()
     }
 
     fn answer(&self, request: &SelectionRequestEvent) -> Result<bool, DisplayError> {
@@ -86,35 +119,37 @@ impl Shared {
         } else {
             request.property
         };
-        let served = match (request.target, self.offer()) {
-            (target, _) if target == self.atoms.TARGETS => {
-                let targets = [self.atoms.TARGETS, self.atoms.UTF8_STRING];
-                connection.change_property32(
-                    PropMode::REPLACE,
-                    request.requestor,
-                    property,
-                    AtomEnum::ATOM,
-                    &targets,
-                )?;
-                false
-            }
-            (target, Some(text)) if target == self.atoms.UTF8_STRING => {
-                connection.change_property8(
-                    PropMode::REPLACE,
-                    request.requestor,
-                    property,
-                    self.atoms.UTF8_STRING,
-                    text.as_bytes(),
-                )?;
-                true
-            }
-            _ => {
-                respond(self, request, x11rb::NONE)?;
-                return Ok(false);
-            }
+        let Some(formats) = self.offer() else {
+            respond(self, request, x11rb::NONE)?;
+            return Ok(false);
         };
+        if request.target == self.atoms.TARGETS {
+            let targets: Vec<Atom> = std::iter::once(self.atoms.TARGETS)
+                .chain(formats.iter().map(|(atom, _)| *atom))
+                .collect();
+            connection.change_property32(
+                PropMode::REPLACE,
+                request.requestor,
+                property,
+                AtomEnum::ATOM,
+                &targets,
+            )?;
+            respond(self, request, property)?;
+            return Ok(false);
+        }
+        let Some((_, data)) = formats.iter().find(|(atom, _)| *atom == request.target) else {
+            respond(self, request, x11rb::NONE)?;
+            return Ok(false);
+        };
+        connection.change_property8(
+            PropMode::REPLACE,
+            request.requestor,
+            property,
+            request.target,
+            data,
+        )?;
         respond(self, request, property)?;
-        Ok(served)
+        Ok(true)
     }
 }
 
@@ -158,7 +193,10 @@ fn listen(
             Ok(Event::SelectionNotify(answer)) => {
                 let _ = answers.send(answer);
             }
-            Ok(Event::SelectionClear(_)) => shared.set_offer(None),
+            Ok(Event::SelectionClear(_)) => {
+                shared.owned.store(false, Ordering::SeqCst);
+                shared.set_offer(None);
+            }
             Ok(_) => {}
             Err(error) => {
                 on_closed(error.into());
@@ -168,32 +206,25 @@ fn listen(
     }
 }
 
-fn previous(
+fn fetch(
     shared: &Shared,
     answers: &Receiver<SelectionNotifyEvent>,
-) -> Result<Previous, DisplayError> {
-    while answers.try_recv().is_ok() {}
+    target: Atom,
+) -> Result<Option<(Atom, Vec<u8>)>, DisplayError> {
     let connection = &shared.display.connection;
-    let owner = connection
-        .get_selection_owner(shared.atoms.CLIPBOARD)?
-        .reply()?
-        .owner;
-    if owner == x11rb::NONE {
-        return Ok(Previous::Empty);
-    }
     connection.convert_selection(
         shared.window,
         shared.atoms.CLIPBOARD,
-        shared.atoms.UTF8_STRING,
+        target,
         shared.atoms.PITH_CLIPBOARD,
         NO_TIME,
     )?;
     connection.flush()?;
     let Ok(answer) = answers.recv_timeout(FETCH_WAIT) else {
-        return Ok(Previous::Unreadable);
+        return Ok(None);
     };
     if answer.property == x11rb::NONE {
-        return Ok(Previous::Unreadable);
+        return Ok(None);
     }
     let reply = connection
         .get_property(
@@ -205,11 +236,52 @@ fn previous(
             MAX_REPLY_WORDS,
         )?
         .reply()?;
-    let complete = reply.type_ == shared.atoms.UTF8_STRING && reply.bytes_after == 0;
-    Ok(match String::from_utf8(reply.value) {
-        Ok(text) if complete => Previous::Text(text),
-        _ => Previous::Unreadable,
-    })
+    let complete = reply.type_ != shared.atoms.INCR && reply.bytes_after == 0;
+    Ok(complete.then_some((reply.type_, reply.value)))
+}
+
+fn previous(
+    shared: &Shared,
+    answers: &Receiver<SelectionNotifyEvent>,
+) -> Result<Previous, DisplayError> {
+    while answers.try_recv().is_ok() {}
+    let owner = shared
+        .display
+        .connection
+        .get_selection_owner(shared.atoms.CLIPBOARD)?
+        .reply()?
+        .owner;
+    if owner == x11rb::NONE {
+        return Ok(Previous::Empty);
+    }
+    let Some((_, listing)) = fetch(shared, answers, shared.atoms.TARGETS)? else {
+        return Ok(Previous::Unreadable);
+    };
+    let offered: Vec<Atom> = listing
+        .as_chunks::<ATOM_BYTES>()
+        .0
+        .iter()
+        .map(|bytes| Atom::from_ne_bytes(*bytes))
+        .collect();
+    let wanted: Vec<Atom> = [
+        shared.atoms.UTF8_STRING,
+        shared.atoms.TEXT_PLAIN_UTF8,
+        shared.atoms.TEXT_HTML,
+    ]
+    .into_iter()
+    .filter(|atom| offered.contains(atom))
+    .collect();
+    if wanted.is_empty() {
+        return Ok(Previous::Unreadable);
+    }
+    let mut saved = Formats::new();
+    for target in wanted {
+        match fetch(shared, answers, target)? {
+            Some((_, data)) => saved.push((target, data)),
+            None => return Ok(Previous::Unreadable),
+        }
+    }
+    Ok(Previous::Saved(saved))
 }
 
 fn press_paste(shared: &Shared) -> Result<(), DisplayError> {
@@ -234,9 +306,9 @@ fn press_paste(shared: &Shared) -> Result<(), DisplayError> {
     Ok(())
 }
 
-fn deliver(shared: &Shared, replies: &Replies, target: Window) -> Result<(), DisplayError> {
+fn deliver(shared: &Shared, replies: &Replies, target: PasteTarget) -> Result<(), DisplayError> {
     std::thread::sleep(FOCUS_SETTLE);
-    if shared.display.input_focus() != Some(target) {
+    if shared.display.input_focus() != Some(target.0) {
         log("the focus moved before the paste, nothing was pasted");
         return Ok(());
     }
@@ -248,9 +320,12 @@ fn deliver(shared: &Shared, replies: &Replies, target: Window) -> Result<(), Dis
     Ok(())
 }
 
-fn restore(shared: &Shared, before: Option<String>) -> Result<(), DisplayError> {
+fn restore(shared: &Shared, before: Option<Formats>) -> Result<(), DisplayError> {
+    if !shared.owns() {
+        return Ok(());
+    }
     match before {
-        Some(text) => shared.set_offer(Some(text)),
+        Some(formats) => shared.set_offer(Some(formats)),
         None => {
             shared.set_offer(None);
             shared.own(x11rb::NONE)?;
@@ -266,13 +341,38 @@ fn paste(shared: &Shared, replies: &Replies, request: Request) -> Result<(), Dis
             return Ok(());
         }
         Previous::Empty => None,
-        Previous::Text(text) => Some(text),
+        Previous::Saved(formats) => Some(formats),
     };
-    shared.set_offer(Some(request.text));
+    shared.set_offer(Some(shared.text_formats(&request.text)));
     shared.own(shared.window)?;
     let delivered = deliver(shared, replies, request.target);
     restore(shared, before)?;
     delivered
+}
+
+fn save(shared: &Shared, replies: &Replies) -> Result<(), DisplayError> {
+    let connection = &shared.display.connection;
+    if !shared.owns() || shared.offer().is_none() {
+        return Ok(());
+    }
+    let manager = connection
+        .get_selection_owner(shared.atoms.CLIPBOARD_MANAGER)?
+        .reply()?
+        .owner;
+    if manager == x11rb::NONE {
+        return Ok(());
+    }
+    while replies.answers.try_recv().is_ok() {}
+    connection.convert_selection(
+        shared.window,
+        shared.atoms.CLIPBOARD_MANAGER,
+        shared.atoms.SAVE_TARGETS,
+        shared.atoms.PITH_CLIPBOARD,
+        NO_TIME,
+    )?;
+    connection.flush()?;
+    let _ = replies.answers.recv_timeout(SAVE_WAIT);
+    Ok(())
 }
 
 impl Clipboard {
@@ -300,30 +400,45 @@ impl Clipboard {
             window,
             atoms,
             offer: Mutex::new(None),
+            owned: AtomicBool::new(false),
         });
         let (answers_in, answers) = channel();
         let (served_in, served) = channel();
         let listener = shared.clone();
         std::thread::spawn(move || listen(listener, answers_in, served_in, on_closed));
-        let (pastes, requested) = channel::<Request>();
-        let worker = shared.clone();
-        std::thread::spawn(move || {
+        let (jobs, requested) = channel::<Job>();
+        let working = shared.clone();
+        let worker = std::thread::spawn(move || {
             let replies = Replies { answers, served };
-            for request in requested {
-                if let Err(error) = paste(&worker, &replies, request) {
-                    log(&format!("paste failed: {error}"));
+            for job in requested {
+                let outcome = match job {
+                    Job::Paste(request) => paste(&working, &replies, request),
+                    Job::Save => save(&working, &replies),
+                };
+                if let Err(error) = outcome {
+                    log(&format!("clipboard job failed: {error}"));
                 }
             }
         });
-        Ok(Self { shared, pastes })
+        Ok(Self {
+            shared,
+            jobs,
+            worker,
+        })
     }
 
-    pub fn paste(&self, text: String) {
-        match self.shared.display.input_focus() {
-            Some(target) => {
-                let _ = self.pastes.send(Request { text, target });
-            }
-            None => log("no window has the focus, nothing was pasted"),
-        }
+    pub fn focus(&self) -> Option<PasteTarget> {
+        self.shared.display.input_focus().map(PasteTarget)
+    }
+
+    pub fn paste(&self, text: String, target: PasteTarget) {
+        let _ = self.jobs.send(Job::Paste(Request { text, target }));
+    }
+
+    pub fn finish(self) {
+        let Self { jobs, worker, .. } = self;
+        let _ = jobs.send(Job::Save);
+        drop(jobs);
+        let _ = worker.join();
     }
 }

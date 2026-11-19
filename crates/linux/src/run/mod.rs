@@ -5,19 +5,24 @@ mod timers;
 
 use std::fmt;
 use std::io;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
+#[cfg(feature = "e2e")]
+use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Instant;
 
-use pith_core::{Action, Config, Engine, log};
+#[cfg(feature = "e2e")]
+use pith_core::Action;
+use pith_core::{Config, Engine, log};
 use pith_infer::Worker;
-use signal_hook::consts::{SIGINT, SIGTERM};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
 use crate::accessibility::Consent;
-use crate::error::ReaderError;
+use crate::error::{ReaderError, Target};
 use crate::held::Held;
 use crate::overlay::Overlay;
 use crate::reader::Reader;
+use crate::session::Quit;
 use crate::x11::{Clipboard, Desktop, Display, DisplayError, Grabs, listen};
 
 use effects::Effects;
@@ -27,44 +32,54 @@ use keyboard::Keyboard;
 use timers::{Due, Timers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct InsertPolicy {
-    via_accessibility: bool,
-    via_clipboard: bool,
+pub enum InsertPolicy {
+    Auto,
+    #[cfg(feature = "e2e")]
+    Accessibility,
+    #[cfg(feature = "e2e")]
+    Clipboard,
 }
 
-impl Default for InsertPolicy {
-    fn default() -> Self {
-        Self {
-            via_accessibility: true,
-            via_clipboard: true,
-        }
-    }
-}
-
+#[cfg(feature = "e2e")]
 impl InsertPolicy {
-    pub fn accessibility_only() -> Self {
-        Self {
-            via_clipboard: false,
-            ..Self::default()
-        }
-    }
-
-    pub fn clipboard_only() -> Self {
-        Self {
-            via_accessibility: false,
-            ..Self::default()
-        }
+    fn via_accessibility(self) -> bool {
+        self != Self::Clipboard
     }
 
     fn falls_back(self) -> bool {
-        self.via_accessibility && self.via_clipboard
+        self == Self::Auto
+    }
+}
+
+#[cfg(not(feature = "e2e"))]
+impl InsertPolicy {
+    fn via_accessibility(self) -> bool {
+        true
+    }
+
+    fn falls_back(self) -> bool {
+        true
     }
 }
 
 pub struct Options {
-    pub insert: InsertPolicy,
     pub consent: Option<Consent>,
+    #[cfg(feature = "e2e")]
+    pub insert: InsertPolicy,
+    #[cfg(feature = "e2e")]
     pub observer: Option<Sender<Action>>,
+}
+
+impl Options {
+    pub fn new(consent: Option<Consent>) -> Self {
+        Self {
+            consent,
+            #[cfg(feature = "e2e")]
+            insert: InsertPolicy::Auto,
+            #[cfg(feature = "e2e")]
+            observer: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -112,11 +127,13 @@ struct App {
     reader: Reader,
     worker: Worker,
     overlay: Overlay,
+    current: Option<Target>,
 }
 
 impl App {
     fn serve(&mut self, inbound: &Receiver<Inbound>) -> Result<(), RunError> {
         loop {
+            self.fire_timers();
             let message = match self.timers.next() {
                 Some(due) => inbound.recv_timeout(due.saturating_duration_since(Instant::now())),
                 None => inbound.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -144,18 +161,21 @@ impl App {
     }
 
     fn shutdown(mut self) {
+        self.fail_open();
         self.overlay.hide();
         self.keyboard.stop();
+        self.effects.finish();
         drop(self.reader);
         drop(self.worker);
     }
 }
 
-fn forward_signals(inbox: &Inbox) -> io::Result<()> {
-    let mut signals = Signals::new([SIGINT, SIGTERM])?;
-    let inbox = inbox.clone();
+fn forward_signals(inbox: &Inbox, quit: &Quit) -> io::Result<()> {
+    let mut signals = Signals::new([SIGHUP, SIGINT, SIGTERM])?;
+    let (inbox, quit) = (inbox.clone(), quit.clone());
     std::thread::spawn(move || {
-        if signals.forever().next().is_some() {
+        for _ in signals.forever() {
+            quit.request();
             inbox.post(Inbound::Quit);
         }
     });
@@ -189,25 +209,34 @@ pub fn run(
         move |stroke| keys.post(Inbound::Key(stroke)),
         move |error| closed.post(Inbound::Failed(error)),
     );
-    forward_signals(&inbox)?;
+    let quit = Quit::default();
+    forward_signals(&inbox, &quit)?;
     let reports = inbox.clone();
-    let reader = Reader::spawn(
+    let reader = match Reader::spawn(
         config.clone(),
         options.consent,
         desktop,
         held.clone(),
+        &quit,
         Box::new(move |report| reports.post(Inbound::Report(report))),
-    )?;
-    let mut keyboard = Keyboard::new(&config.keymap(), grabs, held);
-    keyboard.keys.set_trigger(config.enabled);
+    ) {
+        Err(ReaderError::Stopped) if quit.is_requested() => return Ok(()),
+        outcome => outcome?,
+    };
+    let keyboard = Keyboard::new(&config.keymap(), grabs, held);
+    #[cfg(feature = "e2e")]
+    let effects = Effects::new(options.insert, options.observer, clipboard);
+    #[cfg(not(feature = "e2e"))]
+    let effects = Effects::new(InsertPolicy::Auto, clipboard);
     let mut app = App {
         engine: Engine::new(config),
         keyboard,
-        effects: Effects::new(options.insert, options.observer, clipboard),
+        effects,
         timers: Timers::default(),
         reader,
         worker,
         overlay,
+        current: None,
     };
     let outcome = app.serve(&inbound);
     app.shutdown();

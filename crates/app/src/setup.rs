@@ -27,13 +27,69 @@ impl Paths {
     }
 }
 
-pub fn flag(args: &[String], name: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1).cloned())
+pub struct Extra {
+    pub name: &'static str,
+    pub takes_value: bool,
 }
 
-pub fn load_config(path: &Path, args: &[String]) -> Result<(Config, Option<String>), String> {
+pub struct Cli {
+    pub model: Option<PathBuf>,
+    pub threads: Option<usize>,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    extras: Vec<(&'static str, Option<String>)>,
+}
+
+impl Cli {
+    pub fn parse(args: &[String], extras: &[Extra]) -> Result<Self, String> {
+        let mut cli = Self {
+            model: None,
+            threads: None,
+            extras: Vec::new(),
+        };
+        let mut args = args.iter().skip(1);
+        while let Some(arg) = args.next() {
+            let mut value = |name: &str| {
+                args.next()
+                    .cloned()
+                    .ok_or_else(|| format!("{name} needs a value"))
+            };
+            if arg == MODEL_FLAG {
+                cli.model = Some(PathBuf::from(value(MODEL_FLAG)?));
+            } else if arg == THREADS_FLAG {
+                cli.threads = Some(
+                    value(THREADS_FLAG)?
+                        .parse()
+                        .map_err(|_| format!("{THREADS_FLAG} takes a number"))?,
+                );
+            } else if let Some(extra) = extras.iter().find(|extra| extra.name == arg) {
+                let given = if extra.takes_value {
+                    Some(value(extra.name)?)
+                } else {
+                    None
+                };
+                cli.extras.push((extra.name, given));
+            } else {
+                return Err(format!("unknown option {arg}"));
+            }
+        }
+        Ok(cli)
+    }
+
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn has(&self, name: &str) -> bool {
+        self.extras.iter().any(|(known, _)| *known == name)
+    }
+
+    #[cfg(feature = "e2e")]
+    pub fn value(&self, name: &str) -> Option<&str> {
+        self.extras
+            .iter()
+            .find(|(known, _)| *known == name)
+            .and_then(|(_, value)| value.as_deref())
+    }
+}
+
+pub fn load_config(path: &Path, cli: &Cli) -> Result<(Config, Option<String>), String> {
     let (config, notice) = match Config::load(path) {
         Ok(config) => (config, None),
         Err(error) => {
@@ -41,17 +97,9 @@ pub fn load_config(path: &Path, args: &[String]) -> Result<(Config, Option<Strin
             (Config::default(), Some(error))
         }
     };
-    let threads = match flag(args, THREADS_FLAG) {
-        Some(count) => count
-            .parse()
-            .map_err(|_| format!("{THREADS_FLAG} takes a number"))?,
-        None => config.threads,
-    };
     let overridden = Config {
-        model_path: flag(args, MODEL_FLAG)
-            .map(PathBuf::from)
-            .or(config.model_path),
-        threads,
+        model_path: cli.model.clone().or(config.model_path),
+        threads: cli.threads.unwrap_or(config.threads),
         ..config
     };
     overridden.validate().map(|config| (config, notice))
@@ -68,27 +116,27 @@ pub fn recommend(machine: Hardware) -> ModelPreset {
     recommended
 }
 
-pub trait WorkerEvents: Clone + Send + 'static {
-    fn preparing(&self, stage: Stage);
-    fn ready(&self, status: Result<String, String>);
-    fn done(&self, generation: u64, result: Result<Completion, String>);
+pub enum WorkerMessage {
+    Preparing(Stage),
+    Ready(Result<String, String>),
+    Done(u64, Result<Completion, String>),
 }
 
 pub fn spawn_worker(
     config: &Config,
     recommended: ModelPreset,
     models: PathBuf,
-    events: impl WorkerEvents,
+    notify: impl Fn(WorkerMessage) + Clone + Send + 'static,
 ) -> Worker {
-    let (preparing, ready, done) = (events.clone(), events.clone(), events);
+    let (preparing, ready, done) = (notify.clone(), notify.clone(), notify);
     Worker::spawn(
         config.clone(),
         Box::new(move |config, superseded| {
             resolve_backend(config, recommended, &models, superseded, &|stage| {
-                preparing.preparing(stage)
+                preparing(WorkerMessage::Preparing(stage))
             })
         }),
-        Box::new(move |status| ready.ready(status)),
-        Box::new(move |generation, result| done.done(generation, result)),
+        Box::new(move |status| ready(WorkerMessage::Ready(status))),
+        Box::new(move |generation, result| done(WorkerMessage::Done(generation, result))),
     )
 }

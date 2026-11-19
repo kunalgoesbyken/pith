@@ -1,5 +1,5 @@
 use crate::config::app_name;
-use crate::hosts::alias_of;
+use crate::hosts::{alias_of, is_unlisted_id};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
@@ -233,4 +233,14 @@ pub(crate) fn sample(wanted: Surface) -> &'static str {
         .and_then(|(_, names)| names.first())
         .copied()
         .unwrap_or_default()
+}
+
+pub fn allowable_among(apps: &[String]) -> Vec<String> {
+    let mut kept = editors_among(apps);
+    for app in apps.iter().filter(|app| is_unlisted_id(app)) {
+        if !kept.iter().any(|known| same_app(known, app)) {
+            kept.push(app.clone());
+        }
+    }
+    kept
 }

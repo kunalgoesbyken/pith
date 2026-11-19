@@ -47,7 +47,11 @@ impl FieldSnapshot {
         Self {
             field_id: parts.field_id,
             app: parts.app.unwrap_or_default(),
-            window_title: parts.window_title,
+            window_title: if redacted {
+                String::new()
+            } else {
+                parts.window_title
+            },
             before: normalize(surrounding.before),
             after: After::new(normalize(surrounding.after)),
             has_selection: parts.has_selection,

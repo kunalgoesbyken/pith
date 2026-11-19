@@ -4,7 +4,7 @@ mod probe {
     use std::sync::mpsc::channel;
 
     use pith_core::Config;
-    use pith_linux::{Consent, Desktop, Display, Held, Reader, Reading, Report};
+    use pith_linux::{Consent, Desktop, Display, Held, Quit, Reader, Reading, Report};
 
     const ALLOW_ACCESSIBILITY: &str = "--allow-accessibility";
     const BLOCK_APP: &str = "--block";
@@ -52,6 +52,7 @@ mod probe {
             options.consent,
             desktop,
             Held::default(),
+            &Quit::default(),
             Box::new(move |report| {
                 let _ = readings.send(report);
             }),

@@ -23,7 +23,7 @@ struct View {
     surrounding: Option<Surrounding>,
 }
 
-fn field_id(target: &ObjectRefOwned) -> u64 {
+pub(crate) fn field_id(target: &ObjectRefOwned) -> u64 {
     let mut hasher = DefaultHasher::new();
     target.hash(&mut hasher);
     hasher.finish()
@@ -131,7 +131,11 @@ pub(crate) async fn read(
         FieldParts {
             field_id: field_id(&target),
             app: Some(app.to_string()),
-            window_title: window::title(connection, &target).await.unwrap_or_default(),
+            window_title: if redacted {
+                String::new()
+            } else {
+                window::title(connection, &target).await.unwrap_or_default()
+            },
             surrounding: view.surrounding,
             has_selection: caret::has_selection(&text).await,
             is_password,

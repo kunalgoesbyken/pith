@@ -1,4 +1,8 @@
+use crate::apps::same_app;
 use crate::config::app_name;
+
+const MIN_ID_DOTS: usize = 2;
+const SNAP_PREFIX: &str = "snap.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Entry {
@@ -9,6 +13,7 @@ enum Entry {
 
 struct Runtime {
     name: &'static str,
+    flags: &'static [&'static str],
     valued: &'static [&'static str],
     inline: &'static [&'static str],
     entry: Entry,
@@ -17,60 +22,73 @@ struct Runtime {
 const RUNTIMES: &[Runtime] = &[
     Runtime {
         name: "python",
+        flags: &[
+            "-B", "-b", "-bb", "-d", "-E", "-I", "-O", "-OO", "-P", "-q", "-R", "-s", "-S", "-u",
+            "-v", "-x",
+        ],
         valued: &["-W", "-X", "-Q"],
         inline: &["-c", "-m"],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "perl",
+        flags: &["-t", "-T", "-w", "-W", "-X"],
         valued: &["-I", "-M", "-m"],
         inline: &["-e", "-E"],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "ruby",
+        flags: &["-d", "-v", "-w", "-W"],
         valued: &["-I", "-r"],
         inline: &["-e"],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "node",
+        flags: &["--no-warnings", "--no-deprecation", "--enable-source-maps"],
         valued: &["-r", "--require", "--import", "--loader"],
         inline: &["-e", "-p", "--eval", "--print"],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "nodejs",
+        flags: &["--no-warnings", "--no-deprecation", "--enable-source-maps"],
         valued: &["-r", "--require", "--import", "--loader"],
         inline: &["-e", "-p", "--eval", "--print"],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "electron",
+        flags: &["--no-sandbox", "--disable-gpu"],
         valued: &[],
         inline: &[],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "mono",
+        flags: &["--debug", "--server", "--llvm"],
         valued: &[],
         inline: &[],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "mono-sgen",
+        flags: &["--debug", "--server", "--llvm"],
         valued: &[],
         inline: &[],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "dotnet",
+        flags: &[],
         valued: &[],
         inline: &[],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "java",
+        flags: &[],
         valued: &[
             "-cp",
             "-classpath",
@@ -86,60 +104,89 @@ const RUNTIMES: &[Runtime] = &[
     },
     Runtime {
         name: "bash",
+        flags: &["-e", "-i", "-l", "-u", "-x"],
         valued: &["-o", "-O"],
         inline: &["-c"],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "sh",
+        flags: &["-e", "-i", "-l", "-u", "-x"],
         valued: &["-o"],
         inline: &["-c"],
         entry: Entry::FirstArgument,
     },
     Runtime {
         name: "bwrap",
+        flags: &[],
         valued: &[],
         inline: &[],
         entry: Entry::Unnameable,
     },
     Runtime {
         name: "flatpak-spawn",
+        flags: &[],
         valued: &[],
         inline: &[],
         entry: Entry::Unnameable,
     },
     Runtime {
         name: "xdg-dbus-proxy",
+        flags: &[],
         valued: &[],
         inline: &[],
         entry: Entry::Unnameable,
     },
 ];
 
+const GENERIC_ENTRIES: &[&str] = &[
+    "main", "app", "index", "__main__", "run", "start", "server", "cli",
+];
+
+const PASTE_ONLY: &[&str] = &["firefox", "firefox-esr", "librewolf", "thunderbird"];
+
 const ALIASES: &[(&str, &str)] = &[
+    ("org.mozilla.firefox", "firefox"),
+    ("org.mozilla.Thunderbird", "thunderbird"),
+    ("snap.firefox", "firefox"),
+    ("snap.keepassxc", "keepassxc"),
+    ("snap.bitwarden", "bitwarden"),
+    ("snap.code", "code"),
+    ("snap.codium", "codium"),
+    ("snap.pycharm-community", "pycharm"),
+    ("snap.intellij-idea-community", "idea"),
     ("com.1password.1Password", "1password"),
     ("com.bitwarden.desktop", "bitwarden"),
     ("org.keepassxc.KeePassXC", "keepassxc"),
     ("in.enpass.Enpass", "enpass"),
+    ("org.gnome.World.Secrets", "keepass"),
+    ("me.proton.Pass", "bitwarden"),
     ("org.gnome.seahorse.Application", "seahorse"),
     ("org.gnome.Console", "kgx"),
     ("org.gnome.Terminal", "gnome-terminal-server"),
+    ("org.gnome.Ptyxis", "ptyxis"),
+    ("app.devsuite.Ptyxis", "ptyxis"),
     ("org.kde.konsole", "konsole"),
     ("org.kde.yakuake", "yakuake"),
     ("org.wezfurlong.wezterm", "wezterm"),
     ("org.alacritty.Alacritty", "alacritty"),
+    ("io.alacritty.Alacritty", "alacritty"),
     ("net.kovidgoyal.kitty", "kitty"),
     ("com.mitchellh.ghostty", "ghostty"),
-    ("app.devsuite.Ptyxis", "ptyxis"),
     ("com.gexperts.Tilix", "tilix"),
     ("org.xfce.Terminal", "xfce4-terminal"),
     ("com.visualstudio.code", "code"),
+    ("com.visualstudio.code-oss", "code-oss"),
     ("com.vscodium.codium", "codium"),
     ("dev.zed.Zed", "zed"),
     ("com.jetbrains.IntelliJ-IDEA-Community", "idea"),
     ("com.jetbrains.IntelliJ-IDEA-Ultimate", "idea"),
     ("com.jetbrains.PyCharm-Community", "pycharm"),
     ("com.jetbrains.PyCharm-Professional", "pycharm"),
+    ("com.jetbrains.WebStorm", "webstorm"),
+    ("com.jetbrains.CLion", "clion"),
+    ("com.jetbrains.GoLand", "goland"),
+    ("com.jetbrains.Rider", "rider"),
 ];
 
 fn runtime(exe: &str) -> Option<&'static Runtime> {
@@ -165,11 +212,21 @@ pub fn entry_of<'a>(exe: &str, arguments: &'a [String]) -> Option<&'a str> {
         }
         if runtime.valued.contains(&argument) {
             arguments.next();
-        } else if !argument.starts_with('-') {
+        } else if argument.starts_with('-') {
+            if runtime.entry == Entry::FirstArgument && !runtime.flags.contains(&argument) {
+                return None;
+            }
+        } else {
             return (runtime.entry == Entry::FirstArgument).then_some(argument);
         }
     }
     None
+}
+
+pub fn is_generic_entry(stem: &str) -> bool {
+    GENERIC_ENTRIES
+        .iter()
+        .any(|generic| generic.eq_ignore_ascii_case(stem))
 }
 
 pub fn alias_of(id: &str) -> Option<&'static str> {
@@ -177,4 +234,17 @@ pub fn alias_of(id: &str) -> Option<&'static str> {
         .iter()
         .find(|(known, _)| known.eq_ignore_ascii_case(id))
         .map(|(_, alias)| *alias)
+}
+
+pub fn is_unlisted_id(app: &str) -> bool {
+    let name = app_name(app);
+    (name.starts_with(SNAP_PREFIX) || name.matches('.').count() >= MIN_ID_DOTS)
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        && alias_of(name).is_none()
+}
+
+pub fn inserts_by_paste(app: &str) -> bool {
+    PASTE_ONLY.iter().any(|known| same_app(known, app))
 }

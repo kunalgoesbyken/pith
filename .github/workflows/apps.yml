@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: 22
       - name: Build the harness
-        run: cargo build --release --example apps
+        run: cargo build --locked --release --example apps
       - name: Install the Electron fixture runtime
         run: |
           npm ci --no-audit --no-fund --prefix ${{ env.FIXTURES }}\electron

@@ -73,17 +73,6 @@ pub struct Surface<'a> {
     pub measure: &'a dyn Fn(&str) -> i32,
 }
 
-#[derive(Clone, Copy)]
-struct Stage<'a> {
-    pub text: &'a str,
-    pub rtl: bool,
-    pub work: Rect,
-    pub scale: Scale,
-    pub field: Option<Rect>,
-    pub line_height: i32,
-    pub measure: &'a dyn Fn(&str) -> i32,
-}
-
 pub fn inline_anchor(caret: Rect, rtl: bool) -> i32 {
     if rtl {
         caret.x
@@ -100,18 +89,18 @@ pub fn inline_font_px(caret: Rect, style: &TextStyle, scale: Scale) -> i32 {
     preferred.clamp(scale.px(MIN_FONT_PX), scale.px(MAX_FONT_PX))
 }
 
-fn place_inline(stage: &Stage, caret: Rect) -> Option<Placed> {
-    let top = caret.y + (caret.height - stage.line_height) / 2;
-    let bounds = flow_bounds(stage.field, caret, stage.work);
+fn place_inline(surface: &Surface, text: &str, rtl: bool, caret: Rect) -> Option<Placed> {
+    let top = caret.y + (caret.height - surface.line_height) / 2;
+    let bounds = flow_bounds(surface.field, caret, surface.work);
     let flow = Flow {
         caret,
         top,
-        line_height: stage.line_height,
+        line_height: surface.line_height,
         bounds,
-        rtl: stage.rtl,
-        max_lines: lines_that_fit(bounds, top, stage.line_height),
+        rtl,
+        max_lines: lines_that_fit(bounds, top, surface.line_height),
     };
-    let lines = layout(stage.text, &flow, stage.measure);
+    let lines = layout(text, &flow, surface.measure);
     let left = lines.iter().map(|line| line.x).min()?;
     let right = lines.iter().map(|line| line.x + line.width).max()?;
     let (first, last) = (lines.first()?.y, lines.last()?.y);
@@ -122,27 +111,27 @@ fn place_inline(stage: &Stage, caret: Rect) -> Option<Placed> {
         destination: origin,
         size: Size {
             width: (right - left).max(1),
-            height: last - first + stage.line_height,
+            height: last - first + surface.line_height,
         },
     })
 }
 
-fn place_under_field(stage: &Stage, element: Rect) -> Option<Placed> {
+fn place_under_field(surface: &Surface, text: &str, rtl: bool, element: Rect) -> Option<Placed> {
     let room = element
         .width
-        .max(stage.scale.px(MIN_WIDTH))
-        .min(stage.work.width);
-    place_pill(stage, element, room)
+        .max(surface.scale.px(MIN_WIDTH))
+        .min(surface.work.width);
+    place_pill(surface, text, rtl, element, room)
 }
 
-fn place_under_caret(stage: &Stage, caret: Rect) -> Option<Placed> {
-    let bounds = flow_bounds(stage.field, caret, stage.work);
-    let room = if stage.rtl {
+fn place_under_caret(surface: &Surface, text: &str, rtl: bool, caret: Rect) -> Option<Placed> {
+    let bounds = flow_bounds(surface.field, caret, surface.work);
+    let room = if rtl {
         caret.x + caret.width - bounds.x
     } else {
         bounds.x + bounds.width - caret.x
     };
-    place_pill(stage, caret, room)
+    place_pill(surface, text, rtl, caret, room)
 }
 
 pub fn fit_cuts(labels: &[Label], form: Form, surface: &Surface) -> Option<(usize, Placed)> {
@@ -150,19 +139,11 @@ pub fn fit_cuts(labels: &[Label], form: Form, surface: &Surface) -> Option<(usiz
         .iter()
         .enumerate()
         .find_map(|(index, Label { text, .. })| {
-            let stage = Stage {
-                text,
-                rtl: is_rtl(text),
-                work: surface.work,
-                scale: surface.scale,
-                field: surface.field,
-                line_height: surface.line_height,
-                measure: surface.measure,
-            };
+            let rtl = is_rtl(text);
             let placed = match form {
-                Form::Ghost(caret) => place_inline(&stage, caret),
-                Form::UnderCaret(caret) => place_under_caret(&stage, caret),
-                Form::UnderField(element) => place_under_field(&stage, element),
+                Form::Ghost(caret) => place_inline(surface, text, rtl, caret),
+                Form::UnderCaret(caret) => place_under_caret(surface, text, rtl, caret),
+                Form::UnderField(element) => place_under_field(surface, text, rtl, element),
             };
             placed
                 .filter(|placed| fits(text, &placed.lines))
@@ -170,8 +151,8 @@ pub fn fit_cuts(labels: &[Label], form: Form, surface: &Surface) -> Option<(usiz
         })
 }
 
-fn place_pill(stage: &Stage, anchor: Rect, room: i32) -> Option<Placed> {
-    let scale = stage.scale;
+fn place_pill(surface: &Surface, text: &str, rtl: bool, anchor: Rect, room: i32) -> Option<Placed> {
+    let scale = surface.scale;
     let (padding_x, padding_y) = (scale.px(PADDING_X), scale.px(PADDING_Y));
     let room = room - 2 * padding_x;
     if room < 1 {
@@ -179,36 +160,36 @@ fn place_pill(stage: &Stage, anchor: Rect, room: i32) -> Option<Placed> {
     }
     let flow = Flow {
         caret: Rect {
-            x: if stage.rtl { room } else { -1 },
+            x: if rtl { room } else { -1 },
             y: 0,
             width: 0,
-            height: stage.line_height,
+            height: surface.line_height,
         },
         top: 0,
-        line_height: stage.line_height,
+        line_height: surface.line_height,
         bounds: Rect {
             x: 0,
             y: 0,
             width: room,
-            height: stage.line_height * MAX_LINES as i32,
+            height: surface.line_height * MAX_LINES as i32,
         },
-        rtl: stage.rtl,
+        rtl,
         max_lines: MAX_LINES,
     };
-    let lines = layout(stage.text, &flow, stage.measure);
+    let lines = layout(text, &flow, surface.measure);
     if lines.first()?.y != flow.top {
         return None;
     }
     let left = lines.iter().map(|line| line.x).min()?;
     let right = lines.iter().map(|line| line.x + line.width).max()?;
-    let height = lines.len() as i32 * stage.line_height + 2 * padding_y;
+    let height = lines.len() as i32 * surface.line_height + 2 * padding_y;
     let pill = anchor_pill(
         anchor,
         right - left + 2 * padding_x,
         height,
         scale.px(GAP),
-        stage.work,
-        stage.rtl,
+        surface.work,
+        rtl,
     )?;
     Some(Placed {
         lines,

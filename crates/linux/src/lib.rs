@@ -40,4 +40,6 @@ pub use reader::{Reader, Report};
 #[cfg(feature = "e2e")]
 pub use reading::Reading;
 #[cfg(feature = "e2e")]
+pub use session::Quit;
+#[cfg(feature = "e2e")]
 pub use x11::{Desktop, Display};

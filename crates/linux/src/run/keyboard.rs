@@ -7,7 +7,7 @@ use crate::held::Held;
 use crate::x11::{Grabs, Stroke, Verdict};
 
 const KEY_DEADLINE: Duration = Duration::from_millis(150);
-const HOLD_LIMIT: Duration = Duration::from_millis(600);
+pub(super) const HOLD_LIMIT: Duration = Duration::from_millis(600);
 const KEY_POLL: Duration = Duration::from_millis(30);
 const KEY_POLL_CAP: Duration = Duration::from_millis(1500);
 
@@ -44,8 +44,8 @@ impl Keyboard {
     }
 
     fn release(&self, verdict: Verdict, time: u32) {
-        self.grabs.release(verdict, time);
         self.held.end();
+        self.grabs.release(verdict, time);
     }
 
     fn hold(&mut self, stroke: Stroke) {
@@ -115,7 +115,7 @@ impl App {
                 self.keyboard.hold(press.origin);
                 self.timers.start_key_poll(KEY_POLL);
                 self.dispatch(press.action.event());
-                if self.effects.inserting() {
+                if self.effects.inserting(HOLD_LIMIT) {
                     self.timers.start_key_deadline(HOLD_LIMIT);
                 } else {
                     self.keyboard.let_go();

@@ -39,8 +39,8 @@ pub struct Desktop {
 }
 
 fn clamp_dpi(dpi: f64) -> u32 {
-    if dpi.is_finite() && (MIN_DPI..=MAX_DPI).contains(&dpi) {
-        dpi.round() as u32
+    if dpi.is_finite() && dpi > 0.0 {
+        dpi.clamp(MIN_DPI, MAX_DPI).round() as u32
     } else {
         BASE_DPI
     }

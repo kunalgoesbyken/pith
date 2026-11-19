@@ -33,6 +33,12 @@ impl From<AtspiError> for ReaderError {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    pub field_id: u64,
+    pub app: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Inserted {
     Confirmed,
@@ -61,15 +67,3 @@ impl fmt::Display for InsertError {
 }
 
 impl std::error::Error for InsertError {}
-
-impl From<AtspiError> for InsertError {
-    fn from(error: AtspiError) -> Self {
-        Self::Bus(error)
-    }
-}
-
-impl From<zbus::Error> for InsertError {
-    fn from(error: zbus::Error) -> Self {
-        Self::Bus(error.into())
-    }
-}

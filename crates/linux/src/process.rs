@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use atspi::AtspiError;
-use pith_core::{entry_of, is_runtime};
+use std::sync::Mutex;
+
+use pith_core::{entry_of, is_generic_entry, is_runtime, is_unlisted_id, log};
 use zbus::Connection;
 use zbus::fdo::DBusProxy;
 use zbus::names::{BusName, UniqueName};
@@ -11,7 +13,11 @@ const EXECUTABLE_LINK: &str = "exe";
 const COMMAND_LINE: &str = "cmdline";
 const ENVIRONMENT: &str = "environ";
 const REPLACED_SUFFIX: &str = " (deleted)";
-const SANDBOX_VARIABLES: [&str; 2] = ["FLATPAK_ID", "SNAP_NAME"];
+const FLATPAK_VARIABLE: &str = "FLATPAK_ID";
+const SNAP_VARIABLE: &str = "SNAP_NAME";
+const SNAP_PREFIX: &str = "snap.";
+
+static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 const SET_ENVIRONMENT_FLAG: &str = "--setenv";
 const UNNAMED_ENTRY_EXTENSION: &str = "asar";
 
@@ -51,22 +57,37 @@ fn executable_name(pid: u32) -> Option<String> {
     )
 }
 
+fn sandbox_value(environment: &[String], command: &[String], variable: &str) -> Option<String> {
+    let from_environment = environment
+        .iter()
+        .find_map(|entry| entry.strip_prefix(variable)?.strip_prefix('='));
+    let from_command = command
+        .windows(3)
+        .find(|window| window[0] == SET_ENVIRONMENT_FLAG && window[1] == variable)
+        .map(|window| window[2].as_str());
+    from_environment
+        .or(from_command)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn sandbox_name(pid: u32) -> Option<String> {
     let environment = fields(pid, ENVIRONMENT);
     let command = fields(pid, COMMAND_LINE);
-    SANDBOX_VARIABLES.iter().find_map(|variable| {
-        let from_environment = environment
-            .iter()
-            .find_map(|entry| entry.strip_prefix(variable)?.strip_prefix('='));
-        let from_command = command
-            .windows(3)
-            .find(|window| window[0] == SET_ENVIRONMENT_FLAG && window[1] == *variable)
-            .map(|window| window[2].as_str());
-        from_environment
-            .or(from_command)
-            .filter(|id| !id.is_empty())
-            .map(str::to_string)
+    sandbox_value(&environment, &command, FLATPAK_VARIABLE).or_else(|| {
+        sandbox_value(&environment, &command, SNAP_VARIABLE)
+            .map(|name| format!("{SNAP_PREFIX}{name}"))
     })
+}
+
+fn announce(app: &str) {
+    let mut seen = ANNOUNCED.lock().unwrap_or_else(|error| error.into_inner());
+    if is_unlisted_id(app) && !seen.iter().any(|known| known == app) {
+        seen.push(app.to_string());
+        log(&format!(
+            "{app} is not a known app, so it is off unless allowed_apps lists \"{app}\""
+        ));
+    }
 }
 
 fn hosted_name(pid: u32, runtime: &str) -> Option<String> {
@@ -78,7 +99,8 @@ fn hosted_name(pid: u32, runtime: &str) -> Option<String> {
     {
         return None;
     }
-    Some(entry.file_stem()?.to_string_lossy().into_owned())
+    let stem = entry.file_stem()?.to_string_lossy().into_owned();
+    (!is_generic_entry(&stem)).then_some(stem)
 }
 
 pub(crate) fn process_name(pid: u32) -> Option<String> {
@@ -86,5 +108,7 @@ pub(crate) fn process_name(pid: u32) -> Option<String> {
     if !is_runtime(&executable) {
         return Some(executable);
     }
-    sandbox_name(pid).or_else(|| hosted_name(pid, &executable))
+    let name = sandbox_name(pid).or_else(|| hosted_name(pid, &executable))?;
+    announce(&name);
+    Some(name)
 }
