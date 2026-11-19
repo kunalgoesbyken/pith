@@ -11,13 +11,16 @@ use atspi::events::object::{
 use futures_lite::future::{block_on, or, poll_once};
 use futures_lite::{Stream, StreamExt};
 use pith_core::{Config, log};
+use zbus::Connection;
 
 use crate::accessibility::{Consent, Lease};
 use crate::bounded::{Bounded, bounded};
 use crate::error::ReaderError;
 use crate::field::read;
-use crate::focus::{Effect, Tracker};
+use crate::focus::{Effect, Focus, Tracker};
 use crate::reading::Reading;
+
+const READ_ATTEMPTS: usize = 3;
 
 pub type ReadingCallback = Box<dyn Fn(Result<Reading, ReaderError>) + Send>;
 
@@ -125,17 +128,9 @@ impl Session {
             }
             let reading = match tracker.focus_mut() {
                 Some(focus) if config.enabled => {
-                    match bounded(stopped, read(bus, focus, config)).await {
-                        Bounded::Done(Ok(reading)) => reading,
-                        Bounded::Done(Err(error)) => {
-                            log(&format!("atspi read failed: {error}"));
-                            Reading::Nothing
-                        }
-                        Bounded::TimedOut => {
-                            log("atspi read timed out");
-                            Reading::Nothing
-                        }
-                        Bounded::Stopped => return Exit::Stopped,
+                    match snapshot(bus, stopped, focus, config).await {
+                        Some(reading) => reading,
+                        None => return Exit::Stopped,
                     }
                 }
                 _ => Reading::Nothing,
@@ -150,6 +145,23 @@ impl Session {
     async fn release(self) {
         self.lease.release().await;
     }
+}
+
+async fn snapshot(
+    bus: &Connection,
+    stopped: &Receiver<()>,
+    focus: &mut Focus,
+    config: &Config,
+) -> Option<Reading> {
+    for _ in 0..READ_ATTEMPTS {
+        match bounded(stopped, read(bus, focus, config)).await {
+            Bounded::Done(Ok(reading)) => return Some(reading),
+            Bounded::Done(Err(error)) => log(&format!("atspi read failed: {error}")),
+            Bounded::TimedOut => log("atspi read timed out"),
+            Bounded::Stopped => return None,
+        }
+    }
+    Some(Reading::Nothing)
 }
 
 async fn next(events: &mut (impl Stream<Item = Event> + Unpin), stopped: &Receiver<()>) -> Next {
