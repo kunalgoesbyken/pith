@@ -1,5 +1,6 @@
 use crate::Rgb;
 use crate::placement::Placement;
+use crate::suffix::After;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rect {
@@ -22,7 +23,7 @@ pub struct FieldSnapshot {
     pub app: String,
     pub window_title: String,
     pub before: String,
-    pub after: String,
+    pub after: After,
     pub has_selection: bool,
     pub is_password: bool,
     pub composing: bool,

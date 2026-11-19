@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use pith_core::{
     Action, Completion, CompletionRequest, Config, FieldSnapshot, Keymap, ModelPreset, PauseSpan,
-    Placement, Reach, SkipReason, check,
+    Placement, Reach, SkipReason, Suffix, check,
 };
 use pith_infer::{Backend, Worker};
 use pith_windows::{
@@ -43,6 +43,7 @@ const ES_PASSWORD: u32 = 0x0020;
 const ES_AUTOHSCROLL: u32 = 0x0080;
 const LOOKBACK_CHARS: usize = 19_200;
 const MIN_SAMPLES: usize = 5;
+const MIN_GLYPH_PX: i32 = 4;
 const MAX_STEADY_COST: usize = 4;
 
 const PROSE: [&str; 6] = [
@@ -56,9 +57,19 @@ const PROSE: [&str; 6] = [
 
 const MIDLINE_SUFFIXES: [&str; 3] = [").", ")", "]"];
 
-const CLOSING_SUFFIXES: [&str; 7] = [")", "」", "）。", "”", ". ", "?!", "؟"];
+const CLOSING_SUFFIXES: [&str; 8] = [")", "」", "）。", "”", ". ", "?!", "؟", "\""];
 
-const TEXT_SUFFIXES: [&str; 6] = [" world", ", and then", "x", "(", "$5", "😀"];
+const TEXT_SUFFIXES: [&str; 9] = [
+    " world",
+    ", and then",
+    "x",
+    "(",
+    "$5",
+    "😀",
+    " @alice",
+    "%",
+    " #release",
+];
 
 const LANGUAGES: [(&str, &str); 5] = [
     ("japanese", "今日は天気が良いので、公園に"),
@@ -964,22 +975,20 @@ fn midline_reader(rig: &mut Rig) {
     let field = rig.a;
     let prefix = PROSE[0];
     let config = Config::default();
-    for (suffix, inline) in [("", true), ("   ", true)]
-        .into_iter()
-        .chain(CLOSING_SUFFIXES.map(|suffix| (suffix, false)))
-    {
+    for suffix in ["", "   "].into_iter().chain(CLOSING_SUFFIXES) {
         rig.fresh_at(field, &format!("{prefix}{suffix}"), utf16_len(prefix));
         let snapshot = rig.read(field);
-        let placement = snapshot.as_ref().and_then(|s| s.placement);
-        let expected = |p: &Placement| matches!(p, Placement::Inline(_)) == inline;
+        let found = snapshot.as_ref().map(|s| s.after.suffix().clone());
+        let expected = if suffix.trim().is_empty() {
+            Suffix::Blank
+        } else {
+            Suffix::Closing(suffix.trim().to_string())
+        };
         rig.check(
-            &format!(
-                "reader places {suffix:?} after the caret {}",
-                if inline { "inline" } else { "in the pill" }
-            ),
-            placement.as_ref().is_some_and(expected)
+            &format!("reader classifies {suffix:?} after the caret"),
+            found.as_ref() == Some(&expected)
                 && snapshot.as_ref().is_some_and(|s| check(s, &config).is_ok()),
-            format!("{placement:?}"),
+            format!("{found:?}"),
         );
     }
     for suffix in TEXT_SUFFIXES {
@@ -1016,7 +1025,7 @@ fn midline(rig: &mut Rig) {
     let suggestion = last_show(&seen).unwrap_or_default();
     rig.check(
         "a suggestion before closing punctuation shows in the pill and does not repeat it",
-        matches!(last_placement(&seen), Some(Placement::Anchored(_)))
+        matches!(last_placement(&seen), Some(Placement::BelowCaret(_)))
             && !suggestion.trim_start().starts_with(|c| suffix.contains(c))
             && !suggestion.ends_with(|c| suffix.contains(c)),
         format!(
@@ -1030,10 +1039,12 @@ fn midline(rig: &mut Rig) {
         .map(window_rect)
         .filter(|_| overlay_visible());
     rig.check(
-        "the pill stays off the text after the caret",
+        "the pill starts at the caret, stays off the text after it and is wide enough for the suggestion",
         pill.is_some_and(|p| {
             !((p.left..p.right).contains(&(caret_x + 2))
                 && (p.top..p.bottom).contains(&(caret_y + 4)))
+                && (p.left - caret_x).abs() <= 12
+                && p.right - p.left >= suggestion.chars().count() as i32 * MIN_GLYPH_PX
         }),
         format!(
             "caret ({caret_x},{caret_y}), pill {:?}",
@@ -1634,7 +1645,7 @@ fn password_field(rig: &mut Rig) {
         "password field text is never read",
         snapshot
             .as_ref()
-            .is_none_or(|s| s.is_password && s.before.is_empty() && s.after.is_empty()),
+            .is_none_or(|s| s.is_password && s.before.is_empty() && s.after.text().is_empty()),
         format!("{snapshot:?}"),
     );
     rig.drain();

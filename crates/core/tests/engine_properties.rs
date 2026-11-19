@@ -108,7 +108,7 @@ fn context_key(field: &Option<FieldSnapshot>) -> Option<(u64, String, String, St
             f.field_id,
             f.app.clone(),
             f.before.clone(),
-            f.after.clone(),
+            f.after.text().to_string(),
             [f.has_selection, f.is_password, f.composing],
         )
     })
@@ -353,7 +353,7 @@ impl Harness {
                     self.sched = None;
                 }
             }
-            Event::DebounceElapsed(_) | Event::Resume(_) | Event::Trigger => {}
+            Event::DebounceElapsed(_) | Event::Resume(_) | Event::Trigger | Event::NotDrawn => {}
         }
         self.check_dismissal(&event, scheduled_now);
         if matches!(event, Event::Field(None)) {
@@ -500,7 +500,7 @@ impl Harness {
     fn set_after(&mut self) {
         let after = text(&mut self.rng, 3);
         if let Some(field) = &mut self.world {
-            field.after = after;
+            field.after = after.into();
         }
         self.publish();
     }

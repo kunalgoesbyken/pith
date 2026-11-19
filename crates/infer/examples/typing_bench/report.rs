@@ -1,11 +1,11 @@
-use pith_core::{Completion, Config, next_word, split_partial, suggestion};
+use pith_core::{After, Completion, Config, next_word, split_partial, suggestion};
 
 pub const MISS_TOKENS: usize = 16;
 
 pub struct Record {
     pub position: usize,
     pub before: String,
-    pub after: String,
+    pub after: After,
     pub rest: String,
     pub completion: Completion,
     pub ms: f64,
@@ -126,8 +126,13 @@ impl Stats {
             self.word_hits += usize::from(hit);
         }
         let Some(shown) = shown else {
-            let unconstrained = suggestion(&record.completion, &record.before, "", config);
-            self.held += usize::from(!record.after.is_empty() && unconstrained.is_some());
+            let unconstrained = suggestion(
+                &record.completion,
+                &record.before,
+                &After::default(),
+                config,
+            );
+            self.held += usize::from(!record.after.text().is_empty() && unconstrained.is_some());
             return;
         };
         self.shown += 1;

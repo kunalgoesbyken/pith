@@ -5,7 +5,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::ignore::IgnoreTracker;
 use crate::stats::Counts;
 use crate::{
-    Completion, CompletionRequest, Config, FieldSnapshot, Placement, SkipReason, TextStyle,
+    Completion, CompletionRequest, Config, FieldSnapshot, Placement, SkipReason, Suffix, TextStyle,
     TriggerMode, build, check, check_forced, continue_window, ends_spaced_word, next_word,
     suggestion,
 };
@@ -27,6 +27,7 @@ pub enum Event {
     AcceptAll,
     AcceptWord,
     Dismiss,
+    NotDrawn,
     Trigger,
     Resume(String),
     SetConfig(Config),
@@ -56,7 +57,7 @@ pub enum Action {
 }
 
 fn closes_spaced_word(field: &FieldSnapshot, accepted: &str) -> bool {
-    field.after.is_empty() && ends_spaced_word(&format!("{}{accepted}", field.before))
+    field.after.text().is_empty() && ends_spaced_word(&format!("{}{accepted}", field.before))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,7 +149,7 @@ impl Engine {
         let racing = shown.shown_at.is_some_and(|at| {
             now.saturating_duration_since(at) < Duration::from_millis(self.config.accept_race_ms)
         });
-        !racing && (!moves_caret || field.after.trim().is_empty())
+        !racing && (!moves_caret || field.after.ends_text())
     }
 
     pub fn handle(&mut self, event: Event) -> Vec<Action> {
@@ -171,10 +172,13 @@ impl Engine {
                 if let Some(app) = ignored {
                     self.note_ignored(&app, &mut out);
                 }
-                self.dismissed = self.field.as_ref().map(|field| Dismissal {
-                    field: FieldKey::of(field),
-                    before: field.before.clone(),
-                });
+                self.hold_dismissal();
+            }
+            Event::NotDrawn => {
+                if matches!(self.phase, Phase::Showing(_)) {
+                    self.reset(&mut out);
+                    self.hold_dismissal();
+                }
             }
             Event::Trigger => self.on_trigger(&mut out),
             Event::Resume(app) => {
@@ -190,6 +194,13 @@ impl Engine {
             }
         }
         out
+    }
+
+    fn hold_dismissal(&mut self) {
+        self.dismissed = self.field.as_ref().map(|field| Dismissal {
+            field: FieldKey::of(field),
+            before: field.before.clone(),
+        });
     }
 
     fn was_readable(&self) -> bool {
@@ -485,6 +496,12 @@ impl Engine {
         let Some(placement) = field.placement else {
             self.withdraw(out);
             return;
+        };
+        let placement = match placement {
+            Placement::Inline(caret) if !matches!(field.after.suffix(), Suffix::Blank) => {
+                Placement::BelowCaret(caret)
+            }
+            placement => placement,
         };
         out.push(Action::Show {
             text: shown.text.clone(),

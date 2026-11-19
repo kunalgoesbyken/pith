@@ -11,14 +11,20 @@ const PADDING_X: i32 = 10;
 const PADDING_Y: i32 = 5;
 const GAP: i32 = 4;
 const MIN_WIDTH: i32 = 240;
+const MAX_LINES: usize = 4;
 
-pub fn compose<'a>(frame: &Frame<'a>, element: Rect, style: Style) -> Option<Scene<'a>> {
+pub fn compose<'a>(
+    frame: &Frame<'a>,
+    anchor: Rect,
+    field_width: i32,
+    style: Style,
+) -> Option<Scene<'a>> {
     let Frame {
         text, rtl, monitor, ..
     } = *frame;
     let (work, scale) = (monitor.work, monitor.scale);
     let (padding_x, padding_y) = (scale.px(PADDING_X), scale.px(PADDING_Y));
-    let room = element.width.max(scale.px(MIN_WIDTH)).min(work.width) - 2 * padding_x;
+    let room = field_width.max(scale.px(MIN_WIDTH)).min(work.width) - 2 * padding_x;
     let face = Face::new(
         frame.screen,
         FALLBACK_FAMILY,
@@ -37,25 +43,30 @@ pub fn compose<'a>(frame: &Frame<'a>, element: Rect, style: Style) -> Option<Sce
             x: 0,
             y: 0,
             width: room,
-            height: face.line_height,
+            height: face.line_height * MAX_LINES as i32,
         },
         rtl,
-        max_lines: 1,
+        max_lines: MAX_LINES,
     };
-    let line = *layout(text, &flow, &|segment| face.measure(segment)).first()?;
-    let height = face.line_height + 2 * padding_y;
+    let lines = layout(text, &flow, &|segment| face.measure(segment));
+    if lines.last()?.end != text.trim_end().len() {
+        return None;
+    }
+    let left = lines.iter().map(|line| line.x).min()?;
+    let right = lines.iter().map(|line| line.x + line.width).max()?;
+    let height = lines.len() as i32 * face.line_height + 2 * padding_y;
     let pill = anchor_pill(
-        element,
-        line.width + 2 * padding_x,
+        anchor,
+        right - left + 2 * padding_x,
         height,
         scale.px(GAP),
         work,
         rtl,
     )?;
     let placed = Placed {
-        lines: vec![line],
+        lines,
         origin: POINT {
-            x: line.x - padding_x,
+            x: left - padding_x,
             y: -padding_y,
         },
         destination: POINT {

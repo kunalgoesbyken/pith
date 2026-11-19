@@ -36,7 +36,7 @@ fn evaluate(field: &FieldSnapshot, config: &Config, forced: bool) -> Result<(), 
     if field.has_selection {
         return Err(SkipReason::Selection);
     }
-    if Suffix::of(&field.after) == Suffix::Text {
+    if matches!(field.after.suffix(), Suffix::Text) {
         return Err(SkipReason::TextAfterCaret);
     }
     let current_line = field.before.rsplit(LINE_BREAKS).next().unwrap_or_default();

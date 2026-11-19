@@ -31,6 +31,8 @@ const CORRECTIONS: &str = "I am writing to let you know that I will be out of th
 
 const MIDLINE_CLOSING: &str = "Thanks for the quick turnaround on the revised contract (I reviewed the payment terms and they look good to me, but could you send over the final version so we can sign it by Friday";
 
+const MIDLINE_NUMBERS: &str = "Please review the pricing (the plan costs 19.99 dollars per month, which is about 1.5 percent less than version 3.4, and the full details are at www.example.com/docs";
+
 const LONG_PARAGRAPHS: [&str; 7] = [
     "Project overview. The goal of this project is to replace the aging order processing pipeline with a service that is easier to operate and cheaper to run. Today every order passes through a monolithic batch job that runs once per hour, which means customers wait up to sixty minutes for a confirmation email and the support team cannot see the state of an order until the next batch completes.",
     "Current problems. The batch job is hard to test because it talks to the database, the payment provider and the warehouse system in a single transaction. When any of these is slow, the whole run slows down, and when one fails the job retries everything from the start. Last quarter this caused two incidents where customers were charged twice. The on call engineers also need to know the exact order in which the steps run, which is documented only in a wiki page that has not been updated in two years.",
@@ -70,6 +72,10 @@ pub fn all() -> Vec<Sample> {
         Sample {
             suffix: ").",
             ..plain("midline-close", "Re: contract - Gmail", MIDLINE_CLOSING)
+        },
+        Sample {
+            suffix: ").",
+            ..plain("midline-numbers", "Re: pricing - Gmail", MIDLINE_NUMBERS)
         },
         Sample {
             corrections: true,

@@ -1,6 +1,7 @@
 use crate::suffix::fit;
 use crate::{
-    Completion, Config, FieldSnapshot, StopReason, clean_completion, split_partial, tail_chars,
+    After, Completion, Config, FieldSnapshot, StopReason, clean_completion, split_partial,
+    tail_chars,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,7 +43,7 @@ fn confident_enough(mean_logprob: Option<f32>, config: &Config) -> bool {
 pub fn suggestion(
     completion: &Completion,
     before: &str,
-    after: &str,
+    after: &After,
     config: &Config,
 ) -> Option<String> {
     if completion.stop == StopReason::Cancelled

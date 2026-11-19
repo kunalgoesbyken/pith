@@ -88,7 +88,7 @@ Settings also warns when something else suggests in the same fields: Windows tex
 
 When an app reports no caret, or a caret Pith cannot trust, the suggestion shows in a small pill just below the field, or inside its bottom edge when there is no room. The pill keeps its own background and contrast, so the opacity setting does not apply to it.
 
-The pill is also used when the only text after the caret on the line is closing punctuation, such as `)`, `]`, `"`, `.`, `?`, `」` or `）。`. Pith suggests the words that belong before it, shows them in a pill just below the caret so they never cover the text that is already there, and drops any part of the suggestion that repeats the punctuation (`could you send it` before `?`, not `could you send it?`). Accepting inserts at the caret and leaves the punctuation where it is. Any other text after the caret on the line (a word, an opening bracket, a symbol) still skips the suggestion.
+The pill is also used when the only text after the caret on the line is closing punctuation, such as `)`, `]`, `"`, `.`, `?`, `」` or `）。` (closing brackets and quotes, and terminal punctuation in any script, by Unicode property). Pith suggests the words that belong before it and shows them in a pill that starts at the caret, just below its line, so the suggestion never sits on top of the punctuation. In a field with several lines the pill covers the start of the line under the caret while it is shown. The pill is as wide as the field and wraps up to four lines; a suggestion that does not fit whole is not shown and cannot be accepted. A suggestion that repeats the punctuation after the caret is dropped (`could you send it` before `?`, not `could you send it?`), and so is one that closes a bracket it did not open or runs over more than one sentence. Accepting inserts at the caret and leaves the punctuation where it is. Any other text after the caret on the line (a word, an opening bracket, a symbol) still skips the suggestion.
 
 Pith pauses and frees the model while Windows battery saver is on.
 
@@ -134,7 +134,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 - **Captures the accept keys and Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after. Right at a caret that is not at the end of the text goes to the app untouched.
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
 - **Predicts** with llama.cpp in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so the suggestion finishes the word. Low-confidence suggestions are dropped.
-- **Skips** password fields, IME composition, selections, text after the caret on the same line (unless it is only closing punctuation, found by Unicode category), terminals, password managers, sign-in screens and, until you allow them, code editors.
+- **Skips** password fields, IME composition, selections, text after the caret on the same line (unless it is only closing punctuation, which shows in the pill), terminals, password managers, sign-in screens and, until you allow them, code editors.
 - **Re-reads the field** when you press an accept key or Esc, and acts only if the suggestion still fits what is on screen.
 
 ```

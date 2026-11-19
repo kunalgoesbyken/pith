@@ -16,10 +16,16 @@ use inline::Backdrop;
 use pill::Style;
 use raster::Raster;
 use scene::{Frame, Scene};
-use screen::{Monitor, ScreenDc, sample_background};
+use screen::{Monitor, ScreenDc, focused_field, sample_background};
 use window::Layered;
 
 use crate::ui::Theme;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Visible {
+    Shown,
+    Hidden,
+}
 
 pub struct Overlay {
     window: Layered,
@@ -42,8 +48,10 @@ impl Overlay {
         self.opacity = opacity;
     }
 
-    pub fn show(&mut self, text: &str, placement: Placement, style: &TextStyle) {
-        let (Placement::Inline(target) | Placement::Anchored(target)) = placement;
+    pub fn show(&mut self, text: &str, placement: Placement, style: &TextStyle) -> Visible {
+        let (Placement::Inline(target)
+        | Placement::Anchored(target)
+        | Placement::BelowCaret(target)) = placement;
         let screen = ScreenDc::get();
         let frame = Frame {
             text,
@@ -60,9 +68,15 @@ impl Overlay {
                 };
                 inline::compose(&frame, caret, style, backdrop)
             }
-            Placement::Anchored(element) => anchored::compose(&frame, element, self.style),
+            Placement::Anchored(element) => {
+                anchored::compose(&frame, element, element.width, self.style)
+            }
+            Placement::BelowCaret(caret) => {
+                let width = focused_field().map_or(frame.monitor.work.width, |field| field.width);
+                anchored::compose(&frame, caret, width, self.style)
+            }
         };
-        self.present(&screen, scene);
+        self.present(&screen, scene)
     }
 
     pub fn hide(&mut self) {
@@ -78,17 +92,25 @@ impl Overlay {
                 let anchor = inline::anchor(caret, frame.rtl);
                 self.background = sample_background(frame.screen, caret, anchor, frame.rtl);
             }
-            Placement::Anchored(_) => self.style = Style::of(&Theme::detect()),
+            Placement::Anchored(_) | Placement::BelowCaret(_) => {
+                self.style = Style::of(&Theme::detect());
+            }
         }
     }
 
-    fn present(&mut self, screen: &ScreenDc, scene: Option<Scene>) {
+    fn present(&mut self, screen: &ScreenDc, scene: Option<Scene>) -> Visible {
         let drawn = scene
             .as_ref()
             .and_then(|scene| Some((Raster::render(scene)?, scene.placed.destination)));
         match drawn {
-            Some((raster, destination)) => self.window.present(screen, &raster, destination),
-            None => self.window.hide(),
+            Some((raster, destination)) => {
+                self.window.present(screen, &raster, destination);
+                Visible::Shown
+            }
+            None => {
+                self.window.hide();
+                Visible::Hidden
+            }
         }
     }
 }

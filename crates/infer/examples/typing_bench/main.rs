@@ -4,7 +4,7 @@ mod samples;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use pith_core::{Completer, Completion, Config, FieldSnapshot, build};
+use pith_core::{After, Completer, Completion, Config, FieldSnapshot, build};
 use pith_infer::{LlamaModelHandle, LlamaSession};
 use report::{Record, Shown, Stats, print_header, print_row, print_sweep, show};
 use samples::Sample;
@@ -129,7 +129,7 @@ fn replay(
             stats.latency_only(&Record {
                 position,
                 before: junk,
-                after: sample.suffix.to_string(),
+                after: sample.suffix.into(),
                 rest: String::new(),
                 evaluated: completion.prompt_tokens_evaluated,
                 completion,
@@ -152,7 +152,7 @@ fn replay(
             stats.latency_only(&Record {
                 position,
                 before: String::new(),
-                after: String::new(),
+                after: After::default(),
                 rest: String::new(),
                 evaluated: completion.prompt_tokens_evaluated,
                 completion,
@@ -169,7 +169,7 @@ fn replay(
         let record = Record {
             position,
             before: prefix,
-            after: sample.suffix.to_string(),
+            after: sample.suffix.into(),
             rest: chars[position..].iter().collect(),
             evaluated: completion.prompt_tokens_evaluated,
             completion,
