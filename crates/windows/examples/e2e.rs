@@ -1,4 +1,3 @@
-use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -11,8 +10,8 @@ use pith_core::{
 };
 use pith_infer::{Backend, Worker};
 use pith_windows::{
-    Inbound, Inbox, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options,
-    Outcome, Reader, Source, TrayCommand, Trigger, paste, run,
+    Inbound, Inbox, InsertMode, KeyAction, OVERLAY_CLASS, Onboarding, OnboardingEvent,
+    OnboardingStep, Options, Outcome, Reader, Source, TrayCommand, Trigger, paste, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -34,6 +33,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
+mod common;
+
+use common::{wide, window_title};
+
 static TARGET: AtomicIsize = AtomicIsize::new(0);
 static THROUGH_CLIPBOARD: AtomicBool = AtomicBool::new(false);
 
@@ -44,6 +47,7 @@ const ES_AUTOHSCROLL: u32 = 0x0080;
 const LOOKBACK_CHARS: usize = 19_200;
 const MIN_SAMPLES: usize = 5;
 const MIN_GLYPH_PX: i32 = 4;
+const TAIL_CHARS: usize = 40;
 const MAX_STEADY_COST: usize = 4;
 
 const PROSE: [&str; 6] = [
@@ -100,10 +104,6 @@ unsafe extern "system" fn host_procedure(
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
-}
-
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(Some(0)).collect()
 }
 
 fn spawn_test_window(title: &str, left: i32, top: i32, edit_style: u32) -> Field {
@@ -337,77 +337,11 @@ fn move_host(field: Field, left: i32, top: i32) {
 }
 
 fn overlay_window() -> Option<HWND> {
-    unsafe { FindWindowW(w!("PithGhostText"), None).ok() }
+    unsafe { FindWindowW(OVERLAY_CLASS, None).ok() }
 }
 
 fn overlay_visible() -> bool {
     overlay_window().is_some_and(|hwnd| unsafe { IsWindowVisible(hwnd).as_bool() })
-}
-
-fn screenshot(host: isize, path: &PathBuf) {
-    unsafe {
-        let rect = window_rect(HWND(host as _));
-        let (x, y, width, height) = (
-            rect.left,
-            rect.top,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-        );
-        let screen = GetDC(None);
-        let memory = CreateCompatibleDC(Some(screen));
-        let bitmap = CreateCompatibleBitmap(screen, width, height);
-        let previous = SelectObject(memory, bitmap.into());
-        let _ = BitBlt(
-            memory,
-            0,
-            0,
-            width,
-            height,
-            Some(screen),
-            x,
-            y,
-            SRCCOPY | CAPTUREBLT,
-        );
-        SelectObject(memory, previous);
-        let mut info = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: width,
-                biHeight: height,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let mut pixels = vec![0u8; (width * height * 4) as usize];
-        GetDIBits(
-            memory,
-            bitmap,
-            0,
-            height as u32,
-            Some(pixels.as_mut_ptr() as *mut c_void),
-            &mut info,
-            DIB_RGB_COLORS,
-        );
-        let _ = DeleteObject(bitmap.into());
-        let _ = DeleteDC(memory);
-        ReleaseDC(None, screen);
-        let mut file = Vec::with_capacity(54 + pixels.len());
-        file.extend_from_slice(b"BM");
-        file.extend_from_slice(&(54 + pixels.len() as u32).to_le_bytes());
-        file.extend_from_slice(&[0; 4]);
-        file.extend_from_slice(&54u32.to_le_bytes());
-        file.extend_from_slice(&40u32.to_le_bytes());
-        file.extend_from_slice(&width.to_le_bytes());
-        file.extend_from_slice(&height.to_le_bytes());
-        file.extend_from_slice(&1u16.to_le_bytes());
-        file.extend_from_slice(&32u16.to_le_bytes());
-        file.extend_from_slice(&[0; 24]);
-        file.extend_from_slice(&pixels);
-        let _ = std::fs::write(path, file);
-    }
 }
 
 struct Memory {
@@ -442,8 +376,7 @@ fn print_memory(stage: &str) {
 }
 
 fn tail(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    chars[chars.len().saturating_sub(40)..].iter().collect()
+    common::tail(text, TAIL_CHARS)
 }
 
 fn trace(action: &Action) {
@@ -716,7 +649,10 @@ fn basic_suggestions(rig: &mut Rig) {
         );
         if index == 0 && shown.is_some() {
             std::thread::sleep(Duration::from_millis(150));
-            screenshot(field.host, &rig.out_dir.join("e2e-ghost.bmp"));
+            common::screenshot(
+                window_rect(HWND(field.host as _)),
+                &rig.out_dir.join("e2e-ghost.png"),
+            );
         }
     }
     let started = Instant::now();
@@ -2133,12 +2069,6 @@ fn idle_unload(rig: &mut Rig, unload_after: Duration) {
     );
 }
 
-fn control_text(hwnd: HWND) -> String {
-    let mut buffer = [0u16; 1024];
-    let length = unsafe { GetWindowTextW(hwnd, &mut buffer) } as usize;
-    String::from_utf16_lossy(&buffer[..length])
-}
-
 fn shown(hwnd: HWND) -> bool {
     unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE.0 != 0 }
 }
@@ -2153,11 +2083,11 @@ fn onboarding_flow(marker: PathBuf) -> usize {
     let controls = window.controls();
     report.check(
         "onboarding starts quiet",
-        control_text(controls.status) == "Starting Pith"
+        window_title(controls.status) == "Starting Pith"
             && !shown(controls.progress)
             && !shown(controls.practice)
             && !unsafe { IsWindowEnabled(controls.done).as_bool() },
-        control_text(controls.status),
+        window_title(controls.status),
     );
     window.event(OnboardingEvent::Progress(150, 400));
     let position = window.step().permille();
@@ -2165,30 +2095,30 @@ fn onboarding_flow(marker: PathBuf) -> usize {
         "onboarding shows download progress",
         shown(controls.progress)
             && position == Some(375)
-            && control_text(controls.status).contains(" / ")
-            && control_text(controls.status).ends_with("MB"),
-        format!("{} at {position:?}", control_text(controls.status)),
+            && window_title(controls.status).contains(" / ")
+            && window_title(controls.status).ends_with("MB"),
+        format!("{} at {position:?}", window_title(controls.status)),
     );
     window.event(OnboardingEvent::Progress(400, 400));
     report.check(
         "onboarding reports loading",
         window.step() == OnboardingStep::Loading
-            && control_text(controls.status) == "Loading the model"
+            && window_title(controls.status) == "Loading the model"
             && !shown(controls.progress),
-        control_text(controls.status),
+        window_title(controls.status),
     );
     window.event(OnboardingEvent::Ready);
     let seeded = get_text(controls.practice.0 as isize);
     report.check(
         "onboarding opens the practice box with a sentence start",
-        control_text(controls.status) == "Ready"
+        window_title(controls.status) == "Ready"
             && shown(controls.practice)
             && unsafe { IsWindowEnabled(controls.practice).as_bool() }
             && !seeded.is_empty()
             && !seeded.ends_with(char::is_whitespace),
         seeded.clone(),
     );
-    let keys = control_text(controls.keys);
+    let keys = window_title(controls.keys);
     report.check(
         "onboarding lists the keys",
         ["Tab", "Shift+Tab", "Esc"]
@@ -2232,10 +2162,10 @@ fn onboarding_failure() -> usize {
     window.event(OnboardingEvent::Failed("offline & retry".into()));
     report.check(
         "onboarding shows a startup failure",
-        control_text(controls.status).contains("offline & retry")
+        window_title(controls.status).contains("offline & retry")
             && !shown(controls.practice)
             && unsafe { IsWindowEnabled(controls.done).as_bool() },
-        control_text(controls.status),
+        window_title(controls.status),
     );
     unsafe {
         SendMessageW(controls.done, BM_CLICK, None, None);

@@ -1,0 +1,79 @@
+name: Apps
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+  LIBCLANG_PATH: C:\Program Files\LLVM\bin
+  FIXTURES: crates\windows\fixtures\apps
+  RESULTS: apps-results
+
+jobs:
+  matrix:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - id: image
+        shell: pwsh
+        run: echo "version=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: ${{ steps.image.outputs.version }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}\pith-model
+          key: model-${{ hashFiles('crates/infer/src/models.rs') }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Build the harness
+        run: cargo build --release --example apps
+      - name: Install the Electron fixture runtime
+        run: |
+          npm ci --no-audit --no-fund --prefix ${{ env.FIXTURES }}\electron
+          node ${{ env.FIXTURES }}\electron\node_modules\electron\install.js
+      - name: Describe the session
+        shell: pwsh
+        run: |
+          "interactive: $([Environment]::UserInteractive)"
+          "session id: $((Get-Process -Id $PID).SessionId)"
+          Add-Type -AssemblyName System.Windows.Forms
+          "screen: $([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)"
+      - name: Run every app
+        shell: pwsh
+        run: |
+          $apps = @(
+            @{ name = "chrome"; exe = "C:\Program Files\Google\Chrome\Application\chrome.exe" },
+            @{ name = "edge"; exe = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" },
+            @{ name = "notepad"; exe = "C:\Windows\System32\notepad.exe" },
+            @{ name = "electron"; exe = "$env:GITHUB_WORKSPACE\$env:FIXTURES\electron\node_modules\electron\dist\electron.exe" }
+          )
+          $failed = @()
+          $versions = @()
+          foreach ($app in $apps) {
+            if (Test-Path $app.exe) {
+              $versions += "- $($app.name): $((Get-Item $app.exe).VersionInfo.ProductVersion)"
+            }
+            .\target\release\examples\apps.exe --ci-runner --app $app.name --exe $app.exe --fixtures "$env:GITHUB_WORKSPACE\$env:FIXTURES" --model-dir "$env:RUNNER_TEMP\pith-model" --out $env:RESULTS
+            if ($LASTEXITCODE -ne 0) { $failed += $app.name }
+          }
+          "## Real-app matrix" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "Runner image $env:ImageVersion`n" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          ($versions -join "`n") + "`n" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          Get-Content "$env:RESULTS\*.md" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if ($failed) { throw "failed for: $($failed -join ', ')" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: apps-results
+          path: ${{ env.RESULTS }}

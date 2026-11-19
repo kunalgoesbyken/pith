@@ -50,4 +50,9 @@ png.workspace = true
 
 [dev-dependencies.windows]
 workspace = true
-features = ["Win32_System_ProcessStatus", "Win32_Storage_Xps"]
+features = [
+  "Win32_Security_Authorization",
+  "Win32_Storage_Xps",
+  "Win32_System_JobObjects",
+  "Win32_System_ProcessStatus",
+]

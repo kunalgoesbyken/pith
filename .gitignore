@@ -2,3 +2,4 @@
 *.gguf
 *.bmp
 .claude/
+/crates/windows/fixtures/apps/electron/node_modules

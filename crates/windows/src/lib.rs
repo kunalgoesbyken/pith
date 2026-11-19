@@ -28,6 +28,7 @@ pub use keys::KeyAction;
 pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
 };
+pub use overlay::OVERLAY_CLASS;
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use rival::Rival;
 pub use run::{Inbound, Inbox, InsertMode, Options, run};

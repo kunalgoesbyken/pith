@@ -2,6 +2,10 @@ use std::path::Path;
 
 use pith_windows::brand::{self, Look};
 
+mod common;
+
+use common::png;
+
 const ICON_PATH: &str = "assets/pith.ico";
 const SHOTS_DIR: &str = "target/brand-shots";
 const ICON_SIZES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, 256];
@@ -15,19 +19,6 @@ const ICO_HEADER: usize = 6;
 const ICO_ENTRY: usize = 16;
 const ICO_PLANES: u16 = 1;
 const ICO_DEPTH: u16 = 32;
-
-fn png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut encoder = png::Encoder::new(&mut out, width, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder
-        .write_header()
-        .unwrap()
-        .write_image_data(rgba)
-        .unwrap();
-    out
-}
 
 fn ico(look: &Look) -> Vec<u8> {
     let images: Vec<(u32, Vec<u8>)> = ICON_SIZES

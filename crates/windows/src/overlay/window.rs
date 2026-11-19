@@ -6,12 +6,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     UpdateLayeredWindow, WM_MOUSEACTIVATE, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
-use windows::core::w;
+use windows::core::{PCWSTR, w};
 
 use super::fade;
 use super::raster::Raster;
 use super::screen::ScreenDc;
 
+pub const OVERLAY_CLASS: PCWSTR = w!("PithGhostText");
 const ORIGIN: POINT = POINT { x: 0, y: 0 };
 
 unsafe extern "system" fn procedure(
@@ -39,11 +40,10 @@ impl Layered {
     pub fn create() -> windows::core::Result<Self> {
         unsafe {
             let instance = GetModuleHandleW(None)?;
-            let class = w!("PithGhostText");
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(procedure),
                 hInstance: instance.into(),
-                lpszClassName: class,
+                lpszClassName: OVERLAY_CLASS,
                 ..Default::default()
             };
             RegisterClassW(&wc);
@@ -53,7 +53,7 @@ impl Layered {
                     | WS_EX_NOACTIVATE
                     | WS_EX_TOPMOST
                     | WS_EX_TOOLWINDOW,
-                class,
+                OVERLAY_CLASS,
                 w!("pith"),
                 WS_POPUP,
                 0,

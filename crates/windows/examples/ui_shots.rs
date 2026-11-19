@@ -13,6 +13,10 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+mod common;
+
+use common::{bgra_to_rgba, bitmap_info, png};
+
 const OUT_DIR: &str = "target/ui-shots";
 const DPIS: [u32; 2] = [96, 144];
 const THEMES: [(&str, bool, [u8; 3], [u8; 3]); 2] = [
@@ -22,8 +26,6 @@ const THEMES: [(&str, bool, [u8; 3], [u8; 3]); 2] = [
 const PARKED_X: i32 = -12000;
 const PARKED_Y: i32 = 100;
 const PRINT_RENDER_FULL_CONTENT: u32 = 2;
-const ZLIB_STORED_BLOCK: usize = 65535;
-const ADLER_MODULUS: u32 = 65521;
 
 fn pump() {
     let mut message = MSG::default();
@@ -33,66 +35,6 @@ fn pump() {
             DispatchMessageW(&message);
         }
     }
-}
-
-fn crc(bytes: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for byte in bytes {
-        crc ^= u32::from(*byte);
-        for _ in 0..8 {
-            crc = if crc & 1 != 0 {
-                0xEDB8_8320 ^ (crc >> 1)
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
-}
-
-fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-    out.extend((data.len() as u32).to_be_bytes());
-    let mut body = kind.to_vec();
-    body.extend(data);
-    out.extend(&body);
-    out.extend(crc(&body).to_be_bytes());
-}
-
-fn zlib_stored(raw: &[u8]) -> Vec<u8> {
-    let mut zlib = vec![0x78, 0x01];
-    let mut blocks = raw.chunks(ZLIB_STORED_BLOCK).peekable();
-    while let Some(block) = blocks.next() {
-        zlib.push(u8::from(blocks.peek().is_none()));
-        zlib.extend((block.len() as u16).to_le_bytes());
-        zlib.extend((!(block.len() as u16)).to_le_bytes());
-        zlib.extend(block);
-    }
-    let (mut a, mut b) = (1u32, 0u32);
-    for byte in raw {
-        a = (a + u32::from(*byte)) % ADLER_MODULUS;
-        b = (b + a) % ADLER_MODULUS;
-    }
-    zlib.extend(((b << 16) | a).to_be_bytes());
-    zlib
-}
-
-fn png(width: u32, height: u32, bgra: &[u8]) -> Vec<u8> {
-    let mut raw = Vec::with_capacity((width as usize * 3 + 1) * height as usize);
-    for row in bgra.chunks_exact(width as usize * 4) {
-        raw.push(0);
-        for pixel in row.as_chunks::<4>().0 {
-            raw.extend([pixel[2], pixel[1], pixel[0]]);
-        }
-    }
-    let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-    let mut header = Vec::new();
-    header.extend(width.to_be_bytes());
-    header.extend(height.to_be_bytes());
-    header.extend([8, 2, 0, 0, 0]);
-    chunk(&mut out, b"IHDR", &header);
-    chunk(&mut out, b"IDAT", &zlib_stored(&raw));
-    chunk(&mut out, b"IEND", &[]);
-    out
 }
 
 fn composite(bgra: &mut [u8], fallback: [u8; 3]) {
@@ -108,7 +50,9 @@ fn composite(bgra: &mut [u8], fallback: [u8; 3]) {
 
 fn save(name: &str, width: i32, height: i32, bgra: &[u8]) {
     let path = PathBuf::from(OUT_DIR).join(format!("{name}.png"));
-    std::fs::write(&path, png(width as u32, height as u32, bgra)).unwrap();
+    let mut rgba = bgra.to_vec();
+    bgra_to_rgba(&mut rgba);
+    std::fs::write(&path, png(width as u32, height as u32, &rgba)).unwrap();
     println!("{}", path.display());
 }
 
@@ -209,20 +153,6 @@ fn onboarding(name: &str, events: &[OnboardingEvent], dpi: u32, fallback: [u8; 3
         window.event(event.clone());
     }
     capture(hwnd, name, fallback);
-}
-
-fn bitmap_info(width: i32, height: i32) -> BITMAPINFO {
-    BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width,
-            biHeight: -height,
-            biPlanes: 1,
-            biBitCount: 32,
-            ..Default::default()
-        },
-        ..Default::default()
-    }
 }
 
 fn control_size(hwnd: HWND) -> (i32, i32) {

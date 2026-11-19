@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title></title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  textarea, div[contenteditable] {
+    box-sizing: border-box;
+    display: none;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 16px;
+    border: 0;
+    outline: 0;
+    font: 22px Georgia, serif;
+  }
+</style>
+</head>
+<body>
+<textarea id="textarea"></textarea>
+<div id="editable" contenteditable="true"></div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const field = params.get("field");
+  const target = document.getElementById(field);
+  document.title = params.get("title");
+  target.style.display = "block";
+  target.focus();
+</script>
+</body>
+</html>

@@ -159,6 +159,7 @@ cargo run --release -p pith-windows --example ui_shots
 
 - `typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed next. The MID-LINE row replays text typed before closing punctuation and is kept out of TOTAL.
 - `e2e` drives the whole app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, accept chains, stale keys, Esc, selections, password fields, text and punctuation after the caret, pause, field switching, the fallback pill, overlay geometry and memory. `PITH_E2E_ONLY=<name>` runs matching scenarios, `PITH_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `PITH_E2E_INSERT_LAG_MS=<ms>` delays insertion like a real paste and `PITH_E2E_TRACE=1` prints every action.
+- `apps` runs the whole app against real Chrome, Edge, Electron and Notepad on a GitHub Actions Windows runner (workflow `Apps`, weekly or by hand) and reports, per app and field, whether Pith reads the text and caret, shows a suggestion and inserts it on Tab. It sends real keystrokes and mouse clicks, so it refuses to start unless it runs on a GitHub-hosted runner with `--ci-runner`, and is never meant for a desktop in use. Firefox is not covered: it shows no page under the limited token the harness has to use, and Pith skips elevated apps.
 - `ui_shots` renders the settings and welcome windows, light and dark, to PNGs in `target/ui-shots`.
 
 ## Roadmap

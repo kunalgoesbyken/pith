@@ -18,6 +18,7 @@ use raster::Raster;
 use scene::{Frame, Placed, Scene};
 use screen::{Monitor, ScreenDc, focused_field, sample_background};
 use window::Layered;
+pub use window::OVERLAY_CLASS;
 
 use crate::ui::Theme;
 
