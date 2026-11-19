@@ -63,4 +63,3 @@ jobs:
       - name: Firefox
         if: ${{ !cancelled() }}
         run: sh crates/linux/e2e/session.sh firefox
-

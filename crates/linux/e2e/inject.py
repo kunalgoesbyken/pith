@@ -3,11 +3,21 @@ import subprocess
 import sys
 
 CI_FLAG = "--ci-runner"
+SESSION_DISPLAY = "PITH_E2E_DISPLAY"
 
 
 def require_ci():
-    if os.environ.get("CI") != "true" or CI_FLAG not in sys.argv:
-        sys.exit(f"refusing to inject input: needs CI=true and {CI_FLAG}")
+    display = os.environ.get("DISPLAY")
+    if (
+        os.environ.get("CI") != "true"
+        or CI_FLAG not in sys.argv
+        or not display
+        or display != os.environ.get(SESSION_DISPLAY)
+    ):
+        sys.exit(
+            f"refusing to inject input: needs CI=true, {CI_FLAG} and the display "
+            f"session.sh started ({SESSION_DISPLAY})"
+        )
 
 
 def xdotool(*args, delay_ms=None):
