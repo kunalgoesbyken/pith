@@ -41,6 +41,8 @@ async fn reveal() -> zbus::Result<()> {
 async fn serve(inbox: Inbox) -> zbus::Result<Instance> {
     let connection = Builder::session()?
         .name(NAME)?
+        .allow_name_replacements(false)
+        .replace_existing_names(false)
         .serve_at(PATH, Remote { inbox })?
         .build()
         .await?;
