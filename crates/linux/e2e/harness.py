@@ -11,15 +11,25 @@ import threading
 import time
 import urllib.parse
 
-CI_FLAG = "--ci-runner"
-READY_SECONDS = 2.0
+import inject
+
+READY_LINE = "ready"
+READY_SECONDS = 30.0
 WAIT_SECONDS = 10.0
 POLL_SECONDS = 0.1
 WINDOW_SECONDS = 40
-TYPE_DELAY_MS = "40"
+TYPE_DELAY_MS = 40
 WINDOW_MARGIN = 150
-SEED = "a😀 héllo wörld 日本語"
+INLINE = "Inline"
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+GTK_FIXTURE = str(FIXTURES / "gtk_field.py")
+SEED = "a😀 héllo wörld 日本語"
+SEED_ASTRAL_HEAD = SEED[:2]
+SEED_ASTRAL_REST = SEED[2:]
+SEED_CJK_TAIL = SEED[-2:]
+SEED_BEFORE_CJK_TAIL = SEED[:-2]
+GTK_VERSIONS = {"gtk3": "3.0", "gtk4": "4.0"}
+GTK_CARET_RECTS = {"gtk3": True, "gtk4": False}
 FIREFOX_PREFERENCES = {
     "browser.shell.checkDefaultBrowser": False,
     "browser.aboutwelcome.enabled": False,
@@ -32,41 +42,36 @@ FIREFOX_PREFERENCES = {
 }
 
 
-def refuse_outside_ci():
-    if os.environ.get("CI") != "true" or CI_FLAG not in sys.argv:
-        sys.exit(f"refusing to inject input: needs CI=true and {CI_FLAG}")
-
-
-def xdotool(*args):
-    subprocess.run(["xdotool", *args], check=True)
-
-
-def type_text(text):
-    xdotool("type", "--clearmodifiers", "--delay", TYPE_DELAY_MS, "--", text)
-
-
-def press(*keys):
-    xdotool("key", "--clearmodifiers", *keys)
-
-
 class Probe:
     def __init__(self, binary, *args):
         self.snapshots = []
         self.lock = threading.Lock()
+        self.ready = threading.Event()
         self.process = subprocess.Popen(
             [binary, "--allow-accessibility", *args],
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
         )
         threading.Thread(target=self.collect, daemon=True).start()
-        time.sleep(READY_SECONDS)
-        if self.process.poll() is not None:
-            raise RuntimeError("probe exited early")
+        threading.Thread(target=self.watch_errors, daemon=True).start()
+        deadline = time.monotonic() + READY_SECONDS
+        while not self.ready.wait(POLL_SECONDS):
+            if self.process.poll() is not None or time.monotonic() > deadline:
+                self.stop()
+                raise RuntimeError("probe did not become ready")
 
     def collect(self):
         for line in self.process.stdout:
             with self.lock:
                 self.snapshots.append(json.loads(line))
+
+    def watch_errors(self):
+        for line in self.process.stderr:
+            if line.strip() == READY_LINE:
+                self.ready.set()
+            else:
+                sys.stderr.write(line)
 
     def latest(self):
         with self.lock:
@@ -98,6 +103,11 @@ def running(command, probe_binary, *probe_args):
         probe.stop()
 
 
+def type_text(text):
+    delay = TYPE_DELAY_MS if text.isascii() else TYPE_DELAY_MS * 6
+    inject.type_text(text, delay)
+
+
 def find_window(title):
     found = subprocess.run(
         ["xdotool", "search", "--sync", "--onlyvisible", "--name", title],
@@ -114,20 +124,28 @@ def find_window(title):
         check=True,
     )
     values = dict(line.split("=") for line in geometry.stdout.split())
-    xdotool("windowfocus", window)
+    inject.focus_window(window)
     return {key: int(values[key.upper()]) for key in ("x", "y", "width", "height")}
 
 
-def inside(window, snapshot):
+def caret(snapshot):
     placement = snapshot["placement"]
-    if placement is None or placement["kind"] != "inline" or placement["height"] <= 0:
+    if placement is None:
+        return None
+    ((kind, rect),) = placement.items()
+    return rect if kind == INLINE else None
+
+
+def inside(window, snapshot):
+    rect = caret(snapshot)
+    if rect is None or rect["height"] <= 0:
         return False
     return (
         window["x"] - WINDOW_MARGIN
-        <= placement["x"]
+        <= rect["x"]
         <= window["x"] + window["width"] + WINDOW_MARGIN
         and window["y"] - WINDOW_MARGIN
-        <= placement["y"]
+        <= rect["y"]
         <= window["y"] + window["height"] + WINDOW_MARGIN
     )
 
@@ -135,12 +153,8 @@ def inside(window, snapshot):
 def short(snapshot):
     if snapshot is None:
         return "no snapshot"
-    placement = snapshot["placement"]
-    where = (
-        "no caret"
-        if placement is None
-        else f"caret {placement['x']},{placement['y']}"
-    )
+    rect = caret(snapshot)
+    where = "no caret" if rect is None else f"caret {rect['x']},{rect['y']}"
     return (
         f"app={snapshot['app']!r} before={snapshot['before']!r} "
         f"after={snapshot['after']!r} {where} "
@@ -165,12 +179,28 @@ class Table:
         return snapshot
 
     def reset(self):
-        press("ctrl+a")
-        press("BackSpace")
+        inject.press("ctrl+a")
+        inject.press("BackSpace")
         self.probe.wait(lambda s: s["before"] == "" and s["after"] == "")
 
 
-def typing_rows(app, probe, window, multiline, caret):
+def moved_right(start):
+    def check(snapshot):
+        rect = caret(snapshot)
+        return rect is not None and rect["x"] > start
+
+    return check
+
+
+def moved_down(start):
+    def check(snapshot):
+        rect = caret(snapshot)
+        return rect is not None and rect["y"] > start
+
+    return check
+
+
+def typing_rows(app, probe, window, multiline, caret_rect):
     table = Table(app, probe)
     table.reset()
     typed = table.step(
@@ -178,44 +208,48 @@ def typing_rows(app, probe, window, multiline, caret):
         lambda: type_text("Hello world"),
         lambda s: s["before"] == "Hello world" and s["after"] == "",
     )
-    start = typed["placement"]["x"] if typed and typed["placement"] else 0
-    if caret:
+    if caret_rect:
         if typed is not None:
-            table.record("caret rect near the window", inside(window, typed), short(typed))
-        table.step(
-            "caret follows typing",
-            lambda: type_text(" again"),
-            lambda s: s["before"] == "Hello world again"
-            and s["placement"] is not None
-            and s["placement"]["x"] > start,
-        )
+            table.record(
+                "caret rect near the window", inside(window, typed), short(typed)
+            )
+            start = caret(typed)["x"] if caret(typed) else 0
+            table.step(
+                "caret follows typing",
+                lambda: type_text(" again"),
+                lambda s: s["before"] == "Hello world again" and moved_right(start)(s),
+            )
     else:
-        table.record("caret rect", None, "toolkit reports caret extents as unsupported")
-        type_text(" again")
+        table.record(
+            "caret rect",
+            None,
+            "known gap: toolkit reports caret extents as unsupported",
+        )
     table.reset()
     type_text("abc def")
     table.step(
         "caret in the middle",
-        lambda: press("Left", "Left", "Left"),
+        lambda: inject.press("Left", "Left", "Left"),
         lambda s: s["before"] == "abc " and s["after"] == "def",
     )
     table.step(
         "selection",
-        lambda: press("shift+Right", "shift+Right"),
+        lambda: inject.press("shift+Right", "shift+Right"),
         lambda s: s["has_selection"] and s["before"] == "abc de",
     )
     if multiline:
         table.reset()
         type_text("line one")
         first = probe.wait(lambda s: s["before"] == "line one")
-        first_y = first["placement"]["y"] if first and first["placement"] else 0
-        press("Return")
+        first_rect = caret(first) if first else None
+        first_y = first_rect["y"] if first_rect else 0
+        inject.press("Return")
         type_text("line two")
         table.step(
-            "second line" if caret else "second line text",
+            "second line" if caret_rect else "second line text",
             lambda: None,
             lambda s: s["before"] == "line one\nline two"
-            and (not caret or (s["placement"] is not None and s["placement"]["y"] > first_y)),
+            and (not caret_rect or moved_down(first_y)(s)),
         )
     return table.rows
 
@@ -224,18 +258,18 @@ def unicode_rows(app, probe):
     table = Table(app, probe)
     table.step(
         "unicode text before the caret",
-        lambda: press("End"),
+        lambda: inject.press("End"),
         lambda s: s["before"] == SEED and s["after"] == "",
     )
     table.step(
         "unicode around the caret",
-        lambda: press("Left", "Left"),
-        lambda s: s["before"] == SEED[:-2] and s["after"] == SEED[-2:],
+        lambda: inject.press("Left", "Left"),
+        lambda s: s["before"] == SEED_BEFORE_CJK_TAIL and s["after"] == SEED_CJK_TAIL,
     )
     table.step(
         "astral character boundary",
-        lambda: press("Home", "Right", "Right"),
-        lambda s: s["before"] == SEED[:2] and s["after"] == SEED[2:],
+        lambda: inject.press("Home", "Right", "Right"),
+        lambda s: s["before"] == SEED_ASTRAL_HEAD and s["after"] == SEED_ASTRAL_REST,
     )
     return table.rows
 
@@ -260,25 +294,35 @@ def blocked_rows(app, executable, probe):
     return table.rows
 
 
-def gtk(version, probe_binary, caret):
-    script = str(FIXTURES / f"{version}_field.py")
-    label = version.upper().replace("GTK", "GTK ")
+def gtk(target, probe_binary):
+    version = GTK_VERSIONS[target]
+    caret_rect = GTK_CARET_RECTS[target]
+    label = f"GTK {version[0]}"
     executable = os.path.basename(os.path.realpath(sys.executable))
     rows = []
+
+    def fixture(kind, *seed):
+        return [sys.executable, GTK_FIXTURE, version, kind, *seed]
+
+    def window_title(kind):
+        return f"pith-gtk{version[0]}-{kind}"
+
     for kind in ("entry", "textview"):
-        with running([sys.executable, script, kind], probe_binary) as probe:
-            window = find_window(f"pith-{version}-{kind}")
-            rows += typing_rows(f"{label} {kind}", probe, window, kind == "textview", caret)
-        with running([sys.executable, script, kind, SEED], probe_binary) as probe:
-            find_window(f"pith-{version}-{kind}")
+        with running(fixture(kind), probe_binary) as probe:
+            window = find_window(window_title(kind))
+            rows += typing_rows(
+                f"{label} {kind}", probe, window, kind == "textview", caret_rect
+            )
+        with running(fixture(kind, SEED), probe_binary) as probe:
+            find_window(window_title(kind))
             rows += unicode_rows(f"{label} {kind}", probe)
-    with running([sys.executable, script, "password"], probe_binary) as probe:
-        find_window(f"pith-{version}-password")
+    with running(fixture("password"), probe_binary) as probe:
+        find_window(window_title("password"))
         rows += password_rows(f"{label} password", probe)
     with running(
-        [sys.executable, script, "entry"], probe_binary, "--block", executable
+        fixture("entry"), probe_binary, "--block", executable
     ) as probe:
-        find_window(f"pith-{version}-entry")
+        find_window(window_title("entry"))
         rows += blocked_rows(f"{label} entry", executable, probe)
     return rows
 
@@ -328,14 +372,14 @@ def firefox(probe_binary):
 
 
 TARGETS = {
-    "gtk4": lambda probe: gtk("gtk4", probe, False),
-    "gtk3": lambda probe: gtk("gtk3", probe, True),
+    "gtk3": lambda probe: gtk("gtk3", probe),
+    "gtk4": lambda probe: gtk("gtk4", probe),
     "firefox": firefox,
 }
 
 
 def verdict(ok):
-    return {True: "pass", False: "FAIL", None: "n/a"}[ok]
+    return {True: "pass", False: "FAIL", None: "known gap"}[ok]
 
 
 def report(rows):
@@ -351,9 +395,9 @@ def report(rows):
 
 
 def main():
-    refuse_outside_ci()
+    inject.require_ci()
     parser = argparse.ArgumentParser()
-    parser.add_argument(CI_FLAG, action="store_true", required=True)
+    parser.add_argument(inject.CI_FLAG, action="store_true", required=True)
     parser.add_argument("--probe", required=True)
     parser.add_argument("--target", choices=TARGETS, required=True)
     options = parser.parse_args()

@@ -15,6 +15,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -29,6 +30,7 @@ jobs:
 
   engine:
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -41,6 +43,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -49,38 +52,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: >
           sudo apt-get install -y --no-install-recommends
-          xvfb xdotool openbox dbus-x11 at-spi2-core
+          xvfb xdotool x11-utils openbox dbus-x11 at-spi2-core
           python3-gi gir1.2-gtk-3.0 gir1.2-gtk-4.0
       - run: cargo build -p pith-linux --example probe
       - name: GTK 4
-        run: xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- sh crates/linux/e2e/session.sh gtk4
+        run: sh crates/linux/e2e/session.sh gtk4
       - name: GTK 3
         if: ${{ !cancelled() }}
-        run: xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- sh crates/linux/e2e/session.sh gtk3
+        run: sh crates/linux/e2e/session.sh gtk3
       - name: Firefox
         if: ${{ !cancelled() }}
-        run: xvfb-run -a -s "-screen 0 1280x800x24" dbus-run-session -- sh crates/linux/e2e/session.sh firefox
+        run: sh crates/linux/e2e/session.sh firefox
 
-  ime-spike:
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      - run: sudo apt-get update
-      - run: >
-          sudo apt-get install -y --no-install-recommends
-          sway wtype grim dbus-x11 at-spi2-core python3-gi gir1.2-gtk-4.0
-      - run: cargo build -p pith-linux --example probe --example ime_spike
-      - run: dbus-run-session -- sh crates/linux/e2e/ime_session.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: ${{ !cancelled() }}
-        with:
-          name: ime-preedit
-          path: |
-            ime-preedit.png
-            ime-committed.png
-          if-no-files-found: ignore
