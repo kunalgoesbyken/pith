@@ -8,7 +8,13 @@ use zbus::Connection;
 
 use crate::bounded::within;
 
-const WINDOW_ROLES: [Role; 4] = [Role::Frame, Role::Window, Role::Dialog, Role::Application];
+const BOUNDARY_ROLES: [Role; 5] = [
+    Role::Frame,
+    Role::Window,
+    Role::Dialog,
+    Role::Application,
+    Role::DocumentWeb,
+];
 
 pub(crate) async fn cues(
     connection: &Connection,
@@ -75,7 +81,7 @@ impl Walk<'_> {
 
     async fn parent_of(&self, current: &ObjectRefOwned) -> Option<ObjectRefOwned> {
         let node = current.as_accessible_proxy(self.connection).await.ok()?;
-        if WINDOW_ROLES.contains(&node.get_role().await.ok()?) {
+        if BOUNDARY_ROLES.contains(&node.get_role().await.ok()?) {
             return None;
         }
         node.parent().await.ok().filter(|parent| !parent.is_null())
