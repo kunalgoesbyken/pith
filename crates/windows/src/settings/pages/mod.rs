@@ -4,6 +4,7 @@ mod general;
 mod home;
 mod privacy;
 mod shortcuts;
+mod style;
 
 use pith_core::{Backend, Setting};
 

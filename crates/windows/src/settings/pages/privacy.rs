@@ -14,7 +14,12 @@ const READS: &str = "Pith reads the text around your caret in the field you are 
 
 const NEARBY: &str = "Reads the subject, labels and last message beside the box you type in. Never password boxes. Stays on this PC.";
 
-fn event_row(title: &str, caption: &str, (label, tone): (&str, Tone), event: UiEvent) -> Row {
+pub(super) fn event_row(
+    title: &str,
+    caption: &str,
+    (label, tone): (&str, Tone),
+    event: UiEvent,
+) -> Row {
     Row::titled(title)
         .caption(caption)
         .control(Item::button(label, tone, Action::Emit(event)).named(title))
@@ -33,6 +38,7 @@ pub fn build(model: &Model, sheet: &mut Sheet) {
                 Setting::NearbyContext,
             )),
     ]);
+    super::style::build(model, sheet);
     sheet.heading("Your data");
     sheet.card(vec![
         event_row(

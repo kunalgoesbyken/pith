@@ -32,12 +32,19 @@ pub struct StatsView {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StyleLine {
+    pub app: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Overview {
     pub status: String,
     pub stats: StatsView,
     pub pause: Option<Pause>,
     pub app: Option<ForegroundApp>,
     pub start_with_windows: bool,
+    pub style: Vec<StyleLine>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,6 +56,8 @@ pub enum UiEvent {
     DeleteData,
     StartWithWindows(bool),
     ResetStats,
+    ForgetSentence { app: String, text: String },
+    ForgetStyle,
     OpenTypingSettings,
     Closed,
 }

@@ -105,6 +105,7 @@ impl App {
     pub(super) fn change(&mut self, setting: Setting) {
         let before = self.prefs.saved().clone();
         self.prefs.apply(&setting);
+        self.forget_blocked_style();
         if let Setting::GhostOpacity(_) = setting {
             self.overlay.set_opacity(self.prefs.saved().ghost_opacity);
             self.presenter.refresh_settings(&self.prefs);

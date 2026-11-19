@@ -30,6 +30,7 @@ mod tray;
 mod ui;
 mod update;
 mod util;
+mod vault;
 
 pub use clipboard::{Trigger, paste};
 pub use command::{ForegroundApp, TrayCommand};
@@ -47,8 +48,9 @@ pub use rival::Rival;
 pub use run::{Inbound, Inbox, InsertMode, Options, Start, run};
 #[doc(hidden)]
 pub use settings::Page;
-pub use settings::{Overview, SettingsWindow, StatsView};
+pub use settings::{Overview, SettingsWindow, StatsView, StyleLine, UiEvent};
 pub use shortcut::ensure_start_menu_shortcut;
 #[doc(hidden)]
 pub use ui::{Taskbar, force_dark_theme};
 pub use util::{hardware, open_path, single_instance};
+pub use vault::DpapiVault;

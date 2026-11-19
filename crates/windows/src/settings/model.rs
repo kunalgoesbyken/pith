@@ -21,6 +21,7 @@ pub struct Model {
     pub room: i32,
     pub recording: Option<(KeyAction, usize)>,
     pub notice: Option<String>,
+    pub style_page: usize,
     pub preview: Option<u8>,
     pub rival: Option<Rival>,
     pub layout: Layout,
@@ -74,6 +75,7 @@ impl Model {
             room: 0,
             recording: None,
             notice: None,
+            style_page: 0,
             preview: None,
             rival: None,
             layout: Layout::default(),
@@ -101,6 +103,7 @@ impl Model {
         self.scroll = 0;
         self.recording = None;
         self.notice = None;
+        self.style_page = 0;
         moved
     }
 

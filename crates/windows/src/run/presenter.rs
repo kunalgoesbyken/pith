@@ -12,7 +12,7 @@ use crate::foreground::Foreground;
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::registry;
 use crate::rival;
-use crate::settings::{Overview, SettingsWindow, StatsView};
+use crate::settings::{Overview, SettingsWindow, StatsView, StyleLine};
 use crate::tray::{Tray, TrayView};
 use crate::update::Update;
 use crate::util::local_time;
@@ -42,6 +42,7 @@ pub struct Presenter {
     notice: Option<String>,
     update: Update,
     appearance: Appearance,
+    style: Vec<StyleLine>,
 }
 
 impl Presenter {
@@ -74,11 +75,16 @@ impl Presenter {
             notice: options.notice.clone(),
             update: Update::default(),
             appearance,
+            style: Vec::new(),
         }
     }
 
     pub fn set_model(&mut self, model: Model) {
         self.model = model;
+    }
+
+    pub fn set_style(&mut self, style: Vec<StyleLine>) {
+        self.style = style;
     }
 
     pub fn recorded(&self) -> Counts {
@@ -214,6 +220,7 @@ impl Presenter {
             pause: prefs.shown_pause(),
             app,
             start_with_windows: registry::start_with_windows(),
+            style: self.style.clone(),
         }
     }
 
@@ -266,6 +273,19 @@ impl Presenter {
                     "Delete the downloaded model and the local data of Pith from this PC, then close Pith? Your settings are kept. The model downloads again the next time Pith starts."
                 ),
                 w!("Delete model and data"),
+                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+            )
+        };
+        answer == IDYES
+    }
+
+    pub fn confirm_forget_style(&self) -> bool {
+        let owner = self.settings.as_ref().map(SettingsWindow::hwnd);
+        let answer = unsafe {
+            MessageBoxW(
+                owner,
+                w!("Forget every sentence Pith learned from you? This cannot be undone."),
+                w!("Forget my style"),
                 MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
             )
         };

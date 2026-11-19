@@ -11,45 +11,48 @@ use crate::util::{open_path, open_target};
 
 impl App {
     pub(super) fn ui_events(&mut self) -> bool {
-        for event in take_events() {
-            match event {
-                UiEvent::Apply(setting) => self.change(setting),
-                UiEvent::OpenDataFolder => {
-                    if let Some(dir) = &self.data_dir {
-                        let _ = std::fs::create_dir_all(dir);
-                        open_path(dir);
-                    }
+        take_events().into_iter().any(|event| self.ui_event(event))
+    }
+
+    pub(super) fn ui_event(&mut self, event: UiEvent) -> bool {
+        match event {
+            UiEvent::Apply(setting) => match setting.checked(self.prefs.saved()) {
+                Ok(setting) => self.change(setting),
+                Err(error) => log(&format!("setting refused: {error}")),
+            },
+            UiEvent::OpenDataFolder => {
+                if let Some(dir) = &self.data_dir {
+                    let _ = std::fs::create_dir_all(dir);
+                    open_path(dir);
                 }
-                UiEvent::DeleteData => {
-                    let confirmed = self
-                        .data_dir
-                        .clone()
-                        .filter(|_| self.presenter.confirm_delete());
-                    if confirmed.is_some() {
-                        self.erasing = confirmed;
-                        return true;
-                    }
-                }
-                UiEvent::Command(command) => {
-                    if self.command(command) {
-                        return true;
-                    }
-                }
-                UiEvent::OpenConfigFile => {
-                    if let Some(path) = self.prefs.config_path() {
-                        open_path(path);
-                    }
-                }
-                UiEvent::StartWithWindows(enabled) => {
-                    if let Err(error) = registry::set_start_with_windows(enabled) {
-                        log(&format!("start with Windows not changed: {error}"));
-                    }
-                    self.presenter.refresh_settings(&self.prefs);
-                }
-                UiEvent::ResetStats => self.reset_stats(),
-                UiEvent::OpenTypingSettings => open_target(rival::TYPING_SETTINGS_PAGE),
-                UiEvent::Closed => self.presenter.close_settings(),
             }
+            UiEvent::DeleteData => {
+                let confirmed = self
+                    .data_dir
+                    .clone()
+                    .filter(|_| self.presenter.confirm_delete());
+                if confirmed.is_some() {
+                    self.erasing = confirmed;
+                    return true;
+                }
+            }
+            UiEvent::Command(command) => return self.command(command),
+            UiEvent::OpenConfigFile => {
+                if let Some(path) = self.prefs.config_path() {
+                    open_path(path);
+                }
+            }
+            UiEvent::StartWithWindows(enabled) => {
+                if let Err(error) = registry::set_start_with_windows(enabled) {
+                    log(&format!("start with Windows not changed: {error}"));
+                }
+                self.presenter.refresh_settings(&self.prefs);
+            }
+            UiEvent::ResetStats => self.reset_stats(),
+            UiEvent::ForgetSentence { app, text } => self.forget_sentence(&app, &text),
+            UiEvent::ForgetStyle => self.forget_all_style(),
+            UiEvent::OpenTypingSettings => open_target(rival::TYPING_SETTINGS_PAGE),
+            UiEvent::Closed => self.presenter.close_settings(),
         }
         false
     }

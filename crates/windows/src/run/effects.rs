@@ -136,6 +136,7 @@ impl App {
                     }
                     drawn = Some(outcome);
                 }
+                Action::Learn(sample) => self.learn(sample),
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => self.effects.insert(text),
                 Action::AutoPaused(apps) => {

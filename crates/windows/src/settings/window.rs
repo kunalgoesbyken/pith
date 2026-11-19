@@ -155,6 +155,10 @@ fn click(window: HWND, id: i32) {
     match action {
         Action::None => {}
         Action::Go(page) => go(window, page),
+        Action::StylePage(page) => {
+            update(|model| model.style_page = page);
+            relayout(window);
+        }
         Action::Apply(setting) => apply(window, setting),
         Action::Emit(event) => dispatch(window, event),
         Action::Record(binding, slot) => begin_recording(window, binding, slot),

@@ -4,6 +4,7 @@ mod inbox;
 mod keyboard;
 mod preferences;
 mod presenter;
+mod style;
 
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
@@ -31,6 +32,7 @@ pub use inbox::{Inbound, Inbox};
 use keyboard::Keyboard;
 use preferences::Preferences;
 use presenter::Presenter;
+use style::Style;
 
 const TIMER_POLL: usize = 1;
 const TIMER_DEBOUNCE: usize = 2;
@@ -76,6 +78,7 @@ struct App {
     overlay: Overlay,
     data_dir: Option<PathBuf>,
     erasing: Option<PathBuf>,
+    style: Style,
     inbox: Inbox,
     inbound: Receiver<Inbound>,
 }
@@ -112,6 +115,7 @@ impl App {
             reader,
             worker,
             speller,
+            style: Style::open(options.data_dir.as_deref()),
             data_dir: options.data_dir,
             erasing: None,
             inbox,
@@ -122,6 +126,8 @@ impl App {
             app.sync();
         }
         app.reader.poke();
+        app.forget_blocked_style();
+        app.style_changed();
         Ok(app)
     }
 

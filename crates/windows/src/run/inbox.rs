@@ -8,6 +8,7 @@ use super::App;
 use crate::command::TrayCommand;
 use crate::control::Waker;
 use crate::onboarding::Event as OnboardingEvent;
+use crate::settings::UiEvent;
 use crate::update::Update;
 
 pub enum Inbound {
@@ -19,6 +20,7 @@ pub enum Inbound {
     Preparing(Stage),
     Command(TrayCommand),
     Update(UpdateCheck),
+    Ui(UiEvent),
 }
 
 #[derive(Clone)]
@@ -66,6 +68,7 @@ impl App {
                 Inbound::Preparing(stage) => self.model_preparing(stage),
                 Inbound::Command(command) => quit |= self.command(command),
                 Inbound::Update(result) => self.update_done(result),
+                Inbound::Ui(event) => quit |= self.ui_event(event),
             }
         }
         quit

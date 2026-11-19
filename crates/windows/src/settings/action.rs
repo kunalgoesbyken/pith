@@ -11,4 +11,5 @@ pub enum Action {
     Emit(UiEvent),
     Record(KeyAction, usize),
     ChooseApp,
+    StylePage(usize),
 }
