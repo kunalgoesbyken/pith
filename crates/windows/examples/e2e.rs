@@ -57,7 +57,7 @@ const PROSE: [&str; 6] = [
 
 const FIT_SUFFIX: &str = ".";
 
-const FIT_EDGE_PX: i32 = 36;
+const FIT_EDGE_PX: i32 = 42;
 
 const FIT_MIN_WORDS: usize = 5;
 
@@ -1070,28 +1070,37 @@ fn midline_fit(rig: &mut Rig) {
         rect.left + monitor.right - FIT_EDGE_PX - caret_x,
         rect.top,
     );
-    let seen = rig.settle(Duration::from_millis(700));
-    let fitted = visible_text(&seen);
-    let trimmed = fitted.as_deref().is_none_or(|text| {
-        remainder.starts_with(text)
-            && text.len() < remainder.len()
-            && remainder[text.len()..].starts_with(char::is_whitespace)
-    });
+    rig.settle(Duration::from_millis(700));
+    let pill = overlay_window()
+        .map(window_rect)
+        .filter(|_| overlay_visible());
     rig.check(
-        "a remainder that does not fit the pill is cut to whole words or withdrawn",
-        trimmed,
-        format!("rest {remainder:?}, now {fitted:?}"),
+        "the cut pill stays on screen inside the room next to the caret",
+        pill.is_some_and(|p| p.right <= monitor.right && p.left >= caret_x - 12),
+        format!(
+            "caret {caret_x}, pill {:?}, monitor right {}",
+            pill.map(|p| (p.left, p.right)),
+            monitor.right
+        ),
     );
-    println!("[INFO] pill fit {fitted:?} of {remainder:?}");
     rig.key(KeyAction::AcceptAll);
     let seen = rig.settle(Duration::from_millis(700));
     let landed = inserted(&seen).concat();
+    let rest = remainder.strip_prefix(landed.as_str()).unwrap_or_default();
+    let whole_words = landed
+        .chars()
+        .next_back()
+        .zip(rest.chars().next())
+        .is_none_or(|(last, next)| !(last.is_alphanumeric() && next.is_alphanumeric()));
+    println!("[INFO] pill fit {landed:?} of {remainder:?}");
     rig.check(
-        "accepting inserts exactly what the pill showed",
-        landed == fitted.clone().unwrap_or_default()
+        "a remainder that does not fit is cut to whole words and only those are accepted",
+        !landed.is_empty()
+            && !rest.is_empty()
+            && whole_words
             && get_text(field.edit) == format!("{prefix}{word}{landed}{suffix}"),
         format!(
-            "inserts {:?}, shown {fitted:?}, tail {:?}",
+            "rest {remainder:?}, inserts {:?}, tail {:?}",
             inserted(&seen),
             tail(&get_text(field.edit))
         ),

@@ -71,6 +71,9 @@ fn compose<'a>(frame: &Frame<'a>, anchor: Rect, room: i32, style: Style) -> Opti
         max_lines: MAX_LINES,
     };
     let lines = layout(text, &flow, &|segment| face.measure(segment));
+    if lines.first()?.y != flow.top {
+        return None;
+    }
     let left = lines.iter().map(|line| line.x).min()?;
     let right = lines.iter().map(|line| line.x + line.width).max()?;
     let height = lines.len() as i32 * face.line_height + 2 * padding_y;

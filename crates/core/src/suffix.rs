@@ -51,7 +51,7 @@ impl After {
     }
 
     pub fn ends_text(&self) -> bool {
-        self.text.trim().is_empty()
+        self.text.chars().all(is_skippable)
     }
 }
 
@@ -82,6 +82,10 @@ fn is_invisible(c: char) -> bool {
         )
 }
 
+fn is_skippable(c: char) -> bool {
+    c.is_whitespace() || is_invisible(c)
+}
+
 fn joins_previous(c: char) -> bool {
     c == JOINER || MARKS.contains(CATEGORIES.get(c))
 }
@@ -89,12 +93,11 @@ fn joins_previous(c: char) -> bool {
 impl Suffix {
     fn of(after: &str) -> Self {
         let line = after.split(LINE_BREAKS).next().unwrap_or_default();
-        let skippable = |c: char| c.is_whitespace() || is_invisible(c);
         if line.chars().next().is_some_and(joins_previous) {
             Self::Text
-        } else if line.chars().all(skippable) {
+        } else if line.chars().all(is_skippable) {
             Self::Blank
-        } else if line.chars().all(|c| skippable(c) || is_closer(c)) {
+        } else if line.chars().all(|c| is_skippable(c) || is_closer(c)) {
             Self::Closing(
                 line.chars()
                     .filter(|c| !is_invisible(*c))
@@ -135,6 +138,14 @@ fn spans_sentences(text: &str) -> bool {
     text.trim().unicode_sentences().nth(1).is_some()
 }
 
+pub(crate) fn cut(text: &str, len: usize, after: &After) -> Option<String> {
+    text.split_word_bound_indices()
+        .rev()
+        .map(|(start, segment)| (start + segment.len(), segment))
+        .filter(|(end, segment)| *end <= len && is_word_like(segment))
+        .find_map(|(end, _)| fit(&text[..end], after))
+}
+
 pub(crate) fn fit(candidate: &str, after: &After) -> Option<String> {
     let run = match after.suffix() {
         Suffix::Blank => return (!candidate.is_empty()).then(|| candidate.to_string()),
@@ -152,11 +163,13 @@ pub(crate) fn fit(candidate: &str, after: &After) -> Option<String> {
         .chars()
         .filter(|c| CATEGORIES.get(*c) == GeneralCategory::ClosePunctuation)
         .count();
-    let acceptable = is_word_like(candidate)
-        && !candidate
+    let stacks = run.chars().any(|c| TERMINAL.contains(c))
+        && candidate
             .chars()
             .next_back()
-            .is_some_and(|c| TERMINAL.contains(c))
+            .is_some_and(|c| TERMINAL.contains(c));
+    let acceptable = is_word_like(candidate)
+        && !stacks
         && !candidate.trim_start().starts_with(is_closer)
         && shape.unopened == 0
         && shape.unclosed <= closes

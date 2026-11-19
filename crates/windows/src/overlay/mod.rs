@@ -54,29 +54,53 @@ impl Overlay {
             monitor: Monitor::nearest(target),
         };
         self.capture(&frame, placement);
+        match self.draw(&screen, &frame, placement, style) {
+            Drawn::Prefix(len) => {
+                let cut = Frame {
+                    text: &text[..len],
+                    ..frame
+                };
+                match self.draw(&screen, &cut, placement, style) {
+                    Drawn::Whole => Drawn::Prefix(len),
+                    Drawn::Prefix(_) | Drawn::Nothing => {
+                        self.window.hide();
+                        Drawn::Nothing
+                    }
+                }
+            }
+            outcome => outcome,
+        }
+    }
+
+    fn draw(
+        &mut self,
+        screen: &ScreenDc,
+        frame: &Frame,
+        placement: Placement,
+        style: &TextStyle,
+    ) -> Drawn {
         let scene = match placement {
             Placement::Inline(caret) => {
                 let backdrop = Backdrop {
                     color: self.background,
                     opacity: self.opacity,
                 };
-                inline::compose(&frame, caret, style, backdrop)
+                inline::compose(frame, caret, style, backdrop)
             }
-            Placement::Anchored(element) => anchored::under_field(&frame, element, self.style),
+            Placement::Anchored(element) => anchored::under_field(frame, element, self.style),
             Placement::BelowCaret(caret) => {
-                anchored::under_caret(&frame, caret, focused_field(), self.style)
+                anchored::under_caret(frame, caret, focused_field(), self.style)
             }
         };
-        let outcome = scene
-            .as_ref()
-            .map_or(Drawn::Nothing, |scene| drawn(text, &scene.placed.lines));
+        let outcome = scene.as_ref().map_or(Drawn::Nothing, |scene| {
+            drawn(frame.text, &scene.placed.lines)
+        });
         match (outcome, scene) {
-            (Drawn::Whole, Some(scene)) => self.present(&screen, &scene),
-            (outcome, _) => {
-                if outcome == Drawn::Nothing {
-                    self.window.hide();
-                }
-                outcome
+            (Drawn::Whole, Some(scene)) => self.present(screen, &scene),
+            (Drawn::Prefix(len), _) => Drawn::Prefix(len),
+            (Drawn::Whole | Drawn::Nothing, _) => {
+                self.window.hide();
+                Drawn::Nothing
             }
         }
     }

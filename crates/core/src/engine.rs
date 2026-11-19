@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ignore::IgnoreTracker;
 use crate::stats::Counts;
-use crate::suffix::fit;
+use crate::suffix::cut;
 use crate::{
     Completion, CompletionRequest, Config, Drawn, FieldSnapshot, Placement, SkipReason, Suffix,
     TextStyle, TriggerMode, build, check, check_forced, continue_window, ends_spaced_word,
@@ -174,10 +174,7 @@ impl Engine {
                 if let Some(app) = ignored {
                     self.note_ignored(&app, &mut out);
                 }
-                self.dismissed = self.field.as_ref().map(|field| Dismissal {
-                    field: FieldKey::of(field),
-                    before: field.before.clone(),
-                });
+                self.hold_dismissal();
             }
             Event::Drawn(drawn) => self.on_drawn(drawn, &mut out),
             Event::Trigger => self.on_trigger(&mut out),
@@ -487,27 +484,42 @@ impl Engine {
         let (Phase::Showing(shown), Some(field)) = (&mut self.phase, &self.field) else {
             return;
         };
-        match drawn {
-            Drawn::Whole => {
-                if !std::mem::replace(&mut shown.counted, true) {
-                    self.counts.record_shown();
-                }
-            }
-            Drawn::Prefix(len) => {
-                let fitted = shown
-                    .text
-                    .get(..len)
-                    .and_then(|prefix| fit(prefix, &field.after));
-                match fitted {
-                    Some(text) => {
-                        shown.text = text;
-                        self.show_current(out);
-                    }
-                    None => self.withdraw(out),
-                }
-            }
-            Drawn::Nothing => self.withdraw(out),
+        let (text, len) = match drawn {
+            Drawn::Whole => return self.count_shown(),
+            Drawn::Prefix(len) => match cut(&shown.text, len, &field.after) {
+                Some(text) => (text, len),
+                None => return self.give_up(out),
+            },
+            Drawn::Nothing => return self.give_up(out),
+        };
+        let adopted = shown.text.get(..len) == Some(text.as_str());
+        shown.text = text;
+        if adopted {
+            self.count_shown();
+        } else {
+            self.show_current(out);
         }
+    }
+
+    fn count_shown(&mut self) {
+        if let Phase::Showing(shown) = &mut self.phase
+            && !std::mem::replace(&mut shown.counted, true)
+        {
+            self.counts.record_shown();
+        }
+    }
+
+    fn give_up(&mut self, out: &mut Vec<Action>) {
+        self.withdraw(out);
+        self.forced = None;
+        self.hold_dismissal();
+    }
+
+    fn hold_dismissal(&mut self) {
+        self.dismissed = self.field.as_ref().map(|field| Dismissal {
+            field: FieldKey::of(field),
+            before: field.before.clone(),
+        });
     }
 
     fn show_current(&mut self, out: &mut Vec<Action>) {
