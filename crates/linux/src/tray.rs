@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use ksni::blocking::{Handle, TrayMethods};
 use ksni::menu::{CheckmarkItem, StandardItem};
 use ksni::{Icon, MenuItem, ToolTip};
@@ -11,6 +13,12 @@ use crate::run::{Inbound, Inbox};
 
 const NAME: &str = "Pith";
 const ICON_SIZES: [u32; 4] = [16, 24, 32, 48];
+const RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+];
 
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Shown {
@@ -26,8 +34,12 @@ struct Menu {
 
 pub struct Tray(Handle<Menu>);
 
+fn escaped(text: &str) -> String {
+    text.replace('_', "__")
+}
+
 fn label(text: &str) -> String {
-    menu_line(text).replace('_', "__")
+    escaped(&menu_line(text))
 }
 
 fn icon(size: u32, active: bool) -> Icon {
@@ -127,7 +139,7 @@ impl ksni::Tray for Menu {
             .iter()
             .map(|app| {
                 command(
-                    label(&auto_paused_label(app)),
+                    escaped(&auto_paused_label(app)),
                     true,
                     TrayCommand::ResumeApp(app.clone()),
                 )
@@ -169,15 +181,37 @@ impl ksni::Tray for Menu {
     }
 }
 
-impl Tray {
-    pub fn spawn(inbox: Inbox, autostart: Option<Autostart>) -> Result<Self, ksni::Error> {
-        Menu {
-            shown: Shown::default(),
-            autostart,
-            inbox,
+fn start(inbox: &Inbox, autostart: Option<&Autostart>) -> Option<Tray> {
+    Menu {
+        shown: Shown::default(),
+        autostart: autostart.cloned(),
+        inbox: inbox.clone(),
+    }
+    .spawn()
+    .map(Tray)
+    .map_err(|error| log(&format!("no tray icon: {error}")))
+    .ok()
+}
+
+fn retry(inbox: Inbox, autostart: Option<Autostart>) {
+    std::thread::spawn(move || {
+        for delay in RETRY_DELAYS {
+            std::thread::sleep(delay);
+            if let Some(tray) = start(&inbox, autostart.as_ref()) {
+                inbox.post(Inbound::Tray(tray));
+                return;
+            }
         }
-        .spawn()
-        .map(Self)
+    });
+}
+
+impl Tray {
+    pub fn spawn(inbox: Inbox, autostart: Option<Autostart>) -> Option<Self> {
+        let tray = start(&inbox, autostart.as_ref());
+        if tray.is_none() {
+            retry(inbox, autostart);
+        }
+        tray
     }
 
     pub fn show(&self, shown: Shown) {

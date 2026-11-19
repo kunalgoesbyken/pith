@@ -262,9 +262,7 @@ pub fn run(
         outcome => outcome?,
     };
     let keyboard = Keyboard::new(&config.keymap(), grabs, held);
-    let tray = Tray::spawn(inbox.clone(), options.autostart)
-        .map_err(|error| log(&format!("no tray icon: {error}")))
-        .ok();
+    let tray = Tray::spawn(inbox.clone(), options.autostart);
     let prefs = Preferences::new(
         config,
         Some(options.config_path),

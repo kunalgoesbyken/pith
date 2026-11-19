@@ -10,6 +10,7 @@ use crate::error::{InsertError, Inserted, ReaderError, Target};
 use crate::notice::notify;
 use crate::reader::Report;
 use crate::reading::Reading;
+use crate::tray::Tray;
 use crate::x11::{DisplayError, Stroke};
 
 pub enum Inbound {
@@ -18,6 +19,7 @@ pub enum Inbound {
     Ready(Result<String, String>),
     Preparing(Stage),
     Command(TrayCommand),
+    Tray(Tray),
     Key(Stroke),
     Failed(DisplayError),
     Unpasted,
@@ -57,6 +59,7 @@ impl App {
             Inbound::Ready(status) => self.model_ready(status),
             Inbound::Preparing(stage) => self.model_preparing(stage),
             Inbound::Command(command) => return self.command(command),
+            Inbound::Tray(tray) => self.tray_ready(tray),
             Inbound::Key(stroke) => self.key_down(stroke),
         }
         Flow::Continue
@@ -92,6 +95,12 @@ impl App {
             self.keyboard.let_go();
             self.timers.clear_key_deadline();
         }
+    }
+
+    fn tray_ready(&mut self, tray: Tray) {
+        log("tray icon ready");
+        self.shell.set_tray(tray);
+        self.refresh();
     }
 
     fn model_ready(&mut self, status: Result<String, String>) {

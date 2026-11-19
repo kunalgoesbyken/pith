@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use async_io::Timer;
 use futures_lite::future::block_on;
 use pith_core::TrayCommand;
 use zbus::Connection;
@@ -10,6 +13,7 @@ const NAME: &str = "org.pith.Pith";
 const PATH: &str = "/org/pith/Pith";
 const OPEN: &str = "Open";
 const ATTEMPTS: usize = 3;
+const RETRY_DELAY: Duration = Duration::from_millis(200);
 
 struct Remote {
     inbox: Inbox,
@@ -37,8 +41,6 @@ async fn reveal() -> zbus::Result<()> {
 async fn serve(inbox: Inbox) -> zbus::Result<Instance> {
     let connection = Builder::session()?
         .name(NAME)?
-        .allow_name_replacements(false)
-        .replace_existing_names(false)
         .serve_at(PATH, Remote { inbox })?
         .build()
         .await?;
@@ -57,6 +59,7 @@ async fn claim(inbox: Inbox) -> zbus::Result<Option<Instance>> {
         if let Some(Ok(())) = within(DEADLINE, reveal()).await {
             return Ok(None);
         }
+        Timer::after(RETRY_DELAY).await;
     }
     Err(zbus::Error::NameTaken)
 }

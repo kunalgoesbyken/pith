@@ -39,7 +39,6 @@ cosmic-text = "0.19"
 signal-hook = "0.3"
 libc = "0.2"
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
-notify-rust = { version = "4", default-features = false, features = ["z"] }
 
 [profile.release]
 lto = "thin"

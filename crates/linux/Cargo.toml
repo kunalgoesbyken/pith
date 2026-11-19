@@ -29,7 +29,6 @@ cosmic-text.workspace = true
 directories.workspace = true
 libc.workspace = true
 ksni.workspace = true
-notify-rust.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 serde_json.workspace = true

@@ -32,6 +32,10 @@ impl Shell {
         self.tray.is_some()
     }
 
+    pub(super) fn set_tray(&mut self, tray: Tray) {
+        self.tray = Some(tray);
+    }
+
     pub(super) fn app(&self) -> Option<&str> {
         self.app.as_deref()
     }
