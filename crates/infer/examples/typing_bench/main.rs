@@ -76,13 +76,14 @@ fn ask(
     config: &Config,
     field_id: u64,
     title: &str,
-    before: String,
+    (before, after): (String, &str),
 ) -> (Completion, f64) {
     let field = FieldSnapshot {
         field_id,
         app: "bench".into(),
         window_title: title.into(),
         before,
+        after: after.into(),
         ..Default::default()
     };
     let started = Instant::now();
@@ -118,10 +119,17 @@ fn replay(
         let prefix: String = chars[..position].iter().collect();
         if sample.corrections && step % CORRECTION_EVERY == 2 {
             let junk = format!("{prefix}{}", JUNK[step / CORRECTION_EVERY % JUNK.len()]);
-            let (completion, ms) = ask(session, config, SAMPLE_FIELD, sample.title, junk.clone());
+            let (completion, ms) = ask(
+                session,
+                config,
+                SAMPLE_FIELD,
+                sample.title,
+                (junk.clone(), sample.suffix),
+            );
             stats.latency_only(&Record {
                 position,
                 before: junk,
+                after: sample.suffix.to_string(),
                 rest: String::new(),
                 evaluated: completion.prompt_tokens_evaluated,
                 completion,
@@ -139,21 +147,29 @@ fn replay(
                 config,
                 DISTRACTION_FIELD,
                 DISTRACTION_TITLE,
-                text.to_string(),
+                (text.to_string(), ""),
             );
             stats.latency_only(&Record {
                 position,
                 before: String::new(),
+                after: String::new(),
                 rest: String::new(),
                 evaluated: completion.prompt_tokens_evaluated,
                 completion,
                 ms,
             });
         }
-        let (completion, ms) = ask(session, config, SAMPLE_FIELD, sample.title, prefix.clone());
+        let (completion, ms) = ask(
+            session,
+            config,
+            SAMPLE_FIELD,
+            sample.title,
+            (prefix.clone(), sample.suffix),
+        );
         let record = Record {
             position,
             before: prefix,
+            after: sample.suffix.to_string(),
             rest: chars[position..].iter().collect(),
             evaluated: completion.prompt_tokens_evaluated,
             completion,
@@ -168,7 +184,7 @@ fn replay(
             );
             cold = false;
         } else {
-            stats.record(&record, shown.as_ref(), saved);
+            stats.record(&record, shown.as_ref(), saved, config);
             if after_junk {
                 stats.after_backspace(&record);
             }
@@ -223,6 +239,7 @@ fn main() {
         options.config.context_tokens,
     );
     let mut total = Stats::default();
+    let mut midline = Stats::default();
     let mut rows = Vec::new();
     let mut records = Vec::new();
     for sample in samples::all() {
@@ -234,7 +251,11 @@ fn main() {
             continue;
         }
         let stats = replay(&mut session, &options, &sample, &mut records);
-        total.merge(&stats);
+        if sample.suffix.is_empty() {
+            total.merge(&stats);
+        } else {
+            midline.merge(&stats);
+        }
         rows.push((sample.name, stats));
     }
     println!();
@@ -243,6 +264,7 @@ fn main() {
         print_row(name, stats);
     }
     print_row("TOTAL", &total);
+    print_row("MID-LINE", &midline);
     for (name, stats) in &rows {
         if !stats.misses.is_empty() {
             println!(

@@ -5,6 +5,7 @@ pub const MISS_TOKENS: usize = 16;
 pub struct Record {
     pub position: usize,
     pub before: String,
+    pub after: String,
     pub rest: String,
     pub completion: Completion,
     pub ms: f64,
@@ -39,7 +40,7 @@ fn accepted_chars(suggestion: &str, rest: &str) -> usize {
 }
 
 pub fn show(record: &Record, config: &Config) -> Option<Shown> {
-    let text = suggestion(&record.completion, &record.before, config)?;
+    let text = suggestion(&record.completion, &record.before, &record.after, config)?;
     let common = text
         .chars()
         .zip(record.rest.chars())
@@ -90,6 +91,7 @@ pub struct Stats {
     exact: usize,
     partial: usize,
     wrong: usize,
+    held: usize,
 }
 
 impl Stats {
@@ -103,7 +105,13 @@ impl Stats {
         self.after_backspace.push(record.evaluated as f64);
     }
 
-    pub fn record(&mut self, record: &Record, shown: Option<&Shown>, saved: usize) {
+    pub fn record(
+        &mut self,
+        record: &Record,
+        shown: Option<&Shown>,
+        saved: usize,
+        config: &Config,
+    ) {
         self.latency_only(record);
         self.requests += 1;
         self.saved += saved;
@@ -117,7 +125,11 @@ impl Stats {
                 shown.is_some_and(|s| !wanted.is_empty() && next_word(&s.text).trim() == wanted);
             self.word_hits += usize::from(hit);
         }
-        let Some(shown) = shown else { return };
+        let Some(shown) = shown else {
+            let unconstrained = suggestion(&record.completion, &record.before, "", config);
+            self.held += usize::from(!record.after.is_empty() && unconstrained.is_some());
+            return;
+        };
         self.shown += 1;
         if shown.wrong() {
             self.wrong += 1;
@@ -146,12 +158,13 @@ impl Stats {
         self.exact += other.exact;
         self.partial += other.partial;
         self.wrong += other.wrong;
+        self.held += other.held;
     }
 }
 
 pub fn print_header() {
     println!(
-        "{:<14} {:>4} {:>11} {:>7} {:>6} {:>6} {:>7} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
+        "{:<14} {:>4} {:>11} {:>7} {:>6} {:>6} {:>7} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
         "sample",
         "req",
         "word hit",
@@ -161,6 +174,7 @@ pub fn print_header() {
         "partial",
         "wrong",
         "wrong%",
+        "held",
         "p50",
         "p90",
         "tok",
@@ -174,7 +188,7 @@ pub fn print_header() {
 
 pub fn print_row(name: &str, stats: &Stats) {
     println!(
-        "{:<14} {:>4} {:>4}/{:<4}{:>2.0}% {:>6.1} {:>6} {:>6} {:>7} {:>6} {:>6.1} {:>5.0} {:>5.0} {:>5.1} {:>5.0} {:>5.0} {:>5.0} {:>5} {:>5.0}",
+        "{:<14} {:>4} {:>4}/{:<4}{:>2.0}% {:>6.1} {:>6} {:>6} {:>7} {:>6} {:>6.1} {:>5} {:>5.0} {:>5.0} {:>5.1} {:>5.0} {:>5.0} {:>5.0} {:>5} {:>5.0}",
         name,
         stats.requests,
         stats.word_hits,
@@ -186,6 +200,7 @@ pub fn print_row(name: &str, stats: &Stats) {
         stats.partial,
         stats.wrong,
         ratio(stats.wrong, stats.shown),
+        stats.held,
         percentile(&stats.ms, 0.5),
         percentile(&stats.ms, 0.9),
         mean(&stats.tokens),

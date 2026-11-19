@@ -4,6 +4,7 @@ pub struct Sample {
     pub text: String,
     pub start: usize,
     pub corrections: bool,
+    pub suffix: &'static str,
 }
 
 const WORK_EMAIL: &str = "Hi Sarah, thanks for sending the revised contract. I reviewed the payment terms and they look good to me. Could you send over the final version so we can sign it by Friday? I will also loop in Daniel from finance so he can confirm the invoice schedule before we commit to anything.";
@@ -28,6 +29,8 @@ const NUMBERS: &str = "Version 3.5 is out. See www.example.com/docs for details,
 
 const CORRECTIONS: &str = "I am writing to let you know that I will be out of the office next week. Please reach out to Daniel if you need anything urgent while I am away, and he will make sure the right person gets back to you as soon as possible.";
 
+const MIDLINE_CLOSING: &str = "Thanks for the quick turnaround on the revised contract (I reviewed the payment terms and they look good to me, but could you send over the final version so we can sign it by Friday";
+
 const LONG_PARAGRAPHS: [&str; 7] = [
     "Project overview. The goal of this project is to replace the aging order processing pipeline with a service that is easier to operate and cheaper to run. Today every order passes through a monolithic batch job that runs once per hour, which means customers wait up to sixty minutes for a confirmation email and the support team cannot see the state of an order until the next batch completes.",
     "Current problems. The batch job is hard to test because it talks to the database, the payment provider and the warehouse system in a single transaction. When any of these is slow, the whole run slows down, and when one fails the job retries everything from the start. Last quarter this caused two incidents where customers were charged twice. The on call engineers also need to know the exact order in which the steps run, which is documented only in a wiki page that has not been updated in two years.",
@@ -45,6 +48,7 @@ fn plain(name: &'static str, title: &'static str, text: &str) -> Sample {
         text: text.to_string(),
         start: 12,
         corrections: false,
+        suffix: "",
     }
 }
 
@@ -63,6 +67,10 @@ pub fn all() -> Vec<Sample> {
         plain("chinese", "回复 - 微信", CHINESE),
         plain("bullets", "Weekly sync notes - Notion", BULLETS),
         plain("numbers-urls", "Release notes - Notion", NUMBERS),
+        Sample {
+            suffix: ").",
+            ..plain("midline-close", "Re: contract - Gmail", MIDLINE_CLOSING)
+        },
         Sample {
             corrections: true,
             ..plain("corrections", "Untitled - Notepad", CORRECTIONS)

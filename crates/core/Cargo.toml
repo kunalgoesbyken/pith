@@ -8,3 +8,4 @@ license.workspace = true
 serde.workspace = true
 toml_edit.workspace = true
 unicode-segmentation.workspace = true
+icu_properties.workspace = true

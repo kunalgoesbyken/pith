@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use pith_core::{
     Action, Completion, CompletionRequest, Config, FieldSnapshot, Keymap, ModelPreset, PauseSpan,
-    Reach,
+    Placement, Reach, SkipReason, check,
 };
 use pith_infer::{Backend, Worker};
 use pith_windows::{
@@ -53,6 +53,12 @@ const PROSE: [&str; 6] = [
     "The release notes are ready and I just need someone to double check the migration steps before",
     "Could you send me the latest version of the proposal so that I can share it with the",
 ];
+
+const MIDLINE_SUFFIXES: [&str; 3] = [").", ")", "]"];
+
+const CLOSING_SUFFIXES: [&str; 7] = [")", "」", "）。", "”", ". ", "?!", "؟"];
+
+const TEXT_SUFFIXES: [&str; 6] = [" world", ", and then", "x", "(", "$5", "😀"];
 
 const LANGUAGES: [(&str, &str); 5] = [
     ("japanese", "今日は天気が良いので、公園に"),
@@ -940,6 +946,124 @@ fn text_after_caret(rig: &mut Rig) {
                 .map(|r| r.prompt.clone())
                 .collect::<Vec<_>>()
         ),
+    );
+}
+
+fn utf16_len(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+fn last_placement(seen: &[Action]) -> Option<Placement> {
+    seen.iter().rev().find_map(|action| match action {
+        Action::Show { placement, .. } => Some(*placement),
+        _ => None,
+    })
+}
+
+fn midline_reader(rig: &mut Rig) {
+    let field = rig.a;
+    let prefix = PROSE[0];
+    let config = Config::default();
+    for (suffix, inline) in [("", true), ("   ", true)]
+        .into_iter()
+        .chain(CLOSING_SUFFIXES.map(|suffix| (suffix, false)))
+    {
+        rig.fresh_at(field, &format!("{prefix}{suffix}"), utf16_len(prefix));
+        let snapshot = rig.read(field);
+        let placement = snapshot.as_ref().and_then(|s| s.placement);
+        let expected = |p: &Placement| matches!(p, Placement::Inline(_)) == inline;
+        rig.check(
+            &format!(
+                "reader places {suffix:?} after the caret {}",
+                if inline { "inline" } else { "in the pill" }
+            ),
+            placement.as_ref().is_some_and(expected)
+                && snapshot.as_ref().is_some_and(|s| check(s, &config).is_ok()),
+            format!("{placement:?}"),
+        );
+    }
+    for suffix in TEXT_SUFFIXES {
+        rig.fresh_at(field, &format!("{prefix}{suffix}"), utf16_len(prefix));
+        let verdict = rig.read(field).map(|s| check(&s, &config));
+        rig.check(
+            &format!("reader skips {suffix:?} after the caret"),
+            verdict == Some(Err(SkipReason::TextAfterCaret)),
+            format!("{verdict:?}"),
+        );
+    }
+}
+
+fn midline_suggestion(rig: &mut Rig) -> Option<(&'static str, &'static str, Vec<Action>)> {
+    let field = rig.a;
+    for (prefix, suffix) in PROSE.into_iter().zip(MIDLINE_SUFFIXES.into_iter().cycle()) {
+        rig.fresh(field, "");
+        rig.place(field, &format!("{prefix}{suffix}"), utf16_len(prefix));
+        if let Some((first, _)) = rig.wait_for(Duration::from_secs(5), is_show) {
+            let mut seen = vec![first];
+            seen.extend(rig.settle(Duration::from_millis(500)));
+            return Some((prefix, suffix, seen));
+        }
+    }
+    None
+}
+
+fn midline(rig: &mut Rig) {
+    midline_reader(rig);
+    let field = rig.a;
+    let Some((prefix, suffix, seen)) = midline_suggestion(rig) else {
+        return rig.check("mid-line setup", false, "no suggestion".into());
+    };
+    let suggestion = last_show(&seen).unwrap_or_default();
+    rig.check(
+        "a suggestion before closing punctuation shows in the pill and does not repeat it",
+        matches!(last_placement(&seen), Some(Placement::Anchored(_)))
+            && !suggestion.trim_start().starts_with(|c| suffix.contains(c))
+            && !suggestion.ends_with(|c| suffix.contains(c)),
+        format!(
+            "{suggestion:?} before {suffix:?}, {:?}",
+            last_placement(&seen)
+        ),
+    );
+    std::thread::sleep(Duration::from_millis(200));
+    let (caret_x, caret_y) = caret_screen(field.edit, utf16_len(prefix));
+    let pill = overlay_window()
+        .map(window_rect)
+        .filter(|_| overlay_visible());
+    rig.check(
+        "the pill stays off the text after the caret",
+        pill.is_some_and(|p| {
+            !((p.left..p.right).contains(&(caret_x + 2))
+                && (p.top..p.bottom).contains(&(caret_y + 4)))
+        }),
+        format!(
+            "caret ({caret_x},{caret_y}), pill {:?}",
+            pill.map(|p| (p.left, p.top, p.right, p.bottom))
+        ),
+    );
+    rig.key(KeyAction::AcceptAll);
+    let seen = rig.settle(Duration::from_millis(700));
+    let landed = inserted(&seen).concat();
+    rig.check(
+        "accepting inserts at the caret and keeps the text after it",
+        !landed.is_empty() && get_text(field.edit) == format!("{prefix}{landed}{suffix}"),
+        format!(
+            "inserts {:?}, tail {:?}",
+            inserted(&seen),
+            tail(&get_text(field.edit))
+        ),
+    );
+    let Some((prefix, suffix, _)) = midline_suggestion(rig) else {
+        return rig.check("mid-line stale setup", false, "no suggestion".into());
+    };
+    let changed = format!("{prefix}!");
+    set_text(field.edit, &changed);
+    select(field.edit, utf16_len(prefix));
+    rig.key(KeyAction::AcceptAll);
+    let seen = rig.settle(Duration::from_millis(700));
+    rig.check(
+        "tab after the text beyond the caret changed never pastes the stale suggestion",
+        inserted(&seen).is_empty() && get_text(field.edit) == changed,
+        format!("was {suffix:?}, inserts {:?}", inserted(&seen)),
     );
 }
 
@@ -2079,12 +2203,13 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 23] = [
+        let scenarios: [(&str, Scenario); 24] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
             ("through", typing_through_and_escape),
             ("after", text_after_caret),
+            ("midline", midline),
             ("multiline", multi_line),
             ("fidelity", reader_fidelity),
             ("scripts", scripts),

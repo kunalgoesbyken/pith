@@ -1,3 +1,4 @@
+use crate::suffix::fit;
 use crate::{
     Completion, Config, FieldSnapshot, StopReason, clean_completion, split_partial, tail_chars,
 };
@@ -38,7 +39,12 @@ fn confident_enough(mean_logprob: Option<f32>, config: &Config) -> bool {
     mean >= config.min_mean_logprob
 }
 
-pub fn suggestion(completion: &Completion, before: &str, config: &Config) -> Option<String> {
+pub fn suggestion(
+    completion: &Completion,
+    before: &str,
+    after: &str,
+    config: &Config,
+) -> Option<String> {
     if completion.stop == StopReason::Cancelled
         || !confident_enough(completion.mean_logprob, config)
     {
@@ -54,7 +60,7 @@ pub fn suggestion(completion: &Completion, before: &str, config: &Config) -> Opt
     } else {
         text
     };
-    (!text.is_empty()).then_some(text)
+    fit(&text, after)
 }
 
 #[cfg(test)]

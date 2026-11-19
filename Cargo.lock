@@ -1217,6 +1217,7 @@ dependencies = [
 name = "pith-core"
 version = "0.1.0"
 dependencies = [
+ "icu_properties",
  "serde",
  "toml_edit 0.25.19+spec-1.1.0",
  "unicode-segmentation",

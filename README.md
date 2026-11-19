@@ -34,7 +34,7 @@ i5-9300H laptop, CPU only, 4 threads, `standard` model. Latency and accuracy com
 | Next word shown and right, at the start of a word | 12% |
 | RAM with the model loaded | ~610 MB |
 | RAM idle | ~30 MB before the first suggestion, ~50 MB after the model unloads |
-| Binary | one 7.3 MB exe, no webview, no installer, no runtime DLLs |
+| Binary | one 7.4 MB exe, no webview, no installer, no runtime DLLs |
 
 Per sample (`standard`, offline replay; "saved" assumes every right suggestion is accepted, "wrong" is the share of shown suggestions that disagree with what was typed next):
 
@@ -88,6 +88,8 @@ Settings also warns when something else suggests in the same fields: Windows tex
 
 When an app reports no caret, or a caret Pith cannot trust, the suggestion shows in a small pill just below the field, or inside its bottom edge when there is no room. The pill keeps its own background and contrast, so the opacity setting does not apply to it.
 
+The pill is also used when the only text after the caret on the line is closing punctuation, such as `)`, `]`, `"`, `.`, `?`, `」` or `）。`. Pith suggests the words that belong before it, shows them in a pill just below the caret so they never cover the text that is already there, and drops any part of the suggestion that repeats the punctuation (`could you send it` before `?`, not `could you send it?`). Accepting inserts at the caret and leaves the punctuation where it is. Any other text after the caret on the line (a word, an opening bracket, a symbol) still skips the suggestion.
+
 Pith pauses and frees the model while Windows battery saver is on.
 
 ## Config
@@ -132,7 +134,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 - **Captures the accept keys and Esc** with `RegisterHotKey` only while a suggestion is visible, and releases them right after. Right at a caret that is not at the end of the text goes to the app untouched.
 - **Draws** the suggestion in a click-through, non-activating layered window, in the field's own font and text colour at reduced opacity.
 - **Predicts** with llama.cpp in-process. The KV cache is reused across keystrokes. A half-typed word is removed from the prompt and forced as the start of the generation, so the suggestion finishes the word. Low-confidence suggestions are dropped.
-- **Skips** password fields, IME composition, selections, text after the caret on the same line, terminals, password managers, sign-in screens and, until you allow them, code editors.
+- **Skips** password fields, IME composition, selections, text after the caret on the same line (unless it is only closing punctuation, found by Unicode category), terminals, password managers, sign-in screens and, until you allow them, code editors.
 - **Re-reads the field** when you press an accept key or Esc, and acts only if the suggestion still fits what is on screen.
 
 ```
@@ -155,8 +157,8 @@ cargo run --release -p pith-windows --example e2e -- path\to\model.gguf .
 cargo run --release -p pith-windows --example ui_shots
 ```
 
-- `typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed next.
-- `e2e` drives the whole app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, accept chains, stale keys, Esc, selections, password fields, pause, field switching, the fallback pill, overlay geometry and memory. `PITH_E2E_ONLY=<name>` runs matching scenarios, `PITH_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `PITH_E2E_INSERT_LAG_MS=<ms>` delays insertion like a real paste and `PITH_E2E_TRACE=1` prints every action.
+- `typing_bench` replays realistic typing keystroke by keystroke and reports latency, cache reuse and how often the suggestion matches what was typed next. The MID-LINE row replays text typed before closing punctuation and is kept out of TOTAL.
+- `e2e` drives the whole app against its own RichEdit windows through window messages, so it never sends keystrokes to other apps. It covers long documents, several scripts, accept chains, stale keys, Esc, selections, password fields, text and punctuation after the caret, pause, field switching, the fallback pill, overlay geometry and memory. `PITH_E2E_ONLY=<name>` runs matching scenarios, `PITH_IDLE_UNLOAD=<secs>` adds the unload and reload scenario, `PITH_E2E_INSERT_LAG_MS=<ms>` delays insertion like a real paste and `PITH_E2E_TRACE=1` prints every action.
 - `ui_shots` renders the settings and welcome windows, light and dark, to PNGs in `target/ui-shots`.
 
 ## Roadmap
@@ -164,7 +166,7 @@ cargo run --release -p pith-windows --example ui_shots
 - Tested support for Chrome, Edge, Slack, Teams, Outlook, Word and WhatsApp
 - Learns your phrasing from text you accept, kept on this PC
 - Context from the rest of the window, such as the email you are replying to
-- Suggestions in the middle of a line
+- Suggestions before words in the middle of a line, which needs a model that reads what follows the caret
 - Typo fixes alongside the completion
 - Snippets and per-site rules
 - Several candidates to choose from

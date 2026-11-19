@@ -1,6 +1,6 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-fn is_word_like(segment: &str) -> bool {
+pub(crate) fn is_word_like(segment: &str) -> bool {
     segment.chars().any(char::is_alphanumeric)
 }
 

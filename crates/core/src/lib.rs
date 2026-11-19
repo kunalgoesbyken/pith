@@ -15,6 +15,7 @@ mod setting;
 mod stats;
 mod status;
 mod stored;
+mod suffix;
 mod text;
 mod types;
 
@@ -38,6 +39,7 @@ pub use prompt::{CompletionRequest, build, suggestion};
 pub use setting::{Length, Setting, Suggestions, clamp_opacity};
 pub use stats::{Counts, Day, Ledger, Stats};
 pub use status::{Model, Status, skip_label};
+pub use suffix::Suffix;
 pub use text::{
     LINE_BREAKS, SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words,
     next_word, sentence_end, split_partial, tail_chars,

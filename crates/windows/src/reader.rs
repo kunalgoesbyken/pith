@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
-use pith_core::{Config, FieldSnapshot, place};
+use pith_core::{Config, FieldSnapshot, Suffix, place};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -215,16 +215,23 @@ fn read(
         };
         let style = font(&caret, GetDpiForWindow(root).max(96));
         let element_rect = element.CurrentBoundingRectangle().ok().map(rect_of);
+        let after = normalize(after);
+        let placement = place(
+            caret_rect(&caret, foreground),
+            element_rect,
+            &work_areas(),
+            Suffix::of(&after),
+        );
         Ok(Some(FieldSnapshot {
             field_id: runtime_id(&element),
             app: app.unwrap_or_default(),
             window_title: window_title(root),
             before: normalize(before),
-            after: normalize(after),
+            after,
             has_selection: has_selection(&element),
             is_password,
             composing: composing(&element),
-            placement: place(caret_rect(&caret, foreground), element_rect, &work_areas()),
+            placement,
             style,
         }))
     }

@@ -56,8 +56,7 @@ pub enum Action {
 }
 
 fn closes_spaced_word(field: &FieldSnapshot, accepted: &str) -> bool {
-    !field.after.starts_with(char::is_whitespace)
-        && ends_spaced_word(&format!("{}{accepted}", field.before))
+    field.after.is_empty() && ends_spaced_word(&format!("{}{accepted}", field.before))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -423,7 +422,7 @@ impl Engine {
         self.phase = Phase::Idle;
         let Ok(completion) = result else { return };
         let Some(field) = &self.field else { return };
-        let Some(text) = suggestion(&completion, &field.before, &self.config) else {
+        let Some(text) = suggestion(&completion, &field.before, &field.after, &self.config) else {
             return;
         };
         if field.placement.is_none() {

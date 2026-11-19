@@ -1,4 +1,4 @@
-use crate::{Config, FieldSnapshot, LINE_BREAKS};
+use crate::{Config, FieldSnapshot, LINE_BREAKS, Suffix};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkipReason {
@@ -36,8 +36,7 @@ fn evaluate(field: &FieldSnapshot, config: &Config, forced: bool) -> Result<(), 
     if field.has_selection {
         return Err(SkipReason::Selection);
     }
-    let rest_of_line = field.after.split(LINE_BREAKS).next().unwrap_or_default();
-    if !rest_of_line.trim().is_empty() {
+    if Suffix::of(&field.after) == Suffix::Text {
         return Err(SkipReason::TextAfterCaret);
     }
     let current_line = field.before.rsplit(LINE_BREAKS).next().unwrap_or_default();

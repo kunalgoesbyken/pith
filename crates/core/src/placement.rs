@@ -1,3 +1,4 @@
+use crate::Suffix;
 use crate::types::Rect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,16 +45,29 @@ fn trusted(caret: Rect, element: Option<Rect>, works: &[Rect]) -> bool {
         && element.is_none_or(|e| contains(e, x, y))
 }
 
-pub fn place(caret: Option<Rect>, element: Option<Rect>, works: &[Rect]) -> Option<Placement> {
+fn at_caret(suffix: Suffix) -> fn(Rect) -> Placement {
+    if suffix == Suffix::Blank {
+        Placement::Inline
+    } else {
+        Placement::Anchored
+    }
+}
+
+pub fn place(
+    caret: Option<Rect>,
+    element: Option<Rect>,
+    works: &[Rect],
+    suffix: Suffix,
+) -> Option<Placement> {
     if works.is_empty() {
         return caret
             .filter(|c| c.height > 0 && c.width >= 0)
-            .map(Placement::Inline);
+            .map(at_caret(suffix));
     }
     let element = visible_element(element, works);
     caret
         .filter(|c| trusted(*c, element, works))
-        .map(Placement::Inline)
+        .map(at_caret(suffix))
         .or(element.map(Placement::Anchored))
 }
 
@@ -110,7 +124,7 @@ mod tests {
     const CARET: Rect = rect(500, 508, 1, 24);
 
     fn on(works: &[Rect], caret: Option<Rect>, element: Option<Rect>) -> Option<Placement> {
-        place(caret, element, works)
+        place(caret, element, works, Suffix::Blank)
     }
 
     #[test]
