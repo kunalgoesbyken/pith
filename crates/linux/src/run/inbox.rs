@@ -1,12 +1,13 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pith_core::{Completion, Event, FieldSnapshot, log};
+use pith_core::{Completion, Event, FieldSnapshot, Model, TrayCommand, log};
 use pith_infer::Stage;
 
 use super::App;
 use super::RunError;
 use super::keyboard::HOLD_LIMIT;
 use crate::error::{InsertError, Inserted, ReaderError, Target};
+use crate::notice::notify;
 use crate::reader::Report;
 use crate::reading::Reading;
 use crate::x11::{DisplayError, Stroke};
@@ -16,6 +17,7 @@ pub enum Inbound {
     Done(u64, Result<Completion, String>),
     Ready(Result<String, String>),
     Preparing(Stage),
+    Command(TrayCommand),
     Key(Stroke),
     Failed(DisplayError),
     Unpasted,
@@ -52,16 +54,9 @@ impl App {
             Inbound::Unpasted => self.reader.refresh(),
             Inbound::Quit => return Flow::Stop,
             Inbound::Done(generation, result) => self.completion_done(generation, result),
-            Inbound::Ready(status) => match status {
-                Ok(name) => log(&format!("ready ({name})")),
-                Err(error) => log(&format!("error: {error}")),
-            },
-            Inbound::Preparing(stage) => match stage {
-                Stage::Downloading(progress) => {
-                    log(&format!("downloading model, {}%", progress.percent()));
-                }
-                Stage::Loading { file } => log(&format!("loading {file}")),
-            },
+            Inbound::Ready(status) => self.model_ready(status),
+            Inbound::Preparing(stage) => self.model_preparing(stage),
+            Inbound::Command(command) => return self.command(command),
             Inbound::Key(stroke) => self.key_down(stroke),
         }
         Flow::Continue
@@ -76,6 +71,9 @@ impl App {
             field_id: field.field_id,
             app: field.app.clone(),
         }));
+        if let Some(field) = &snapshot {
+            self.shell.set_app(&field.app);
+        }
         let config = self.engine.config();
         let usable = config.enabled
             && snapshot
@@ -94,6 +92,40 @@ impl App {
             self.keyboard.let_go();
             self.timers.clear_key_deadline();
         }
+    }
+
+    fn model_ready(&mut self, status: Result<String, String>) {
+        match status {
+            Ok(name) => {
+                log(&format!("ready ({name})"));
+                self.shell.set_model(Model::Ready);
+            }
+            Err(error) => {
+                log(&format!("error: {error}"));
+                if self.shell.is_new_failure(&error) {
+                    notify(format!("Pith could not load its model: {error}"));
+                }
+                self.shell.set_model(Model::Failed(error));
+            }
+        }
+        self.refresh();
+    }
+
+    fn model_preparing(&mut self, stage: Stage) {
+        let model = match stage {
+            Stage::Downloading(progress) => {
+                log(&format!("downloading model, {}%", progress.percent()));
+                Model::Downloading {
+                    percent: progress.percent(),
+                }
+            }
+            Stage::Loading { file } => {
+                log(&format!("loading {file}"));
+                Model::Loading
+            }
+        };
+        self.shell.set_model(model);
+        self.refresh();
     }
 
     fn completion_done(&mut self, generation: u64, result: Result<Completion, String>) {

@@ -5,6 +5,7 @@ pub(super) enum Due {
     Debounce(u64),
     KeyDeadline,
     KeyPoll,
+    PauseCheck,
 }
 
 #[derive(Default)]
@@ -12,6 +13,7 @@ pub(super) struct Timers {
     debounce: Option<(Instant, u64)>,
     key_deadline: Option<Instant>,
     key_poll: Option<Instant>,
+    pause_check: Option<Instant>,
 }
 
 impl Timers {
@@ -29,6 +31,11 @@ impl Timers {
             .get_or_insert_with(|| Instant::now() + interval);
     }
 
+    pub(super) fn start_pause_check(&mut self, interval: Duration) {
+        self.pause_check
+            .get_or_insert_with(|| Instant::now() + interval);
+    }
+
     pub(super) fn clear_key_deadline(&mut self) {
         self.key_deadline = None;
     }
@@ -38,6 +45,7 @@ impl Timers {
             self.debounce.map(|(at, _)| at),
             self.key_deadline,
             self.key_poll,
+            self.pause_check,
         ]
         .into_iter()
         .flatten()
@@ -59,6 +67,10 @@ impl Timers {
         if self.key_poll.is_some_and(|at| at <= now) {
             self.key_poll = None;
             due.push(Due::KeyPoll);
+        }
+        if self.pause_check.is_some_and(|at| at <= now) {
+            self.pause_check = None;
+            due.push(Due::PauseCheck);
         }
         due
     }

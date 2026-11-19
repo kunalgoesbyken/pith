@@ -39,6 +39,7 @@ pub type ReportCallback = Box<dyn Fn(Result<Report, ReaderError>) + Send>;
 enum Command {
     Read(u64),
     Insert(String, Target),
+    Config(Box<Config>),
 }
 
 pub struct Reader {
@@ -82,6 +83,7 @@ enum Next {
 
 #[derive(Default)]
 struct Pending {
+    config: Option<Config>,
     changed: bool,
     report: bool,
     served: Option<u64>,
@@ -96,6 +98,7 @@ impl Pending {
                 self.served = Some(self.served.map_or(id, |served| served.max(id)));
             }
             Command::Insert(text, target) => self.inserts.push((text, target)),
+            Command::Config(config) => self.config = Some(*config),
         }
     }
 }
@@ -173,6 +176,12 @@ impl Reader {
     pub fn insert(&self, text: String, target: Target) {
         let _ = self.commands.try_send(Command::Insert(text, target));
     }
+
+    pub fn set_config(&self, config: &Config) {
+        let _ = self
+            .commands
+            .try_send(Command::Config(Box::new(config.clone())));
+    }
 }
 
 impl Drop for Reader {
@@ -228,6 +237,7 @@ impl Session {
         let mut tracker = Tracker::default();
         let mut last: Option<Reading> = None;
         let mut settling = Settling::new();
+        let mut config = self.config.clone();
         loop {
             let mut pending = Pending::default();
             let mut batch = Vec::new();
@@ -249,6 +259,10 @@ impl Session {
             }
             while let Ok(command) = control.commands.try_recv() {
                 pending.command(command);
+            }
+            if let Some(replacement) = pending.config.take() {
+                config = replacement;
+                pending.changed = true;
             }
             for event in batch {
                 match tracker.apply(bus, &control.stopped, event).await {
@@ -285,8 +299,8 @@ impl Session {
             tracker.settle_loss(bus, self.held.is_held()).await;
             let works = self.desktop.work_areas();
             let reading = match tracker.focus_mut() {
-                Some(focus) if self.config.enabled => {
-                    match snapshot(bus, &control.stopped, focus, &self.config, &works).await {
+                Some(focus) if config.enabled => {
+                    match snapshot(bus, &control.stopped, focus, &config, &works).await {
                         Some(reading) => reading,
                         None => return Exit::Stopped,
                     }

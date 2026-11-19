@@ -1,13 +1,28 @@
 use std::process::ExitCode;
 
 use pith_core::{init_log, log};
-use pith_linux::{Consent, Inbound, Inbox, Options, hardware, on_wayland, run, single_instance};
+use pith_linux::{
+    Autostart, Consent, Inbound, Inbox, Options, Start, hardware, on_wayland, run, single_instance,
+};
 
-use crate::hooks::{self, ALLOW_ACCESSIBILITY};
+use crate::hooks::{self, ALLOW_ACCESSIBILITY, OPEN_SETTINGS};
 use crate::setup::{Cli, Paths, WorkerMessage, directories, load_config, recommend, spawn_worker};
 
+const ONBOARDED_MARKER: &str = "onboarded";
 const WAYLAND_MESSAGE: &str =
     "Pith needs an X11 session and this is a Wayland session. See the Linux section of the README.";
+
+fn autostart(cli: &Cli) -> Option<Autostart> {
+    let autostart = Autostart::new(
+        cli.has(ALLOW_ACCESSIBILITY)
+            .then_some(ALLOW_ACCESSIBILITY)
+            .as_slice(),
+    )?;
+    if let Err(error) = autostart.refresh() {
+        log(&format!("start at login not refreshed: {error}"));
+    }
+    Some(autostart)
+}
 
 fn start() -> Result<(), String> {
     if on_wayland() {
@@ -18,17 +33,32 @@ fn start() -> Result<(), String> {
     init_log(&paths.log);
     let args: Vec<String> = std::env::args().collect();
     let cli = Cli::parse(&args, hooks::FLAGS)?;
-    let (config, _) = load_config(&paths.config, &cli)?;
-    let Some(_instance) = single_instance().map_err(|error| format!("single instance: {error}"))?
+    let (config, notice) = load_config(&paths.config, &cli)?;
+    let (inbox, receiver) = Inbox::channel();
+    let Some(_instance) =
+        single_instance(inbox.clone()).map_err(|error| format!("single instance: {error}"))?
     else {
-        log("another instance is running");
+        log("another instance is running, asked it to open its settings");
         return Ok(());
     };
-    let mut options = Options::new(cli.has(ALLOW_ACCESSIBILITY).then(Consent::granted));
+    let recommended = recommend(hardware());
+    let mut options = Options::new(
+        cli.has(ALLOW_ACCESSIBILITY).then(Consent::granted),
+        paths.config.clone(),
+        recommended,
+    );
     options.data_dir = Some(dirs.data_local_dir().to_path_buf());
     hooks::apply(&cli, &mut options)?;
-    let (inbox, receiver) = Inbox::channel();
-    let recommended = recommend(hardware());
+    options.notice = notice;
+    options.autostart = autostart(&cli);
+    let onboarded = dirs.data_local_dir().join(ONBOARDED_MARKER);
+    options.start = if cli.has(OPEN_SETTINGS) {
+        Start::Home
+    } else if onboarded.exists() {
+        Start::Tray
+    } else {
+        Start::Welcome(onboarded)
+    };
     let events = inbox.clone();
     let worker = spawn_worker(&config, recommended, paths.models.clone(), move |message| {
         events.post(match message {

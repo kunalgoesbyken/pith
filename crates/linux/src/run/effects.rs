@@ -140,6 +140,8 @@ impl App {
     pub(super) fn dispatch(&mut self, event: Event) {
         let actions = self.engine.handle(event);
         self.apply(actions);
+        self.shell.set_skip(self.engine.skip());
+        self.refresh();
     }
 
     fn apply(&mut self, actions: Vec<Action>) {
@@ -182,7 +184,10 @@ impl App {
                 Action::Learn(sample) => self.learn(sample),
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => self.insert(text),
-                Action::AutoPaused(apps) => log(&format!("auto-paused in {apps:?}")),
+                Action::AutoPaused(apps) => {
+                    log(&format!("auto-paused in {apps:?}"));
+                    self.shell.set_auto_paused(apps);
+                }
                 Action::ArmKeys => self.keyboard.keys.arm(),
                 Action::DisarmKeys => self.keyboard.keys.disarm(),
             }

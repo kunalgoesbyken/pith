@@ -6,10 +6,15 @@ use crate::setup::Cli;
 use crate::setup::Extra;
 
 pub const ALLOW_ACCESSIBILITY: &str = "--allow-accessibility";
+pub const OPEN_SETTINGS: &str = "--settings";
 
 pub const FLAGS: &[Extra] = &[
     Extra {
         name: ALLOW_ACCESSIBILITY,
+        takes_value: false,
+    },
+    Extra {
+        name: OPEN_SETTINGS,
         takes_value: false,
     },
     #[cfg(feature = "e2e")]

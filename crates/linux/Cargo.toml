@@ -26,6 +26,10 @@ async-io.workspace = true
 x11rb.workspace = true
 signal-hook.workspace = true
 cosmic-text.workspace = true
+directories.workspace = true
+libc.workspace = true
+ksni.workspace = true
+notify-rust.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 serde_json.workspace = true
