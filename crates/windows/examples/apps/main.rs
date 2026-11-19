@@ -124,12 +124,14 @@ fn main() {
         }),
     );
     let quit = QuitOnDrop(inbox.clone());
+    let rig_config = config.clone();
     let driver = std::thread::spawn(move || {
         let _quit = quit;
         let ready = ready_rx.recv_timeout(WORKER_READY_WAIT);
         let mut failures = 0;
         if matches!(ready, Ok(Ok(_))) {
             let mut rig = Rig {
+                config: rig_config,
                 actions,
                 probe,
                 probed,

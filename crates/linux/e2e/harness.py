@@ -294,6 +294,22 @@ def password_rows(app, probe):
     return table.rows
 
 
+def nearby_rows(app, probe):
+    table = Table(app, probe)
+    table.step(
+        "the text beside the box is read",
+        lambda: type_text("hello"),
+        lambda s: s["before"] == "hello"
+        and any("Quarterly numbers" in line for line in s["nearby"]),
+    )
+    table.step(
+        "the password box never reaches the cues",
+        lambda: None,
+        lambda s: not any("hunter2" in line for line in s["nearby"]),
+    )
+    return table.rows
+
+
 def blocked_rows(app, executable, probe):
     table = Table(app, probe)
     table.step(
@@ -338,6 +354,9 @@ def gtk(target, probe_binary):
     with running(fixture("password"), probe_binary) as probe:
         find_window(window_title("password"))
         rows += password_rows(f"{label} password", probe)
+    with running(fixture("form"), probe_binary, "--nearby") as probe:
+        find_window(window_title("form"))
+        rows += nearby_rows(f"{label} form", probe)
     with running(
         fixture("entry"), probe_binary, "--block", HOSTED_APP
     ) as probe:

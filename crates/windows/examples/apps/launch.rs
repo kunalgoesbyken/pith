@@ -196,8 +196,13 @@ fn spawn_limited(exe: &Path, args: &[String]) -> Result<Owned<HANDLE>, String> {
 
 fn arguments(target: &Target, case: Case, profile: Option<&Profile>) -> Vec<String> {
     let page = target.fixtures.join(FIXTURE_PAGE);
+    let layout = if case.variant.has_layout() {
+        format!("&layout={}", case.variant)
+    } else {
+        String::new()
+    };
     let url = format!(
-        "file:///{}?field={}&title={}",
+        "file:///{}?field={}&title={}{layout}",
         page.display().to_string().replace('\\', "/"),
         case.field,
         fixture_title(case.field)

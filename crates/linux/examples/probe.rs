@@ -3,11 +3,12 @@ mod probe {
     use std::process::ExitCode;
     use std::sync::mpsc::channel;
 
-    use pith_core::Config;
+    use pith_core::{Config, FieldSnapshot};
     use pith_linux::{Consent, Desktop, Display, Held, Quit, Reader, Reading, Report};
 
     const ALLOW_ACCESSIBILITY: &str = "--allow-accessibility";
     const BLOCK_APP: &str = "--block";
+    const NEARBY: &str = "--nearby";
     const READY_LINE: &str = "ready";
 
     struct Options {
@@ -21,6 +22,7 @@ mod probe {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 ALLOW_ACCESSIBILITY => consent = Some(Consent::granted()),
+                NEARBY => config.nearby_context = true,
                 BLOCK_APP => config.blocked_apps.push(
                     args.next()
                         .ok_or(format!("{BLOCK_APP} needs an app name"))?,
@@ -29,6 +31,12 @@ mod probe {
             }
         }
         Ok(Options { consent, config })
+    }
+
+    fn describe(field: &FieldSnapshot) -> serde_json::Result<String> {
+        let mut value = serde_json::to_value(field)?;
+        value["nearby"] = serde_json::json!(field.nearby.fit(usize::MAX));
+        serde_json::to_string(&value)
     }
 
     pub fn run() -> ExitCode {
@@ -68,15 +76,13 @@ mod probe {
         for reading in received {
             match reading {
                 Ok(Report::Inserted(_)) => {}
-                Ok(Report::Reading(Reading::Field(field), _)) => {
-                    match serde_json::to_string(&field) {
-                        Ok(line) => println!("{line}"),
-                        Err(error) => {
-                            eprintln!("{error}");
-                            return ExitCode::FAILURE;
-                        }
+                Ok(Report::Reading(Reading::Field(field), _)) => match describe(&field) {
+                    Ok(line) => println!("{line}"),
+                    Err(error) => {
+                        eprintln!("{error}");
+                        return ExitCode::FAILURE;
                     }
-                }
+                },
                 Ok(Report::Reading(Reading::Nothing, _)) => println!("null"),
                 Err(error) => {
                     eprintln!("{error}");

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use pith_core::{Action, FieldSnapshot, Placement, Rect};
+use pith_core::{Action, Config, FieldSnapshot, Placement, Rect};
 use pith_windows::Reader;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::System::Com::{
@@ -28,6 +28,7 @@ const ACCEPT_SETTLE: Duration = Duration::from_millis(3000);
 const TAIL_CHARS: usize = 40;
 
 pub struct Rig {
+    pub config: Config,
     pub actions: Receiver<Action>,
     pub probe: Reader,
     pub probed: Receiver<(Option<FieldSnapshot>, Option<u64>)>,
@@ -180,6 +181,25 @@ fn reads_cell(snapshot: Option<&FieldSnapshot>) -> Result<(), String> {
     }
 }
 
+fn nearby_cell(rig: &mut Rig) -> String {
+    let mut timed = |nearby_context: bool| {
+        rig.probe.set_config(&Config {
+            nearby_context,
+            ..rig.config.clone()
+        });
+        let started = Instant::now();
+        let snapshot = rig.read();
+        (snapshot, started.elapsed())
+    };
+    let (_, plain) = timed(false);
+    let (snapshot, walked) = timed(true);
+    let cues = snapshot.map_or(0, |snapshot| snapshot.nearby.len());
+    format!(
+        "{cues} cues, {} ms",
+        walked.saturating_sub(plain).as_millis()
+    )
+}
+
 fn exercise(rig: &mut Rig, hwnd: HWND, out: &Path, shot: &str, row: &mut Row) {
     focus_field(hwnd);
     let window = window_rect(hwnd);
@@ -194,6 +214,7 @@ fn exercise(rig: &mut Rig, hwnd: HWND, out: &Path, shot: &str, row: &mut Row) {
         screenshot(whole_screen(), &out.join(format!("{shot}-unreadable.png")));
         return;
     }
+    row.nearby = nearby_cell(rig);
     rig.drain();
     type_text(TYPED);
     let typed = rig.read_until(TEXT_READ_WAIT, |snapshot| {

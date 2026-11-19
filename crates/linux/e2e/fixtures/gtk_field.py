@@ -28,10 +28,34 @@ def single_line(field):
     return field
 
 
+def add(box, child, grows=False):
+    if GTK4:
+        child.set_vexpand(grows)
+        box.append(child)
+    else:
+        box.pack_start(child, grows, grows, 0)
+
+
+def form():
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    secret = password_entry()
+    secret.set_text("hunter2")
+    field = text_view()
+    add(box, Gtk.Label(label="Subject"))
+    add(box, Gtk.Entry(text="Quarterly numbers"))
+    add(box, secret)
+    add(box, field, grows=True)
+    return box, field
+
+
 def build():
+    if KIND == "form":
+        return form()
     if KIND == "textview":
-        return text_view()
-    return single_line(password_entry() if KIND == "password" else Gtk.Entry())
+        field = text_view()
+    else:
+        field = single_line(password_entry() if KIND == "password" else Gtk.Entry())
+    return field, field
 
 
 def activate(application):
@@ -41,12 +65,12 @@ def activate(application):
         default_width=WIDTH,
         default_height=HEIGHT,
     )
-    field = build()
+    root, field = build()
     if GTK4:
-        window.set_child(field)
+        window.set_child(root)
         window.present()
     else:
-        window.add(field)
+        window.add(root)
         window.show_all()
     getattr(field, "grab_focus_without_selecting", field.grab_focus)()
 

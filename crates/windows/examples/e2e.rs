@@ -6,14 +6,14 @@ use std::time::{Duration, Instant};
 
 use pith_core::{
     Action, Completion, CompletionRequest, Config, FieldSnapshot, Keymap, ModelPreset,
-    PILL_ELEVATION, PauseSpan, Placement, Reach, Scale, SkipReason, Suffix, check,
+    PILL_ELEVATION, PauseSpan, Placement, Reach, Scale, SkipReason, Suffix, WALK, build, check,
 };
 use pith_infer::{Backend, Worker};
 use pith_windows::{
     Inbound, Inbox, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options,
     Outcome, Reader, Source, Start, TrayCommand, Trigger, paste, run,
 };
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::DataExchange::{
     CloseClipboard, GetClipboardData, GetClipboardSequenceNumber, IsClipboardFormatAvailable,
@@ -110,6 +110,85 @@ unsafe extern "system" fn host_procedure(
 }
 
 fn spawn_test_window(title: &str, left: i32, top: i32, edit_style: u32) -> Field {
+    spawn_window(title, left, top, move |host, instance| unsafe {
+        rich_edit(host, instance, edit_style, (10, 10, 860, 130))
+    })
+}
+
+fn spawn_form_window(title: &str, left: i32, top: i32) -> Field {
+    spawn_window(title, left, top, |host, instance| unsafe {
+        let child = |class: PCWSTR, text: PCWSTR, style: u32, (x, y, width): (i32, i32, i32)| {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                class,
+                text,
+                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(style),
+                x,
+                y,
+                width,
+                22,
+                Some(host),
+                None,
+                Some(instance),
+                None,
+            )
+            .unwrap();
+        };
+        child(w!("STATIC"), w!("Subject"), 0, (10, 8, 80));
+        child(
+            w!("EDIT"),
+            w!("Quarterly numbers"),
+            ES_AUTOHSCROLL,
+            (95, 8, 300),
+        );
+        child(w!("STATIC"), w!("Password"), 0, (410, 8, 80));
+        child(
+            w!("EDIT"),
+            w!("hunter2"),
+            ES_PASSWORD | ES_AUTOHSCROLL,
+            (495, 8, 200),
+        );
+        child(w!("STATIC"), w!("Message"), 0, (10, 40, 80));
+        rich_edit(
+            host,
+            instance,
+            ES_MULTILINE | ES_AUTOVSCROLL,
+            (95, 40, 775, 110),
+        )
+    })
+}
+
+unsafe fn rich_edit(
+    host: HWND,
+    instance: HINSTANCE,
+    style: u32,
+    (x, y, width, height): (i32, i32, i32, i32),
+) -> HWND {
+    unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            w!("RICHEDIT50W"),
+            w!(""),
+            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(style),
+            x,
+            y,
+            width,
+            height,
+            Some(host),
+            None,
+            Some(instance),
+            None,
+        )
+        .unwrap()
+    }
+}
+
+fn spawn_window(
+    title: &str,
+    left: i32,
+    top: i32,
+    build: impl FnOnce(HWND, HINSTANCE) -> HWND + Send + 'static,
+) -> Field {
     let (tx, rx) = channel();
     let title = wide(title);
     std::thread::spawn(move || unsafe {
@@ -139,21 +218,7 @@ fn spawn_test_window(title: &str, left: i32, top: i32, edit_style: u32) -> Field
             None,
         )
         .unwrap();
-        let edit = CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            w!("RICHEDIT50W"),
-            w!(""),
-            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(edit_style),
-            10,
-            10,
-            860,
-            130,
-            Some(host),
-            None,
-            Some(instance.into()),
-            None,
-        )
-        .unwrap();
+        let edit = build(host, instance.into());
         let _ = ShowWindow(host, SW_SHOWNOACTIVATE);
         tx.send(Field {
             host: host.0 as isize,
@@ -481,6 +546,7 @@ struct Rig {
     b: Field,
     secret: Field,
     locked: Field,
+    form: Field,
     actions: Receiver<Action>,
     inbox: Inbox,
     keymap: Keymap,
@@ -1267,8 +1333,8 @@ fn prompt_matches_typed_text(rig: &mut Rig) {
             "{}{}",
             request
                 .prompt
-                .strip_prefix("Pith e2e target\n\n")
-                .unwrap_or(&request.prompt),
+                .rsplit_once("\n\n")
+                .map_or(request.prompt.as_str(), |(_, head)| head),
             request.forced_prefix
         );
         rig.check(
@@ -1758,6 +1824,89 @@ fn password_field(rig: &mut Rig) {
     rig.use_field(rig.a);
 }
 
+fn nearby_context(rig: &mut Rig) {
+    let form = rig.form;
+    let on = Config {
+        nearby_context: true,
+        ..Config::default()
+    };
+    let off = Config {
+        nearby_context: false,
+        ..Config::default()
+    };
+    rig.probe.set_config(&off);
+    let started = Instant::now();
+    let plain = rig.read(form);
+    let plain_cost = started.elapsed();
+    rig.check(
+        "nearby text is not read while the setting is off",
+        plain.as_ref().is_some_and(|s| s.nearby.is_empty()),
+        format!("{:?}", plain.map(|s| s.nearby)),
+    );
+    rig.probe.set_config(&on);
+    rig.read(rig.a);
+    let started = Instant::now();
+    let cold = rig.read(form);
+    let walk_cost = started.elapsed().saturating_sub(plain_cost);
+    let prompt = cold.as_ref().map(|s| build(s, &on).prompt);
+    rig.check(
+        "the prompt carries the subject beside the box",
+        prompt
+            .as_ref()
+            .is_some_and(|p| p.contains("Quarterly numbers")),
+        format!("{prompt:?}"),
+    );
+    rig.check(
+        "the password box never reaches the prompt or the cues",
+        cold.is_some()
+            && !format!("{:?}", cold.as_ref().map(|s| &s.nearby)).contains("hunter2")
+            && !prompt.as_deref().unwrap_or_default().contains("hunter2"),
+        format!("{prompt:?}"),
+    );
+    rig.check(
+        "the walk stays inside its time budget",
+        walk_cost <= WALK.deadline + Duration::from_millis(40),
+        format!("{walk_cost:?}"),
+    );
+    let subject = unsafe {
+        FindWindowExW(
+            Some(HWND(form.host as _)),
+            None,
+            w!("EDIT"),
+            w!("Quarterly numbers"),
+        )
+        .expect("subject box")
+    };
+    unsafe { SetWindowTextW(subject, w!("Annual review")).expect("retitle subject") };
+    let cached = rig.read(form);
+    rig.check(
+        "the same field reuses its cues instead of walking again",
+        cached.as_ref().map(|s| &s.nearby) == cold.as_ref().map(|s| &s.nearby),
+        format!("{:?}", cached.map(|s| s.nearby)),
+    );
+    rig.read(rig.a);
+    let fresh = rig.read(form).map(|s| build(&s, &on).prompt);
+    rig.check(
+        "switching fields walks the new field again",
+        fresh.as_ref().is_some_and(|p| p.contains("Annual review")),
+        format!("{fresh:?}"),
+    );
+    let blocked = Config {
+        blocked_apps: cold.iter().map(|s| s.app.clone()).collect(),
+        ..on
+    };
+    rig.probe.set_config(&blocked);
+    let guarded = rig.read(form);
+    rig.check(
+        "a blocked app yields no cues",
+        guarded.as_ref().is_none_or(|s| s.nearby.is_empty()),
+        format!("{:?}", guarded.map(|s| s.nearby)),
+    );
+    rig.probe.set_config(&Config::default());
+    unsafe { SetWindowTextW(subject, w!("Quarterly numbers")).expect("restore subject") };
+    rig.use_field(rig.a);
+}
+
 fn caret_moves(rig: &mut Rig) {
     let field = rig.a;
     let Some((_, _)) = rig.suggestion_for(field, &PROSE, 1) else {
@@ -2238,6 +2387,7 @@ fn main() {
     let b = spawn_test_window("Pith e2e second", 60, 290, ES_MULTILINE | ES_AUTOVSCROLL);
     let secret = spawn_test_window("Pith e2e secret", 60, 520, ES_AUTOHSCROLL);
     let locked = spawn_test_window("Pith e2e locked", 60, 750, ES_PASSWORD | ES_AUTOHSCROLL);
+    let form = spawn_form_window("Pith e2e form", 1000, 60);
     TARGET.store(a.edit, Ordering::SeqCst);
     let config = Config {
         accept_race_ms: 0,
@@ -2313,6 +2463,7 @@ fn main() {
             b,
             secret,
             locked,
+            form,
             actions,
             inbox: driver_inbox,
             keymap,
@@ -2328,7 +2479,7 @@ fn main() {
             out_dir,
             latencies: Vec::new(),
         };
-        let scenarios: [(&str, Scenario); 32] = [
+        let scenarios: [(&str, Scenario); 33] = [
             ("basic", basic_suggestions),
             ("accept", accept_word_then_rest),
             ("undo", accept_is_one_undo_step),
@@ -2350,6 +2501,7 @@ fn main() {
             ("escape", escape_then_flicker),
             ("selection", selection_while_visible),
             ("password", password_field),
+            ("nearby", nearby_context),
             ("caret", caret_moves),
             ("pause", pause_and_resume),
             ("switch", switching_fields),

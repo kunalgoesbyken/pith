@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 
 const RESULTS_FILE: &str = "results.md";
-const RESULTS_HEADER: &str = "| App | Field | Variant | Reads text before caret | Caret | Ghost suggestion | Accept inserts | Result |\n|---|---|---|---|---|---|---|---|\n";
+const RESULTS_HEADER: &str = "| App | Field | Variant | Reads text before caret | Caret | Ghost suggestion | Accept inserts | Nearby text | Result |\n|---|---|---|---|---|---|---|---|---|\n";
 const NONE: &str = "-";
 
 #[derive(Clone, Copy)]
@@ -43,6 +43,16 @@ impl App {
                         .into_iter()
                         .map(move |variant| Case { field, variant })
                 })
+                .chain([
+                    Case {
+                        field: Field::Editable,
+                        variant: Variant::Email,
+                    },
+                    Case {
+                        field: Field::Textarea,
+                        variant: Variant::Chat,
+                    },
+                ])
                 .collect(),
         }
     }
@@ -80,6 +90,14 @@ impl fmt::Display for Field {
 pub enum Variant {
     Default,
     AccessibilityFlag,
+    Email,
+    Chat,
+}
+
+impl Variant {
+    pub fn has_layout(self) -> bool {
+        matches!(self, Variant::Email | Variant::Chat)
+    }
 }
 
 impl fmt::Display for Variant {
@@ -87,6 +105,8 @@ impl fmt::Display for Variant {
         out.write_str(match self {
             Variant::Default => "default",
             Variant::AccessibilityFlag => "accessibility-flag",
+            Variant::Email => "email",
+            Variant::Chat => "chat",
         })
     }
 }
@@ -120,6 +140,7 @@ pub struct Row {
     pub caret: String,
     pub ghost: String,
     pub accept: String,
+    pub nearby: String,
     outcome: Outcome,
 }
 
@@ -132,6 +153,7 @@ impl Row {
             caret: NONE.to_string(),
             ghost: NONE.to_string(),
             accept: NONE.to_string(),
+            nearby: NONE.to_string(),
             outcome: Outcome::Pass,
         }
     }
@@ -168,6 +190,7 @@ impl Row {
             self.caret.clone(),
             self.ghost.clone(),
             self.accept.clone(),
+            self.nearby.clone(),
             self.outcome.to_string(),
         ];
         let cells: Vec<String> = cells

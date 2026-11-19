@@ -5,6 +5,7 @@
 <title></title>
 <style>
   html, body { margin: 0; height: 100%; }
+  body.layout { display: flex; flex-direction: column; }
   textarea, div[contenteditable] {
     box-sizing: border-box;
     display: none;
@@ -16,16 +17,38 @@
     outline: 0;
     font: 22px Georgia, serif;
   }
+  .layout textarea, .layout div[contenteditable] { height: auto; flex: 1; }
+  #email, #chat { display: none; font: 16px Georgia, serif; }
+  #email label { display: flex; gap: 12px; padding: 6px 16px; }
+  #email label span { width: 70px; }
+  #email input { flex: 1; font: inherit; }
+  #chat ul { list-style: none; margin: 0; padding: 12px 16px; }
+  #chat li { padding: 4px 0; }
 </style>
 </head>
 <body>
+<section id="email">
+  <label><span>To</span><input type="text" aria-label="To" value="Sarah Chen"></label>
+  <label><span>Subject</span><input type="text" aria-label="Subject" value="Re: Q3 vendor contract"></label>
+</section>
+<section id="chat">
+  <ul role="list">
+    <li role="listitem">Priya: are you free tonight?</li>
+    <li role="listitem">Priya: we were thinking of dinner around eight</li>
+  </ul>
+</section>
 <textarea id="textarea"></textarea>
 <div id="editable" contenteditable="true"></div>
 <script>
   const params = new URLSearchParams(location.search);
   const field = params.get("field");
+  const layout = params.get("layout");
   const target = document.getElementById(field);
   document.title = params.get("title");
+  if (layout) {
+    document.body.classList.add("layout");
+    document.getElementById(layout).style.display = "block";
+  }
   target.style.display = "block";
   target.focus();
 </script>
