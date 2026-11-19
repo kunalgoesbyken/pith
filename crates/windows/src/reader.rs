@@ -3,7 +3,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
 use pith_core::{
-    AFTER_CHARS, Config, FieldParts, FieldSnapshot, SelectOutcome, Surrounding, is_redacted, place,
+    AFTER_CHARS, Config, FieldParts, FieldSnapshot, NearbyCache, SelectOutcome, Surrounding,
+    is_redacted, place,
 };
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
@@ -21,6 +22,7 @@ use crate::caret::{
     select_before_caret, text_around,
 };
 use crate::language::input_language;
+use crate::nearby;
 use crate::util::{is_elevated, process_name, rect_of, window_pid, window_title, work_areas};
 
 #[derive(Clone, Copy, Debug)]
@@ -127,6 +129,7 @@ fn serve(
     };
     let own_pid = std::process::id();
     let mut last: Option<FieldSnapshot> = None;
+    let mut nearby = NearbyCache::default();
     let mut first = true;
     let mut errors = 0;
     while let Ok(request) = rx.recv() {
@@ -144,7 +147,7 @@ fn serve(
             .map(|shared| shared.clone())
             .unwrap_or_default();
         let outcome = if current.enabled {
-            read(&automation, source, &current, own_pid)
+            read(&automation, source, &current, own_pid, &mut nearby)
         } else {
             Ok(None)
         };
@@ -226,6 +229,7 @@ fn read(
     source: Source,
     config: &Config,
     own_pid: u32,
+    nearby: &mut NearbyCache,
 ) -> Result<Option<FieldSnapshot>> {
     unsafe {
         let Target {
@@ -254,7 +258,8 @@ fn read(
         let Ok(caret) = caret_range(&element) else {
             return Ok(None);
         };
-        let surrounding = if is_redacted(config, app.as_deref(), is_password) {
+        let redacted = is_redacted(config, app.as_deref(), is_password);
+        let surrounding = if redacted {
             None
         } else {
             let lookback = config.lookback_chars();
@@ -265,6 +270,21 @@ fn read(
             )?;
             Some(Surrounding { before, after })
         };
+        let title = window_title(root);
+        let own_window = matches!(source, Source::Focused) && pid == own_pid;
+        let cues = if redacted || own_window || !config.uses_nearby() {
+            nearby.clear();
+            Vec::new()
+        } else {
+            let before_empty = surrounding
+                .as_ref()
+                .is_none_or(|text| text.before.trim().is_empty());
+            let key = (runtime_id(&element), title.clone());
+            if nearby.stale(&key, before_empty) {
+                nearby.fill(key, nearby::read(automation, &element, root));
+            }
+            nearby.cues().to_vec()
+        };
         let style = font(&caret, GetDpiForWindow(root).max(96));
         let element_rect = element.CurrentBoundingRectangle().ok().map(rect_of);
         Ok(Some(FieldSnapshot::from_parts(
@@ -272,7 +292,7 @@ fn read(
             FieldParts {
                 field_id: runtime_id(&element),
                 app,
-                window_title: window_title(root),
+                window_title: title,
                 surrounding,
                 has_selection: has_selection(&element),
                 is_password,
@@ -280,6 +300,7 @@ fn read(
                 language: input_language(root),
                 placement: place(caret_rect(&caret, foreground), element_rect, &work_areas()),
                 style,
+                nearby: cues,
             },
         )))
     }

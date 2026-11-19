@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::nearby::{Nearby, RawCue};
 use crate::placement::Placement;
 use crate::suffix::After;
 use crate::types::{FieldSnapshot, TextStyle};
@@ -23,6 +24,7 @@ pub struct FieldParts {
     pub language: Option<String>,
     pub placement: Option<Placement>,
     pub style: TextStyle,
+    pub nearby: Vec<RawCue>,
 }
 
 pub fn is_redacted(config: &Config, app: Option<&str>, is_password: bool) -> bool {
@@ -44,15 +46,22 @@ impl FieldSnapshot {
             Some(text) if !redacted => text,
             _ => Surrounding::default(),
         };
+        let window_title = if redacted {
+            String::new()
+        } else {
+            parts.window_title
+        };
+        let before = normalize(surrounding.before);
+        let nearby = if redacted || !config.uses_nearby() {
+            Nearby::default()
+        } else {
+            Nearby::shape(parts.nearby, &window_title, &before)
+        };
         Self {
             field_id: parts.field_id,
             app: parts.app.unwrap_or_default(),
-            window_title: if redacted {
-                String::new()
-            } else {
-                parts.window_title
-            },
-            before: normalize(surrounding.before),
+            window_title,
+            before,
             after: After::new(normalize(surrounding.after)),
             has_selection: parts.has_selection,
             is_password: parts.is_password,
@@ -60,6 +69,7 @@ impl FieldSnapshot {
             language: parts.language,
             placement: parts.placement,
             style: parts.style,
+            nearby,
         }
     }
 }

@@ -84,8 +84,12 @@ fn is_closer(c: char) -> bool {
         || (QUOTES.contains(c) && !OPENING.contains(category))
 }
 
-fn is_invisible(c: char) -> bool {
+pub(crate) fn is_ignorable(c: char) -> bool {
     IGNORABLE.contains(c)
+}
+
+fn is_invisible(c: char) -> bool {
+    is_ignorable(c)
         || matches!(
             CATEGORIES.get(c),
             GeneralCategory::NonspacingMark | GeneralCategory::EnclosingMark

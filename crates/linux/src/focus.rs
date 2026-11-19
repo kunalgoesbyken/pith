@@ -2,6 +2,7 @@ use async_channel::Receiver;
 use atspi::events::{Event, ObjectEvents};
 use atspi::proxy::accessible::ObjectRefExt;
 use atspi::{AtspiError, ObjectRefOwned, State};
+use pith_core::NearbyCache;
 use zbus::Connection;
 
 use crate::bounded::{Bounded, bounded};
@@ -10,6 +11,7 @@ use crate::identity::Identity;
 pub(crate) struct Focus {
     pub(crate) target: ObjectRefOwned,
     identity: Option<Identity>,
+    pub(crate) nearby: NearbyCache,
 }
 
 pub(crate) enum Effect {
@@ -29,6 +31,7 @@ impl Focus {
         Self {
             target,
             identity: None,
+            nearby: NearbyCache::default(),
         }
     }
 

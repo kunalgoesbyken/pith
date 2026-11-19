@@ -11,6 +11,7 @@ mod hardware;
 mod held;
 mod identity;
 mod insert;
+mod nearby;
 mod overlay;
 mod process;
 mod reader;

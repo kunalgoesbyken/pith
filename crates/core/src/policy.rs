@@ -52,12 +52,16 @@ fn evaluate(field: &FieldSnapshot, config: &Config, forced: bool) -> Result<(), 
     if current_line.trim().chars().count() < config.min_chars_before {
         return Err(SkipReason::TooShort);
     }
-    let visible = current_line.chars().filter(|c| !c.is_whitespace()).count();
-    let letters = current_line.chars().filter(|c| c.is_alphabetic()).count();
-    if letters * 2 < visible {
+    if !is_prose(current_line) {
         return Err(SkipReason::NotProse);
     }
     Ok(())
+}
+
+pub(crate) fn is_prose(line: &str) -> bool {
+    let visible = line.chars().filter(|c| !c.is_whitespace()).count();
+    let letters = line.chars().filter(|c| c.is_alphabetic()).count();
+    letters * 2 >= visible
 }
 
 #[cfg(test)]

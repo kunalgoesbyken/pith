@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::Rgb;
+use crate::nearby::Nearby;
 use crate::placement::Placement;
 use crate::suffix::After;
 
@@ -32,6 +33,8 @@ pub struct FieldSnapshot {
     pub language: Option<String>,
     pub placement: Option<Placement>,
     pub style: TextStyle,
+    #[serde(skip)]
+    pub nearby: Nearby,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

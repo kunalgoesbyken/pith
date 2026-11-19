@@ -13,6 +13,7 @@ mod format;
 mod keys;
 mod language;
 mod messages;
+mod nearby;
 mod onboarding;
 mod overlay;
 mod power;

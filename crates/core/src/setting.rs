@@ -91,6 +91,7 @@ pub fn thread_choices(cores: usize) -> Vec<usize> {
 pub enum Setting {
     Enabled(bool),
     TypoFix(bool),
+    NearbyContext(bool),
     Suggestions(Suggestions),
     Length(Length),
     GhostOpacity(u8),
@@ -130,6 +131,7 @@ impl Setting {
         match self {
             Self::Enabled(enabled) => config.enabled = *enabled,
             Self::TypoFix(on) => config.typo_fix = *on,
+            Self::NearbyContext(on) => config.nearby_context = *on,
             Self::Suggestions(level) => level.apply(config),
             Self::Length(length) => length.apply(config),
             Self::GhostOpacity(percent) => config.ghost_opacity = clamp_opacity(*percent),

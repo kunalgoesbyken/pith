@@ -1,3 +1,4 @@
+use crate::budget::{estimate_tokens, room};
 use crate::suffix::fit;
 use crate::{
     After, Completion, Config, FieldSnapshot, StopReason, clean_completion, split_partial,
@@ -14,14 +15,32 @@ pub struct CompletionRequest {
     pub min_token_logprob: f32,
 }
 
+fn preface<'a>(title: &'a str, cues: Vec<&'a str>) -> String {
+    std::iter::once(title)
+        .filter(|title| !title.is_empty())
+        .chain(cues)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn cues<'a>(field: &'a FieldSnapshot, config: &Config, used_tokens: usize) -> Vec<&'a str> {
+    if !config.uses_nearby() {
+        return Vec::new();
+    }
+    let allowed = room(config, used_tokens).min(config.nearby_tokens as usize);
+    field.nearby.fit(allowed)
+}
+
 pub fn build(field: &FieldSnapshot, config: &Config) -> CompletionRequest {
     let context = tail_chars(&field.before, config.context_chars);
     let (head, partial) = split_partial(context);
     let title = field.window_title.trim();
-    let prompt = if title.is_empty() {
+    let used_tokens = estimate_tokens(title) + estimate_tokens(head);
+    let preface = preface(title, cues(field, config, used_tokens));
+    let prompt = if preface.is_empty() {
         head.to_string()
     } else {
-        format!("{title}\n\n{head}")
+        format!("{preface}\n\n{head}")
     };
     CompletionRequest {
         field_id: field.field_id,

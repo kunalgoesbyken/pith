@@ -11,6 +11,7 @@ use pith_core::{
 use zbus::Connection;
 
 use crate::focus::Focus;
+use crate::nearby;
 use crate::reading::Reading;
 use crate::text::without_astral_fillers;
 use crate::{caret, style, window};
@@ -120,11 +121,11 @@ pub(crate) async fn read(
     if identity.pid == std::process::id() {
         return Ok(Reading::Nothing);
     }
-    let Some(app) = identity.app.as_deref() else {
+    let Some(app) = identity.app.clone() else {
         return Ok(Reading::Nothing);
     };
     let is_password = role == Role::PasswordText;
-    let redacted = is_redacted(config, Some(app), is_password);
+    let redacted = is_redacted(config, Some(&app), is_password);
     let Some(view) = view(&text, redacted, config.lookback_chars()).await? else {
         return Ok(Reading::Nothing);
     };
@@ -137,12 +138,25 @@ pub(crate) async fn read(
         Some(_) => None,
         None => caret::element(&node).await,
     };
+    let window_title = title_unless_redacted(connection, &target, redacted).await;
+    let field = field_id(&target);
+    let nearby = if redacted || !config.uses_nearby() {
+        focus.nearby.clear();
+        Vec::new()
+    } else {
+        let before_empty = view
+            .surrounding
+            .as_ref()
+            .is_none_or(|text| text.before.trim().is_empty());
+        let key = (field, window_title.clone());
+        nearby::cues(connection, &mut focus.nearby, &target, key, before_empty).await
+    };
     Ok(Reading::Field(Box::new(FieldSnapshot::from_parts(
         config,
         FieldParts {
-            field_id: field_id(&target),
-            app: Some(app.to_string()),
-            window_title: title_unless_redacted(connection, &target, redacted).await,
+            field_id: field,
+            app: Some(app),
+            window_title,
             surrounding: view.surrounding,
             has_selection: caret::has_selection(&text).await,
             is_password,
@@ -150,6 +164,7 @@ pub(crate) async fn read(
             language: None,
             placement: place(rect, element, works),
             style: style::read(&text, view.caret).await,
+            nearby,
         },
     ))))
 }

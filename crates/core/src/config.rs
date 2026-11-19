@@ -295,6 +295,8 @@ pub struct Config {
     pub remote_url: Option<String>,
     pub remote_model: Option<String>,
     pub typing_wpm: u32,
+    pub nearby_context: bool,
+    pub nearby_tokens: u32,
 }
 
 impl Default for Config {
@@ -342,6 +344,8 @@ impl Default for Config {
             remote_url: None,
             remote_model: None,
             typing_wpm: 40,
+            nearby_context: true,
+            nearby_tokens: 300,
         }
     }
 }
@@ -465,6 +469,7 @@ impl Config {
             .filter(|app| !blocked.iter().any(|name| same_app(name, app)))
             .collect();
         self.model_path = self.model_path.filter(|p| !p.as_os_str().is_empty());
+        self.nearby_tokens = self.nearby_tokens.min(self.context_tokens / 2);
         self.remote_url = self
             .remote_url
             .map(|u| u.trim().trim_end_matches('/').to_string())
@@ -523,6 +528,10 @@ impl Config {
         } else {
             (available / 2).clamp(1, 4)
         }
+    }
+
+    pub fn uses_nearby(&self) -> bool {
+        self.nearby_context && self.reach() == Reach::ThisPc
     }
 
     pub fn preset(&self, recommended: ModelPreset) -> ModelPreset {

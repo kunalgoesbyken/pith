@@ -1,4 +1,5 @@
 mod apps;
+mod budget;
 mod chord;
 mod color;
 mod config;
@@ -15,6 +16,7 @@ mod ignore;
 mod keybind;
 mod keys;
 mod log;
+mod nearby;
 mod pause;
 mod placement;
 mod policy;
@@ -34,6 +36,7 @@ mod types;
 mod typo;
 
 pub use apps::{Access, inserts_by_paste, same_app};
+pub use budget::estimate_tokens;
 pub use chord::{Chord, Key};
 pub use color::{CHANNEL_MAX, Rgb, argb};
 pub use config::{
@@ -49,6 +52,7 @@ pub use ghost::{
 pub use hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
 pub use log::{init_log, log};
+pub use nearby::{CueKind, Nearby, NearbyCache, RawCue, WALK, WalkLimits};
 pub use pause::{Pause, PauseSpan, Pauses, clock_after};
 pub use placement::{Placement, anchor_pill, place};
 pub use policy::{SkipReason, check, check_forced};
