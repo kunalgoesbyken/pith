@@ -11,9 +11,16 @@ SEED = "hi "
 SUGGESTION = "ghost"
 SCREENSHOT = "ime-preedit.png"
 EVENT_SECONDS = 20.0
+KEYBOARD_SECONDS = 1.0
 
 
-def wtype(text):
+def keyboard():
+    process = subprocess.Popen(["wtype", "-"], stdin=subprocess.PIPE, text=True)
+    time.sleep(KEYBOARD_SECONDS)
+    return process
+
+
+def type_text(text):
     subprocess.run(["wtype", text], check=True)
 
 
@@ -41,9 +48,10 @@ def main():
     options = parser.parse_args()
     rows = []
     fixture = [sys.executable, str(harness.FIXTURES / "gtk4_field.py"), "entry"]
+    typist = keyboard()
     with harness.running(fixture, options.probe) as probe:
         probe.wait(lambda s: s["before"] == "")
-        wtype(SEED)
+        type_text(SEED)
         probe.wait(lambda s: s["before"] == SEED)
         spike = subprocess.Popen([options.spike], stdout=subprocess.PIPE, text=True)
         lines = []
@@ -83,6 +91,8 @@ def main():
         finally:
             spike.kill()
             spike.wait()
+            typist.kill()
+            typist.wait()
     harness.report(rows)
     sys.exit(0 if all(ok for _, _, ok, _ in rows) else 1)
 
