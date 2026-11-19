@@ -1,5 +1,6 @@
 /target
 *.gguf
 *.bmp
+/e2e-*.png
 .claude/
 /crates/windows/fixtures/apps/electron/node_modules

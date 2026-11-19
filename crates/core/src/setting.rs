@@ -170,7 +170,7 @@ impl Setting {
         }
         let mut next = config.clone();
         self.apply(&mut next);
-        next.ensure_keys()?;
+        next.validate()?;
         Ok(self)
     }
 
@@ -179,6 +179,7 @@ impl Setting {
         let before = Config::from_toml(&source)?;
         let mut after = before.clone();
         self.apply(&mut after);
+        after.clone().validate()?;
         let text = patch(&source, &before, &after)?;
         if text == source {
             return Ok(());

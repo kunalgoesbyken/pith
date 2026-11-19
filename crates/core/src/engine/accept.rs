@@ -27,12 +27,16 @@ impl Engine {
     pub(super) fn on_accept(&mut self, one_word: bool, out: &mut Vec<Action>) {
         match std::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Offering(offer) => self.accept_correction(offer.correction, out),
-            Phase::Showing(shown) => self.accept_suggestion(shown.text, one_word, out),
+            Phase::Showing(shown) => self.accept_suggestion(shown, one_word, out),
             other => self.phase = other,
         }
     }
 
-    fn accept_suggestion(&mut self, suggestion: String, one_word: bool, out: &mut Vec<Action>) {
+    fn accept_suggestion(&mut self, shown: Shown, one_word: bool, out: &mut Vec<Action>) {
+        if !shown.engaged {
+            self.counts.record_used();
+        }
+        let suggestion = shown.text;
         let accepted = if one_word {
             next_word(&suggestion).to_string()
         } else {

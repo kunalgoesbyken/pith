@@ -52,6 +52,7 @@ pub struct Counts {
     pub shown: u64,
     pub accepted: u64,
     pub accepted_words: u64,
+    pub used: u64,
     pub words: u64,
     pub chars: u64,
 }
@@ -59,6 +60,10 @@ pub struct Counts {
 impl Counts {
     pub fn record_shown(&mut self) {
         self.shown = self.shown.saturating_add(1);
+    }
+
+    pub fn record_used(&mut self) {
+        self.used = self.used.saturating_add(1);
     }
 
     pub fn record_accept(&mut self, text: &str, by_word: bool) {
@@ -74,22 +79,19 @@ impl Counts {
         self.chars = self.chars.saturating_add(text.chars().count() as u64);
     }
 
-    pub fn kept(&self) -> u64 {
-        self.accepted.saturating_add(self.accepted_words)
-    }
-
     pub fn kept_percent(&self) -> Option<u64> {
-        (self.shown > 0).then(|| (self.kept().saturating_mul(100) / self.shown).min(100))
+        (self.shown > 0).then(|| (self.used.saturating_mul(100) / self.shown).min(100))
     }
 
     pub fn needs_key_hint(&self) -> bool {
-        self.kept() < HINTED_ACCEPTS
+        self.accepted.saturating_add(self.accepted_words) < HINTED_ACCEPTS
     }
 
     pub fn add(&mut self, other: Counts) {
         self.shown = self.shown.saturating_add(other.shown);
         self.accepted = self.accepted.saturating_add(other.accepted);
         self.accepted_words = self.accepted_words.saturating_add(other.accepted_words);
+        self.used = self.used.saturating_add(other.used);
         self.words = self.words.saturating_add(other.words);
         self.chars = self.chars.saturating_add(other.chars);
     }

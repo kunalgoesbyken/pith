@@ -42,10 +42,6 @@ impl Spec {
             face,
         }
     }
-
-    fn class(&self) -> Class {
-        self.face.class()
-    }
 }
 
 pub fn plan() -> Vec<Spec> {
@@ -61,7 +57,7 @@ fn item(window: HWND, id: i32) -> HWND {
 }
 
 fn create(parent: &Parent, spec: &Spec) -> windows::core::Result<HWND> {
-    match spec.class() {
+    match spec.face.class() {
         Class::Check => parent.check(spec.id, &spec.name, spec.bounds),
         Class::Radio { first } => parent.radio(spec.id, &spec.name, spec.bounds, first),
         Class::Push => {
@@ -102,7 +98,7 @@ fn sync(control: HWND, spec: &Spec) {
         let _ = EnableWindow(control, spec.enabled);
     }
     set_text(control, &spec.name);
-    match (spec.class(), &spec.face) {
+    match (spec.face.class(), &spec.face) {
         (Class::Check | Class::Radio { .. }, _) => {
             let state = if spec.checked { CHECKED } else { UNCHECKED };
             unsafe {
@@ -141,7 +137,10 @@ fn focused_id(window: HWND) -> Option<i32> {
 
 pub fn reconcile(window: HWND, instance: HINSTANCE, specs: &[Spec]) {
     let page = read(|model| model.page).unwrap_or_default();
-    let signature: Vec<(i32, Class)> = specs.iter().map(|spec| (spec.id, spec.class())).collect();
+    let signature: Vec<(i32, Class)> = specs
+        .iter()
+        .map(|spec| (spec.id, spec.face.class()))
+        .collect();
     let live = Live {
         page,
         controls: signature.clone(),

@@ -12,8 +12,7 @@ impl KeyAction {
     pub const fn slots(self) -> usize {
         match self {
             Self::AcceptAll | Self::AcceptWord => 2,
-            Self::Trigger => 1,
-            Self::Dismiss => 1,
+            Self::Trigger | Self::Dismiss => 1,
         }
     }
 }

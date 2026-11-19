@@ -434,7 +434,7 @@ impl Config {
         }
     }
 
-    pub(crate) fn ensure_keys(&self) -> Result<(), String> {
+    fn ensure_keys(&self) -> Result<(), String> {
         if self.trigger_mode == TriggerMode::Manual && !self.force_trigger {
             return Err("Suggest now needs a key while Pith only suggests when you ask.".into());
         }
@@ -527,10 +527,6 @@ impl Config {
 
     pub fn preset(&self, recommended: ModelPreset) -> ModelPreset {
         self.model.unwrap_or(recommended)
-    }
-
-    pub fn uses_preset(&self) -> bool {
-        self.remote_url.is_none() && self.model_path.is_none()
     }
 
     pub fn lookback_chars(&self) -> usize {
