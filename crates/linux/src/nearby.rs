@@ -105,21 +105,22 @@ impl Walk<'_> {
     }
 
     async fn siblings(&mut self, parent: &ObjectRefOwned, current: &ObjectRefOwned) {
-        let Ok(node) = parent.as_accessible_proxy(self.connection).await else {
+        let (Ok(parent), Ok(current)) = (
+            parent.as_accessible_proxy(self.connection).await,
+            current.as_accessible_proxy(self.connection).await,
+        ) else {
             return;
         };
-        let Ok(children) = node.get_children().await else {
+        let Ok(position) = current.get_index_in_parent().await else {
             return;
         };
-        let Some(position) = children.iter().position(|child| child == current) else {
-            return;
-        };
-        let nearest = children[..position].iter().rev().take(WALK.siblings);
-        for sibling in nearest {
+        for index in (0..position).rev().take(WALK.siblings) {
             if self.spent() {
                 return;
             }
-            self.sibling(sibling).await;
+            if let Ok(sibling) = parent.get_child_at_index(index).await {
+                self.sibling(&sibling).await;
+            }
         }
     }
 
@@ -136,7 +137,7 @@ impl Walk<'_> {
                     self.cues.push(RawCue::new(CueKind::Text, None, &name));
                 }
             }
-            Role::Entry => self.form_value(&node).await,
+            Role::Entry | Role::Text => self.form_value(&node).await,
             Role::List
             | Role::Table
             | Role::TreeTable

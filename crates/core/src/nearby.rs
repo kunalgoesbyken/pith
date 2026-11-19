@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -8,6 +8,7 @@ use crate::suffix::is_ignorable;
 
 pub struct WalkLimits {
     pub deadline: Duration,
+    pub retry: Duration,
     pub levels: usize,
     pub siblings: usize,
     pub message_lines: usize,
@@ -17,6 +18,7 @@ pub struct WalkLimits {
 
 pub const WALK: WalkLimits = WalkLimits {
     deadline: Duration::from_millis(60),
+    retry: Duration::from_secs(2),
     levels: 6,
     siblings: 12,
     message_lines: 12,
@@ -151,6 +153,7 @@ pub struct NearbyCache {
     key: Option<(u64, String)>,
     was_empty: bool,
     cues: Vec<RawCue>,
+    failed: Option<((u64, String), Instant)>,
 }
 
 impl NearbyCache {
@@ -161,13 +164,22 @@ impl NearbyCache {
     pub fn fresh(&mut self, key: &(u64, String), before_empty: bool) -> Option<Vec<RawCue>> {
         let stale = self.key.as_ref() != Some(key) || (before_empty && !self.was_empty);
         self.was_empty = before_empty;
-        (!stale).then(|| self.cues.clone())
+        if !stale {
+            return Some(self.cues.clone());
+        }
+        let backing_off = self
+            .failed
+            .as_ref()
+            .is_some_and(|(failed, at)| failed == key && at.elapsed() < WALK.retry);
+        backing_off.then(Vec::new)
     }
 
     pub fn store(&mut self, key: (u64, String), walked: Option<Vec<RawCue>>) -> Vec<RawCue> {
         let Some(cues) = walked else {
+            self.failed = Some((key, Instant::now()));
             return Vec::new();
         };
+        self.failed = None;
         self.key = Some(key);
         self.cues.clone_from(&cues);
         cues
