@@ -1,3 +1,4 @@
+mod accessible;
 mod action;
 mod controls;
 mod layout;

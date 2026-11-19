@@ -9,6 +9,7 @@ pith-core.workspace = true
 pith-infer.workspace = true
 unicode-segmentation.workspace = true
 tray-icon.workspace = true
+windows-core.workspace = true
 windows-numerics.workspace = true
 
 [dependencies.windows]

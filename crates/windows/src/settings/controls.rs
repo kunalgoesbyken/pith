@@ -31,11 +31,15 @@ pub struct Spec {
 impl Spec {
     fn of(placed: &Placed) -> Self {
         let item = &placed.item;
+        let class = item.face.class();
         Self {
             id: placed.id,
-            class: item.face.class(),
+            class,
             bounds: placed.bounds,
-            name: item.name.clone(),
+            name: match class {
+                Class::Slider | Class::Label => item.name.clone(),
+                _ => item.name.replace('&', "&&"),
+            },
             checked: item.checked,
             enabled: item.enabled,
             chip: matches!(item.face, Face::Chip(_)),

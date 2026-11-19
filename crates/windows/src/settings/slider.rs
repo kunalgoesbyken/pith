@@ -1,8 +1,9 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, HDC, InvalidateRect, PAINTSTRUCT};
+use windows::Win32::UI::Accessibility::UiaRootObjectId;
 use windows::Win32::UI::Controls::{
     TBM_GETRANGEMAX, TBM_GETRANGEMIN, TBM_SETPOS, TBM_SETRANGEMAX, TBM_SETRANGEMIN,
 };
@@ -14,45 +15,48 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_SETFOCUS, CreateWindowExW, DLGC_WANTARROWS, DefWindowProcW, GetClientRect, GetDlgCtrlID,
     GetParent, HMENU, IDC_ARROW, LoadCursorW, RegisterClassW, SendMessageW, WINDOW_EX_STYLE,
-    WM_COMMAND, WM_ERASEBKGND, WM_GETDLGCODE, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCDESTROY, WM_PAINT, WM_PRINTCLIENT, WM_SETFOCUS, WM_USER,
-    WNDCLASSW, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
+    WM_APP, WM_COMMAND, WM_ERASEBKGND, WM_GETDLGCODE, WM_GETOBJECT, WM_KEYDOWN, WM_KILLFOCUS,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCDESTROY, WM_PAINT, WM_PRINTCLIENT,
+    WM_SETFOCUS, WM_SETTEXT, WM_USER, WNDCLASSW, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, w};
 
+use super::accessible::provider_for;
 use crate::ui::{BASE_DPI, Scale, height, request_draw, slider_fraction_at, track_hover, width};
 use crate::util::wide;
 
 pub const TBM_GETPOS: u32 = WM_USER;
+pub const WM_SLIDE_TO: u32 = WM_APP + 4;
 pub const MOVED: u32 = 0x100;
 pub const RELEASED: u32 = 0x101;
 const CLASS: PCWSTR = w!("PithSlider");
 const PAGE_DIVISOR: i32 = 10;
 
-#[derive(Clone, Copy, Default)]
-struct Track {
-    low: i32,
-    high: i32,
-    value: i32,
+#[derive(Clone, Default)]
+pub struct Track {
+    pub low: i32,
+    pub high: i32,
+    pub value: i32,
+    pub name: String,
     dragging: bool,
 }
 
-thread_local! {
-    static TRACKS: RefCell<HashMap<isize, Track>> = RefCell::new(HashMap::new());
+static TRACKS: Mutex<Option<HashMap<isize, Track>>> = Mutex::new(None);
+
+pub fn snapshot(hwnd: HWND) -> Option<Track> {
+    let tracks = TRACKS.lock().ok()?;
+    tracks.as_ref()?.get(&(hwnd.0 as isize)).cloned()
 }
 
 fn track(hwnd: HWND) -> Track {
-    TRACKS.with(|tracks| {
-        tracks
-            .borrow()
-            .get(&(hwnd.0 as isize))
-            .copied()
-            .unwrap_or_default()
-    })
+    snapshot(hwnd).unwrap_or_default()
 }
 
 fn store(hwnd: HWND, change: impl FnOnce(&mut Track)) {
-    TRACKS.with(|tracks| change(tracks.borrow_mut().entry(hwnd.0 as isize).or_default()));
+    if let Ok(mut tracks) = TRACKS.lock() {
+        let map = tracks.get_or_insert_with(HashMap::new);
+        change(map.entry(hwnd.0 as isize).or_default());
+    }
 }
 
 fn redraw(hwnd: HWND) {
@@ -163,6 +167,18 @@ unsafe extern "system" fn procedure(
         WM_PRINTCLIENT => request_draw(hwnd, HDC(wparam.0 as _), false),
         WM_ERASEBKGND => return LRESULT(1),
         WM_GETDLGCODE => return LRESULT(DLGC_WANTARROWS as isize),
+        WM_GETOBJECT if lparam.0 as i32 == UiaRootObjectId => {
+            return provider_for(hwnd, wparam, lparam);
+        }
+        WM_SLIDE_TO => {
+            move_to(hwnd, wparam.0 as i32);
+            notify(hwnd, RELEASED);
+        }
+        WM_SETTEXT => {
+            let name = unsafe { PCWSTR(lparam.0 as *const u16).to_string() }.unwrap_or_default();
+            store(hwnd, |track| track.name = name);
+            return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) };
+        }
         WM_LBUTTONDOWN => press(hwnd, lparam),
         WM_MOUSEMOVE if track(hwnd).dragging => move_to(hwnd, value_at(hwnd, lparam)),
         WM_LBUTTONUP => release(hwnd),
@@ -179,7 +195,11 @@ unsafe extern "system" fn procedure(
         TBM_GETRANGEMIN => return LRESULT(track(hwnd).low as isize),
         TBM_GETRANGEMAX => return LRESULT(track(hwnd).high as isize),
         WM_NCDESTROY => {
-            TRACKS.with(|tracks| tracks.borrow_mut().remove(&(hwnd.0 as isize)));
+            if let Ok(mut tracks) = TRACKS.lock() {
+                tracks
+                    .get_or_insert_with(HashMap::new)
+                    .remove(&(hwnd.0 as isize));
+            }
             return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) };
         }
         _ => return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
@@ -206,6 +226,7 @@ pub fn create(
     (id, name): (i32, &str),
     bounds: RECT,
 ) -> windows::core::Result<HWND> {
+    let name_text = name;
     let name = wide(name);
     let slider = unsafe {
         CreateWindowExW(
@@ -224,5 +245,7 @@ pub fn create(
         )?
     };
     track_hover(slider);
+    let label = name_text.to_string();
+    store(slider, |track| track.name = label);
     Ok(slider)
 }
