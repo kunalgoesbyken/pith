@@ -79,12 +79,12 @@ impl Chord {
         let command = self.ctrl || self.alt || self.win;
         if types_text && !command {
             return Err(format!(
-                "\"{source}\" would swallow typing, add Ctrl, Alt or Win"
+                "\"{source}\" would swallow typing. Add Ctrl, Alt or Win."
             ));
         }
         if types_text && self.ctrl && self.alt {
             return Err(format!(
-                "\"{source}\" collides with AltGr typing on many layouts"
+                "\"{source}\" collides with AltGr typing on many layouts."
             ));
         }
         Ok(())

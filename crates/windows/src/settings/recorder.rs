@@ -1,18 +1,20 @@
+use pith_core::Chord;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
-    VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    GetKeyState, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT,
+    VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DLGC_WANTALLKEYS, GetDlgCtrlID, GetParent, PostMessageW, WM_APP, WM_CHAR, WM_DEADCHAR,
-    WM_GETDLGCODE, WM_KEYDOWN, WM_KEYUP, WM_NCDESTROY, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    DLGC_WANTALLKEYS, GetDlgCtrlID, GetParent, PostMessageW, WM_CHAR, WM_DEADCHAR, WM_GETDLGCODE,
+    WM_KEYDOWN, WM_KEYUP, WM_NCDESTROY, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use super::action::Action;
 use super::model::read;
+use crate::keys::key_of;
+use crate::messages::WM_RECORDED;
 
-pub const WM_RECORDED: u32 = WM_APP + 2;
 const SUBCLASS_ID: usize = 0x5245_434F;
 const CONTROL: u32 = 1;
 const SHIFT: u32 = 2;
@@ -49,6 +51,33 @@ pub fn unpack(packed: LPARAM) -> Pressed {
         ctrl: modifiers & CONTROL != 0,
         shift: modifiers & SHIFT != 0,
         alt: modifiers & ALT != 0,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recorded {
+    Cancel,
+    Clear,
+    Chord(Chord),
+    Unusable,
+}
+
+pub fn interpret(packed: LPARAM) -> Recorded {
+    let pressed = unpack(packed);
+    let plain = !(pressed.ctrl || pressed.shift || pressed.alt);
+    match (pressed.key, plain) {
+        (key, true) if key == VK_ESCAPE.0 => Recorded::Cancel,
+        (key, true) if key == VK_BACK.0 => Recorded::Clear,
+        (key, _) => match key_of(key) {
+            Some(key) => Recorded::Chord(Chord {
+                ctrl: pressed.ctrl,
+                shift: pressed.shift,
+                alt: pressed.alt,
+                win: false,
+                key,
+            }),
+            None => Recorded::Unusable,
+        },
     }
 }
 

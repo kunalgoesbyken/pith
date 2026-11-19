@@ -1,7 +1,8 @@
 use pith_core::{init_log, log};
 use pith_windows::{
-    BACKGROUND_FLAG, Inbound, Inbox, InsertMode, Options, Source, ensure_start_menu_shortcut,
-    hardware, refresh_start_with_windows, reveal_running_instance, run, single_instance,
+    BACKGROUND_FLAG, Inbound, Inbox, InsertMode, Options, Source, Start,
+    ensure_start_menu_shortcut, hardware, refresh_start_with_windows, reveal_running_instance, run,
+    single_instance,
 };
 
 use crate::setup::{
@@ -45,7 +46,13 @@ fn start() -> Result<(), String> {
         });
     });
     let onboarded = dirs.data_local_dir().join(ONBOARDED_MARKER);
-    let onboarding = (!onboarded.exists()).then_some(onboarded);
+    let start = if !onboarded.exists() {
+        Start::Onboarding(onboarded)
+    } else if cli.has(BACKGROUND_FLAG) {
+        Start::Tray
+    } else {
+        Start::Home
+    };
     let options = Options {
         source: Source::Focused,
         insert: InsertMode::Paste,
@@ -54,8 +61,7 @@ fn start() -> Result<(), String> {
         config_path: Some(paths.config.clone()),
         observer: None,
         global_keys: true,
-        open_home: !cli.has(BACKGROUND_FLAG) && onboarding.is_none(),
-        onboarding,
+        start,
         data_dir: Some(dirs.data_local_dir().to_path_buf()),
         notice: config_error,
         recommended,

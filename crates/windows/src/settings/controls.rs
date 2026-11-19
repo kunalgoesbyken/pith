@@ -8,7 +8,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::PCWSTR;
 
 use super::layout::{Class, Face, PAGE_ID, Placed};
-use super::model::{read, update};
+use super::model::{Live, read, update};
 use super::{recorder, slider};
 use crate::ui::{Parent, height, width};
 use crate::util::wide;
@@ -19,35 +19,32 @@ const UNCHECKED: usize = 0;
 #[derive(Clone, Debug)]
 pub struct Spec {
     id: i32,
-    class: Class,
     bounds: RECT,
     name: String,
     checked: bool,
     enabled: bool,
-    chip: bool,
-    slider: Option<(i32, i32, i32)>,
+    face: Face,
 }
 
 impl Spec {
     fn of(placed: &Placed) -> Self {
         let item = &placed.item;
-        let class = item.face.class();
+        let face = item.face.clone();
         Self {
             id: placed.id,
-            class,
             bounds: placed.bounds,
-            name: match class {
+            name: match face.class() {
                 Class::Slider | Class::Label => item.name.clone(),
                 _ => item.name.replace('&', "&&"),
             },
             checked: item.checked,
             enabled: item.enabled,
-            chip: matches!(item.face, Face::Chip(_)),
-            slider: match item.face {
-                Face::Slider { value, low, high } => Some((value, low, high)),
-                _ => None,
-            },
+            face,
         }
+    }
+
+    fn class(&self) -> Class {
+        self.face.class()
     }
 }
 
@@ -55,7 +52,7 @@ pub fn plan() -> Vec<Spec> {
     read(|model| model.layout.controls.iter().map(Spec::of).collect()).unwrap_or_default()
 }
 
-fn is_page_control(id: i32) -> bool {
+pub fn is_page_control(id: i32) -> bool {
     id >= PAGE_ID
 }
 
@@ -64,12 +61,12 @@ fn item(window: HWND, id: i32) -> HWND {
 }
 
 fn create(parent: &Parent, spec: &Spec) -> windows::core::Result<HWND> {
-    match spec.class {
+    match spec.class() {
         Class::Check => parent.check(spec.id, &spec.name, spec.bounds),
         Class::Radio { first } => parent.radio(spec.id, &spec.name, spec.bounds, first),
         Class::Push => {
             let button = parent.button(spec.id, &spec.name, spec.bounds)?;
-            if spec.chip {
+            if matches!(spec.face, Face::Chip(_)) {
                 recorder::attach(button);
             }
             Ok(button)
@@ -105,19 +102,17 @@ fn sync(control: HWND, spec: &Spec) {
         let _ = EnableWindow(control, spec.enabled);
     }
     set_text(control, &spec.name);
-    match spec.class {
-        Class::Check | Class::Radio { .. } => {
+    match (spec.class(), &spec.face) {
+        (Class::Check | Class::Radio { .. }, _) => {
             let state = if spec.checked { CHECKED } else { UNCHECKED };
             unsafe {
                 SendMessageW(control, BM_SETCHECK, Some(WPARAM(state)), None);
             }
         }
-        Class::Slider => {
-            if let Some((value, low, high)) = spec.slider {
-                set_range(control, (value, low, high));
-            }
+        (Class::Slider, &Face::Slider { value, low, high }) => {
+            set_range(control, (value, low, high));
         }
-        Class::Push | Class::Label => {}
+        _ => {}
     }
 }
 
@@ -145,23 +140,32 @@ fn focused_id(window: HWND) -> Option<i32> {
 }
 
 pub fn reconcile(window: HWND, instance: HINSTANCE, specs: &[Spec]) {
-    let signature: Vec<(i32, Class)> = specs.iter().map(|spec| (spec.id, spec.class)).collect();
-    let previous =
-        update(|model| std::mem::replace(&mut model.live, signature.clone())).unwrap_or_default();
-    let rebuilt = previous != signature;
+    let page = read(|model| model.page).unwrap_or_default();
+    let signature: Vec<(i32, Class)> = specs.iter().map(|spec| (spec.id, spec.class())).collect();
+    let live = Live {
+        page,
+        controls: signature.clone(),
+    };
+    let previous = update(|model| std::mem::replace(&mut model.live, live)).unwrap_or_default();
+    let rebuilt = previous.controls != signature;
     let focused = focused_id(window);
     let parent = Parent {
         hwnd: window,
         instance,
     };
     if rebuilt {
-        for (id, _) in previous.iter().filter(|(id, _)| is_page_control(*id)) {
+        for (id, _) in previous
+            .controls
+            .iter()
+            .filter(|(id, _)| is_page_control(*id))
+        {
             unsafe {
                 let _ = DestroyWindow(item(window, *id));
             }
         }
         for spec in specs {
-            let kept = !is_page_control(spec.id) && previous.iter().any(|(id, _)| *id == spec.id);
+            let kept =
+                !is_page_control(spec.id) && previous.controls.iter().any(|(id, _)| *id == spec.id);
             if !kept {
                 let _ = create(&parent, spec);
             }
@@ -170,11 +174,12 @@ pub fn reconcile(window: HWND, instance: HINSTANCE, specs: &[Spec]) {
     for spec in specs {
         sync(item(window, spec.id), spec);
     }
+    let first_page = specs.iter().find(|spec| is_page_control(spec.id));
     let target = focused.map(|id| {
-        let first_page = specs.iter().find(|spec| is_page_control(spec.id));
         let survives = specs.iter().any(|spec| spec.id == id);
-        match (survives, first_page) {
-            (false, Some(spec)) => spec.id,
+        let left_page = is_page_control(id) && previous.page != page;
+        match first_page {
+            Some(spec) if left_page || !survives => spec.id,
             _ => id,
         }
     });

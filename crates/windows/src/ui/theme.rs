@@ -218,6 +218,9 @@ impl Taskbar {
     }
 }
 
+const SIDEBAR_BLEND_LIGHT: u32 = 244;
+const SIDEBAR_BLEND_DARK: u32 = 208;
+
 impl Theme {
     pub fn detect() -> Self {
         let mode = if high_contrast() {
@@ -245,18 +248,13 @@ impl Theme {
     pub fn is_contrast(&self) -> bool {
         self.mode == Mode::Contrast
     }
-}
 
-const SIDEBAR_SHADE_LIGHT: u32 = 244;
-const SIDEBAR_SHADE_DARK: u32 = 208;
-
-impl Theme {
     pub fn sidebar(&self) -> Rgb {
         let palette = &self.palette;
         match self.mode {
             Mode::Contrast => palette.page,
-            Mode::Dark => pith_core::blend(palette.page, Rgb::BLACK, SIDEBAR_SHADE_DARK),
-            Mode::Light => pith_core::blend(palette.page, palette.text, SIDEBAR_SHADE_LIGHT),
+            Mode::Dark => pith_core::blend(palette.page, Rgb::BLACK, SIDEBAR_BLEND_DARK),
+            Mode::Light => pith_core::blend(palette.page, palette.text, SIDEBAR_BLEND_LIGHT),
         }
     }
 }

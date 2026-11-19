@@ -1,6 +1,7 @@
 mod builder;
 mod grid;
 mod item;
+mod panel;
 mod row;
 mod sidebar;
 
@@ -11,12 +12,12 @@ use super::pages;
 use crate::ui::{Rgb, Role, Scale, rect};
 
 pub use builder::{SEPARATOR, Sheet, Start};
-pub use grid::{DEFAULT_CLIENT, MIN_CLIENT};
+pub use grid::{BADGE_RADIUS, BAR_RADIUS, DEFAULT_CLIENT, MIN_CLIENT};
 pub use item::{Class, Face, Item};
-pub use row::{PlacedRow, Row, Sample, Voice};
+pub use row::{PlacedRow, PlacedSample, Row, Sample, Voice};
 
-pub use grid::ROW_PAD_X;
 use grid::{COLUMN_MAX, MIN_THUMB, PANE_BOTTOM, PANE_PAD, SIDEBAR_WIDTH, THUMB_INSET, THUMB_WIDTH};
+pub use panel::{strip_rects, tile_rects};
 
 pub const NAV_ID: i32 = 100;
 pub const PAGE_ID: i32 = 200;

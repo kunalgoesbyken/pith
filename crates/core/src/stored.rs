@@ -17,10 +17,19 @@ fn same(a: &Value, b: &Value) -> bool {
 }
 
 fn merge_array(stored: &mut Array, wanted: &Array) {
-    stored.retain(|kept| wanted.iter().any(|value| same(value, kept)));
-    for value in wanted.iter() {
-        if !stored.iter().any(|kept| same(kept, value)) {
-            stored.push(value.clone());
+    let merged: Vec<(Value, bool)> = wanted
+        .iter()
+        .map(|value| match stored.iter().find(|kept| same(kept, value)) {
+            Some(kept) => (kept.clone(), true),
+            None => (value.clone(), false),
+        })
+        .collect();
+    stored.clear();
+    for (value, kept) in merged {
+        if kept {
+            stored.push_formatted(value);
+        } else {
+            stored.push(value);
         }
     }
 }

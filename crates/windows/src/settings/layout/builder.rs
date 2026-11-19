@@ -1,17 +1,17 @@
 use windows::Win32::Foundation::RECT;
 
 use super::grid::{
-    BADGE_HEIGHT, BADGE_PAD, CONTROL_GAP, ITEM_GAP, MIN_TEXT_WIDTH, ROW_MIN, ROW_MIN_CAPTION,
-    ROW_PAD_X, ROW_PAD_Y, SAMPLE_HEIGHT, SECTION_BOTTOM, SECTION_TOP, STRIP_HEIGHT, TILE_GAP,
-    TILE_HEIGHT, VALUE_WIDTH,
+    BADGE_HEIGHT, BADGE_PAD, CARET_WIDTH, CONTROL_GAP, ITEM_GAP, MIN_TEXT_WIDTH, ROW_MIN,
+    ROW_MIN_CAPTION, ROW_PAD_X, ROW_PAD_Y, SAMPLE_HEIGHT, SECTION_BOTTOM, SECTION_TOP,
+    STRIP_HEIGHT, TILE_GAP, TILE_HEIGHT, VALUE_WIDTH,
 };
 use super::item::{Face, Item};
-use super::row::{KeyGroup, PlacedRow, Row, Voice};
+use super::row::{KeyGroup, PlacedRow, PlacedSample, Row, Sample, Voice};
 use super::{Block, Placed};
 use crate::ui::{
-    BUTTON_HEIGHT, CARD_RADIUS, FOCUS_MARGIN, KEYCAP_HEIGHT, Rgb, Role, SLIDER_WIDTH, Scale,
-    TOGGLE_HEIGHT, Text, button_width, chip_width, height, inset, key_labels, keycaps_width,
-    measure, rect, segment_width, toggle_width,
+    BUTTON_HEIGHT, CARD_RADIUS, FOCUS_MARGIN, KEYCAP_HEIGHT, Rgb, Role, SLIDER_WIDTH, STROKE,
+    Scale, TOGGLE_HEIGHT, Text, button_width, chip_width, height, inset, key_labels, keycaps_width,
+    measure, rect, segment_width, toggle_width, width,
 };
 
 pub const SEPARATOR: &str = "or";
@@ -36,6 +36,30 @@ pub struct Built {
 pub struct Start {
     pub top: i32,
     pub first_id: i32,
+}
+
+struct RowMetrics {
+    sizes: Vec<(i32, i32)>,
+    gap: i32,
+    all_chips: bool,
+    right_width: i32,
+    text_span: i32,
+    title_line: i32,
+    caption_height: i32,
+    text_height: i32,
+    height: i32,
+}
+
+struct RowText {
+    title: Option<(RECT, String)>,
+    caption: Option<(RECT, String, Voice)>,
+    badge: Option<(RECT, String)>,
+}
+
+struct RowControls {
+    keys: Vec<KeyGroup>,
+    separators: Vec<RECT>,
+    value: Option<(RECT, String)>,
 }
 
 fn wrapped_height(scale: Scale, text: &str, span: i32) -> i32 {
@@ -153,10 +177,30 @@ impl Sheet {
         self.blocks.push(Block::Card(bounds, placed));
     }
 
-    fn row(&mut self, row: Row, divided: bool) -> PlacedRow {
-        let scale = self.scale;
-        let pad = self.px(ROW_PAD_X);
-        let segment = segment_width(scale, row.items.iter().map(|item| item.label.as_str()));
+    fn row(&mut self, mut row: Row, divided: bool) -> PlacedRow {
+        let metrics = self.measure_row(&row);
+        let bounds = rect(self.left, self.y, self.span, metrics.height);
+        self.y = bounds.bottom;
+        let text = self.place_text(&row, bounds, &metrics);
+        let sample = row
+            .sample
+            .take()
+            .map(|sample| self.place_sample(sample, bounds));
+        let controls = self.place_controls(row, bounds, &metrics);
+        PlacedRow {
+            divider: divided.then(|| self.divider(bounds)),
+            title: text.title,
+            caption: text.caption,
+            badge: text.badge,
+            keys: controls.keys,
+            separators: controls.separators,
+            value: controls.value,
+            sample,
+        }
+    }
+
+    fn measure_row(&self, row: &Row) -> RowMetrics {
+        let segment = segment_width(self.scale, row.items.iter().map(|item| item.label.as_str()));
         let sizes: Vec<(i32, i32)> = row
             .items
             .iter()
@@ -184,84 +228,127 @@ impl Sheet {
         } else {
             0
         };
+        let pad = self.px(ROW_PAD_X);
         let text_span = (self.span - 2 * pad - reserved).max(self.px(MIN_TEXT_WIDTH));
         let caption_height = row
             .caption
             .as_ref()
-            .map_or(0, |(text, _)| wrapped_height(scale, text, text_span));
+            .map_or(0, |(text, _)| wrapped_height(self.scale, text, text_span));
         let title_line = if row.title.is_empty() {
             0
         } else {
             self.px(Role::Body.line())
         };
-        let block = title_line + caption_height;
         let minimum = match (&row.sample, &row.caption) {
             (Some(_), _) => self.px(SAMPLE_HEIGHT),
             (None, Some(_)) => self.px(ROW_MIN_CAPTION),
             (None, None) => self.px(ROW_MIN),
         };
-        let row_height = (block + 2 * self.px(ROW_PAD_Y)).max(minimum);
-        let bounds = rect(self.left, self.y, self.span, row_height);
-        self.y = bounds.bottom;
-        let text_top = bounds.top + (row_height - block) / 2;
-        let text_left = bounds.left + pad;
+        let text_height = title_line + caption_height;
+        RowMetrics {
+            sizes,
+            gap,
+            all_chips,
+            right_width,
+            text_span,
+            title_line,
+            caption_height,
+            text_height,
+            height: (text_height + 2 * self.px(ROW_PAD_Y)).max(minimum),
+        }
+    }
+
+    fn divider(&self, bounds: RECT) -> RECT {
+        let pad = self.px(ROW_PAD_X);
+        rect(
+            bounds.left + pad,
+            bounds.top,
+            width(bounds) - pad,
+            self.px(STROKE),
+        )
+    }
+
+    fn place_text(&self, row: &Row, bounds: RECT, metrics: &RowMetrics) -> RowText {
+        let text_top = bounds.top + (metrics.height - metrics.text_height) / 2;
+        let text_left = bounds.left + self.px(ROW_PAD_X);
+        let title_line = metrics.title_line;
+        let title = (title_line > 0).then(|| {
+            let area = rect(text_left, text_top, metrics.text_span, title_line);
+            (area, row.title.clone())
+        });
+        let caption = row.caption.as_ref().map(|(text, voice)| {
+            let area = rect(
+                text_left,
+                text_top + title_line,
+                metrics.text_span,
+                metrics.caption_height,
+            );
+            (area, text.clone(), *voice)
+        });
         let badge = row.badge.as_ref().map(|badge| {
-            let width = text_width(scale, Role::Caption, badge) + 2 * self.px(BADGE_PAD);
-            let room = (text_span - width - self.px(ITEM_GAP)).max(0);
-            let shown = text_width(scale, Role::Body, &row.title).min(room);
+            let width = text_width(self.scale, Role::Caption, badge) + 2 * self.px(BADGE_PAD);
+            let room = (metrics.text_span - width - self.px(ITEM_GAP)).max(0);
+            let shown = text_width(self.scale, Role::Body, &row.title).min(room);
             let height = self.px(BADGE_HEIGHT);
             let left = text_left + shown + self.px(ITEM_GAP);
             let top = text_top + (title_line - height) / 2;
             (rect(left, top, width, height), badge.clone())
         });
-        let caption = row.caption.map(|(text, voice)| {
-            let area = rect(text_left, text_top + title_line, text_span, caption_height);
-            (area, text, voice)
-        });
-        let mut x = bounds.right - pad - right_width;
+        RowText {
+            title,
+            caption,
+            badge,
+        }
+    }
+
+    fn place_sample(&self, sample: Sample, bounds: RECT) -> PlacedSample {
+        let pad = self.px(ROW_PAD_X);
+        let area = RECT {
+            left: bounds.left + pad,
+            right: bounds.right - pad,
+            ..bounds
+        };
+        let line = self.px(Role::Body.line());
+        let typed = text_width(self.scale, Role::Body, &sample.typed);
+        let caret = rect(
+            area.left + typed,
+            area.top + (height(area) - line) / 2,
+            self.px(CARET_WIDTH),
+            line,
+        );
+        PlacedSample {
+            area,
+            caret,
+            sample,
+        }
+    }
+
+    fn place_controls(&mut self, row: Row, bounds: RECT, metrics: &RowMetrics) -> RowControls {
+        let row_height = height(bounds);
+        let mut x = bounds.right - self.px(ROW_PAD_X) - metrics.right_width;
         let (keys, mut separators) = self.place_keys(&row.keys, &mut x, bounds);
         let line = self.px(Role::Caption.line());
-        let count = sizes.len();
-        for (index, (item, size)) in row.items.into_iter().zip(sizes).enumerate() {
+        let gap = metrics.gap;
+        let count = metrics.sizes.len();
+        for (index, (item, size)) in row.items.into_iter().zip(&metrics.sizes).enumerate() {
             let top = bounds.top + (row_height - size.1) / 2;
             self.place(item, rect(x, top, size.0, size.1));
             x += size.0;
-            if all_chips && index + 1 < count {
+            if metrics.all_chips && index + 1 < count {
                 let line_top = bounds.top + (row_height - line) / 2;
                 separators.push(rect(x, line_top, gap, line));
             }
             x += gap;
         }
         let value = row.value.map(|text| {
-            let line = self.px(Role::Caption.line());
             let top = bounds.top + (row_height - line) / 2;
             let area = rect(x + self.px(ITEM_GAP) - gap, top, self.px(VALUE_WIDTH), line);
             (area, text)
         });
-        let sample = row.sample.map(|sample| {
-            let area = RECT {
-                left: bounds.left + pad,
-                right: bounds.right - pad,
-                ..bounds
-            };
-            (area, sample)
-        });
-        let title = (title_line > 0).then(|| {
-            (
-                rect(text_left, text_top, text_span, title_line),
-                row.title.clone(),
-            )
-        });
-        PlacedRow {
-            bounds,
-            divided,
-            title,
-            caption,
-            badge,
+        RowControls {
             keys,
             separators,
             value,
-            sample,
         }
     }
 

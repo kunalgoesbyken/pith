@@ -3,14 +3,21 @@ use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
     IRangeValueProvider, IRangeValueProvider_Impl, IRawElementProviderSimple,
     IRawElementProviderSimple_Impl, ProviderOptions, ProviderOptions_ServerSideProvider,
-    UIA_ControlTypePropertyId, UIA_IsKeyboardFocusablePropertyId, UIA_NamePropertyId,
-    UIA_PATTERN_ID, UIA_PROPERTY_ID, UIA_RangeValuePatternId, UIA_SliderControlTypeId,
-    UiaHostProviderFromHwnd, UiaReturnRawElementProvider,
+    UIA_ControlTypePropertyId, UIA_E_ELEMENTNOTAVAILABLE, UIA_IsKeyboardFocusablePropertyId,
+    UIA_NamePropertyId, UIA_PATTERN_ID, UIA_PROPERTY_ID, UIA_RangeValuePatternId,
+    UIA_SliderControlTypeId, UiaHostProviderFromHwnd, UiaReturnRawElementProvider,
 };
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-use windows::core::{BOOL, BSTR, Error, IUnknown, IUnknownImpl, Interface, Result, implement};
+use windows::core::{
+    BOOL, BSTR, Error, HRESULT, IUnknown, IUnknownImpl, Interface, Result, implement,
+};
 
-use super::slider::{WM_SLIDE_TO, snapshot};
+use super::slider::snapshot;
+use crate::messages::WM_SLIDE_TO;
+
+fn unavailable() -> Error {
+    Error::from_hresult(HRESULT(UIA_E_ELEMENTNOTAVAILABLE as i32))
+}
 
 #[implement(IRawElementProviderSimple, IRangeValueProvider)]
 struct Slider {
@@ -23,7 +30,7 @@ impl Slider {
     }
 
     fn range(&self) -> Result<(i32, i32, i32)> {
-        let track = snapshot(self.hwnd()).ok_or_else(Error::empty)?;
+        let track = snapshot(self.hwnd()).ok_or_else(unavailable)?;
         Ok((track.low, track.high, track.value))
     }
 }

@@ -1,8 +1,8 @@
 use windows::Win32::Foundation::RECT;
 
 use super::grid::{
-    BRAND_GAP, BRAND_HEIGHT, NAV_GAP, NAV_HEIGHT, SIDEBAR_BOTTOM, SIDEBAR_INSET, SIDEBAR_TOP,
-    SIDEBAR_WIDTH,
+    BRAND_GAP, BRAND_HEIGHT, MARK_GAP, MARK_HEIGHT, NAV_GAP, NAV_HEIGHT, SIDEBAR_BOTTOM,
+    SIDEBAR_INSET, SIDEBAR_TOP, SIDEBAR_WIDTH,
 };
 use super::{NAV_ID, Placed};
 use crate::settings::action::Action;
@@ -10,9 +10,6 @@ use crate::settings::layout::Item;
 use crate::settings::model::Model;
 use crate::settings::page::Page;
 use crate::ui::{Role, mark_width, rect};
-
-const MARK_HEIGHT: i32 = 24;
-const MARK_GAP: i32 = 12;
 
 pub struct Sidebar {
     pub bounds: RECT,

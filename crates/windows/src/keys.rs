@@ -27,8 +27,10 @@ pub fn key_of(code: u16) -> Option<Key> {
         code if code == VK_ESCAPE.0 => Some(Key::Escape),
         code if code == VK_SPACE.0 => Some(Key::Space),
         code if function_keys.contains(&code) => Some(Key::Function((code - VK_F1.0 + 1) as u8)),
-        code => char::from_u32(u32::from(code))
-            .filter(char::is_ascii_alphanumeric)
+        code => u8::try_from(code)
+            .map(char::from)
+            .ok()
+            .filter(|key| key.is_ascii_digit() || key.is_ascii_uppercase())
             .map(Key::Char),
     }
 }

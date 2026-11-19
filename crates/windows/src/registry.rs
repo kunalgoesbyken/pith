@@ -155,8 +155,16 @@ pub fn set_start_with_windows(enabled: bool) -> Result<()> {
     write_string(RUN_KEY, RUN_VALUE, value.as_deref())
 }
 
+fn registered_exe(command: &str) -> Option<&Path> {
+    let quoted = command.strip_prefix('"')?;
+    let (exe, _) = quoted.split_once('"')?;
+    Some(Path::new(exe))
+}
+
 pub fn refresh_start_with_windows() -> Result<()> {
-    if start_with_windows() {
+    let stale = read_string(RUN_KEY, RUN_VALUE)
+        .is_some_and(|command| !registered_exe(&command).is_some_and(Path::is_file));
+    if stale {
         return set_start_with_windows(true);
     }
     Ok(())

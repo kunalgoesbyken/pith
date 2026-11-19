@@ -17,6 +17,7 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::appearance::Appearance;
+use crate::command::TrayCommand;
 use crate::control::{Signal, control_window, next_signal};
 use crate::erase::erase;
 use crate::events::Hooks;
@@ -24,7 +25,6 @@ use crate::overlay::Overlay;
 use crate::power;
 use crate::reader::{Reader, Source};
 use crate::spell::Speller;
-use crate::tray::TrayCommand;
 
 use effects::Effects;
 pub use inbox::{Inbound, Inbox};
@@ -43,6 +43,12 @@ pub enum InsertMode {
     Custom(Box<dyn Fn(String)>),
 }
 
+pub enum Start {
+    Tray,
+    Home,
+    Onboarding(PathBuf),
+}
+
 pub struct Options {
     pub source: Source,
     pub insert: InsertMode,
@@ -51,11 +57,10 @@ pub struct Options {
     pub config_path: Option<PathBuf>,
     pub observer: Option<Sender<Action>>,
     pub global_keys: bool,
-    pub onboarding: Option<PathBuf>,
+    pub start: Start,
     pub data_dir: Option<PathBuf>,
     pub notice: Option<String>,
     pub recommended: ModelPreset,
-    pub open_home: bool,
 }
 
 struct App {
@@ -236,7 +241,7 @@ pub fn run(
             None,
         );
     }
-    let open_home = options.open_home;
+    let open_home = matches!(options.start, Start::Home);
     let mut app = App::new(control, config, reader, worker, (inbox, inbound), options)?;
     if open_home {
         app.command(TrayCommand::Open);

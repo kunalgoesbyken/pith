@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use pith_core::{Config, ModelPreset};
 use pith_infer::{Worker, resolve_backend};
-use pith_windows::{Inbound, Inbox, InsertMode, Options, Reader, Source, TrayCommand, run};
+use pith_windows::{Inbound, Inbox, InsertMode, Options, Reader, Source, Start, TrayCommand, run};
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -147,7 +147,7 @@ fn main() {
         failures
     });
     let options = Options {
-        onboarding: None,
+        start: Start::Tray,
         source: Source::Focused,
         insert: InsertMode::Paste,
         tray: false,
@@ -158,7 +158,6 @@ fn main() {
         data_dir: None,
         notice: None,
         recommended: ModelPreset::Small,
-        open_home: false,
     };
     run(config, worker, inbox, receiver, options).expect("run");
     let failures = driver.join().unwrap_or(1);

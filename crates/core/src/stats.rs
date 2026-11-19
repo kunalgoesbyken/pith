@@ -74,8 +74,16 @@ impl Counts {
         self.chars = self.chars.saturating_add(text.chars().count() as u64);
     }
 
+    pub fn kept(&self) -> u64 {
+        self.accepted.saturating_add(self.accepted_words)
+    }
+
+    pub fn kept_percent(&self) -> Option<u64> {
+        (self.shown > 0).then(|| (self.kept().saturating_mul(100) / self.shown).min(100))
+    }
+
     pub fn needs_key_hint(&self) -> bool {
-        self.accepted.saturating_add(self.accepted_words) < HINTED_ACCEPTS
+        self.kept() < HINTED_ACCEPTS
     }
 
     pub fn add(&mut self, other: Counts) {
@@ -130,10 +138,13 @@ impl Stats {
 
     pub fn recent_words(&self, today: Day) -> [u64; HISTORY_DAYS] {
         let mut words = [0; HISTORY_DAYS];
-        words[HISTORY_DAYS - 1] = self.today(today).words;
-        for entry in &self.history {
+        let open = DayWords {
+            day: self.day,
+            words: self.today.words,
+        };
+        for entry in self.history.iter().chain([&open]) {
             let age = today.days_since(entry.day);
-            if (1..HISTORY_DAYS as i64).contains(&age) {
+            if (0..HISTORY_DAYS as i64).contains(&age) {
                 words[HISTORY_DAYS - 1 - age as usize] = entry.words;
             }
         }

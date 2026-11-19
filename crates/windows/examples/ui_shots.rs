@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use pith_core::{
-    Access, Config, Counts, ModelPreset, Pause, Placement, Reach, Rect, Rgb, TextStyle, is_rtl,
+    Access, Config, Counts, ModelPreset, Pause, Placement, Reach, Rect, Rgb, Setting, TextStyle,
+    is_rtl,
 };
 use pith_windows::{
     ForegroundApp, Onboarding, OnboardingEvent, Overview, Page, Picture, Rival, Sample,
@@ -146,7 +147,7 @@ fn sample_overview() -> Overview {
         app: Some(ForegroundApp {
             name: "Slack".into(),
             access: Access::On,
-            switchable: true,
+            switch: Some(Setting::Block("Slack".into())),
         }),
         start_with_windows: true,
     }
@@ -203,8 +204,8 @@ fn pages(tag: &str, dpi: u32, fallback: [u8; 3]) {
         ..Config::default()
     };
     let window = home(&config, &sample_overview(), None);
-    for page in Page::ALL {
-        let name = format!("{}-{tag}", PAGE_NAMES[page.index()]);
+    for (page, label) in Page::ALL.into_iter().zip(PAGE_NAMES) {
+        let name = format!("{label}-{tag}");
         page_shot(&name, &window, page, (dpi, fallback));
     }
 }

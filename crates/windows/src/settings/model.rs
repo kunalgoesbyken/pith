@@ -20,11 +20,17 @@ pub struct Model {
     pub scroll: i32,
     pub room: i32,
     pub recording: Option<(KeyAction, usize)>,
-    pub key_notice: Option<String>,
+    pub notice: Option<String>,
     pub preview: Option<u8>,
     pub rival: Option<Rival>,
     pub layout: Layout,
-    pub live: Vec<(i32, Class)>,
+    pub live: Live,
+}
+
+#[derive(Debug, Default)]
+pub struct Live {
+    pub page: Page,
+    pub controls: Vec<(i32, Class)>,
 }
 
 thread_local! {
@@ -67,11 +73,11 @@ impl Model {
             scroll: 0,
             room: 0,
             recording: None,
-            key_notice: None,
+            notice: None,
             preview: None,
             rival: None,
             layout: Layout::default(),
-            live: Vec::new(),
+            live: Live::default(),
         }
     }
 
@@ -94,7 +100,7 @@ impl Model {
         self.page = page;
         self.scroll = 0;
         self.recording = None;
-        self.key_notice = None;
+        self.notice = None;
         moved
     }
 

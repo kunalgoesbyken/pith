@@ -1,15 +1,16 @@
-use pith_core::{Access, Counts, KeyAction, Pause, PauseSpan, Setting};
+use pith_core::{Access, Counts, HISTORY_DAYS, KeyAction, Pause, PauseSpan, Setting};
 
 use super::super::action::Action;
 use super::super::layout::{Item, Row, Sheet, Voice};
 use super::super::model::Model;
 use super::super::page::Page;
 use super::super::{StatsView, UiEvent};
-use super::model::model_name;
+use super::shortcuts::describe;
+use super::{backend_name, switch};
+use crate::command::{ForegroundApp, TrayCommand};
 use crate::format::{duration, number};
 use crate::reach;
 use crate::rival::Rival;
-use crate::tray::{ForegroundApp, TrayCommand};
 use crate::ui::Tone;
 
 fn command(command: TrayCommand) -> Action {
@@ -29,13 +30,9 @@ fn status_row(model: &Model) -> Row {
     let detail = format!(
         "{} \u{b7} {}",
         model.overview.status,
-        model_name(config, model.recommended)
+        backend_name(&config.backend(model.recommended))
     );
-    let toggle = Item::toggle(
-        "Suggest as I type",
-        config.enabled,
-        Action::Apply(Setting::Enabled(!config.enabled)),
-    );
+    let toggle = switch("Suggest as I type", config.enabled, Setting::Enabled);
     Row::titled(headline(model))
         .caption(&detail)
         .control(toggle)
@@ -76,7 +73,7 @@ fn pause_row(model: &Model) -> Row {
 }
 
 fn app_caption(app: &ForegroundApp) -> &'static str {
-    match (app.access, app.switchable) {
+    match (app.access, app.switch.is_some()) {
         (Access::On, _) => "Pith suggests here.",
         (Access::OptedIn, _) => "You turned Pith on in this editor.",
         (Access::OffByDefault, _) => "Code editors start turned off.",
@@ -90,11 +87,12 @@ fn app_row(model: &Model) -> Row {
         let toggle = Item::toggle("Suggest in the app you were using", false, Action::None);
         return Row::titled("Suggest in the app you were using")
             .caption("Switch to an app, then come back.")
-            .control(toggle.disabled());
+            .control(toggle.enabled(false));
     };
     let title = format!("Suggest in {}", app.name);
     let on = matches!(app.access, Access::On | Access::OptedIn);
-    let toggle = Item::toggle(&title, on, command(TrayCommand::ChangeApp)).enabled(app.switchable);
+    let toggle =
+        Item::toggle(&title, on, command(TrayCommand::ChangeApp)).enabled(app.switch.is_some());
     Row::titled(&title)
         .caption(app_caption(app))
         .control(toggle)
@@ -122,15 +120,13 @@ fn chords(model: &Model, binding: KeyAction) -> Vec<String> {
 }
 
 fn key_rows(model: &Model) -> Vec<Row> {
-    let mut rows = vec![
-        Row::titled("Keep the suggestion").keys(chords(model, KeyAction::AcceptAll)),
-        Row::titled("Keep one word").keys(chords(model, KeyAction::AcceptWord)),
-    ];
-    let trigger = chords(model, KeyAction::Trigger);
-    if !trigger.is_empty() {
-        rows.push(Row::titled("Suggest now").keys(trigger));
-    }
-    rows.push(Row::titled("Hide the suggestion").keys(vec![pith_core::Chord::ESCAPE.label()]));
+    let mut rows: Vec<Row> = KeyAction::ALL
+        .into_iter()
+        .filter_map(|action| {
+            let keys = chords(model, action);
+            (!keys.is_empty()).then(|| Row::titled(describe(action).0).keys(keys))
+        })
+        .collect();
     rows.push(
         Row::titled("Use other keys").control(
             Item::button("Change", Tone::Standard, Action::Go(Page::Shortcuts))
@@ -141,12 +137,10 @@ fn key_rows(model: &Model) -> Vec<Row> {
 }
 
 fn tiles(model: &Model, counts: &Counts) -> Vec<Item> {
-    let kept = counts.accepted + counts.accepted_words;
-    let rate = if counts.shown == 0 {
-        "\u{2013}".to_string()
-    } else {
-        format!("{}%", kept * 100 / counts.shown)
-    };
+    let rate = counts.kept_percent().map_or_else(
+        || "\u{2013}".to_string(),
+        |percent| format!("{}%", number(percent)),
+    );
     let saved = duration(counts.seconds_saved(model.config.typing_wpm), number);
     [
         (number(counts.words), "Words added today"),
@@ -168,10 +162,11 @@ fn activity(model: &Model, sheet: &mut Sheet) {
         return;
     }
     sheet.tiles(tiles(model, today));
-    sheet.heading("Last 14 days");
+    let span = number(HISTORY_DAYS as u64);
+    sheet.heading(&format!("Last {span} days"));
     let caption = format!("Words added per day, {} in total", number(total.words));
     sheet.strip(Item::strip(
-        "Words added per day over the last 14 days",
+        &format!("Words added per day over the last {span} days"),
         &caption,
         *days,
     ));

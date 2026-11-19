@@ -9,7 +9,7 @@ use super::keycap::{key_labels, keycaps, keycaps_width};
 use super::metrics::{
     CONTROL_RADIUS, FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, rect, width,
 };
-use super::theme::Rgb;
+use super::theme::{Palette, Rgb};
 
 const KNOB: i32 = 12;
 const KNOB_PAD: i32 = 4;
@@ -21,6 +21,14 @@ const CHIP_PAD: i32 = 16;
 const TRACK_HEIGHT: i32 = 4;
 const THUMB: i32 = 20;
 const THUMB_CORE: i32 = 12;
+
+fn wash(palette: &Palette, state: Interaction, rest: Rgb) -> Rgb {
+    pick(state, rest, palette.control_hover, palette.control_pressed)
+}
+
+fn focus_ring(canvas: &Canvas, scale: Scale, (bounds, radius): (RECT, i32), color: Rgb) {
+    canvas.stroke_round(bounds, radius, color, scale.px(FOCUS_RING));
+}
 
 pub fn draw_toggle(canvas: &Canvas, surface: &Surface, bounds: RECT, on: bool, state: Interaction) {
     let scale = surface.scale;
@@ -39,13 +47,7 @@ pub fn draw_toggle(canvas: &Canvas, surface: &Surface, bounds: RECT, on: bool, s
         )
     } else {
         if state.hot || state.pressed {
-            let wash = pick(
-                state,
-                palette.card,
-                palette.control_hover,
-                palette.control_pressed,
-            );
-            canvas.fill_round(pill, radius, wash);
+            canvas.fill_round(pill, radius, wash(palette, state, palette.card));
         }
         canvas.stroke_round(pill, radius, palette.strong_stroke, scale.px(STROKE));
         (
@@ -60,13 +62,8 @@ pub fn draw_toggle(canvas: &Canvas, surface: &Surface, bounds: RECT, on: bool, s
     );
     if state.focused {
         let margin = scale.px(FOCUS_MARGIN);
-        let ring = scale.px(FOCUS_RING);
-        canvas.stroke_round(
-            inset(pill, -margin),
-            radius + margin,
-            palette.accent.base,
-            ring,
-        );
+        let halo = (inset(pill, -margin), radius + margin);
+        focus_ring(canvas, scale, halo, palette.accent.base);
     }
 }
 
@@ -98,12 +95,7 @@ pub fn draw_segment(
         } else {
             palette.text
         };
-        let fill = pick(
-            state,
-            palette.control,
-            palette.control_hover,
-            palette.control_pressed,
-        );
+        let fill = wash(palette, state, palette.control);
         (fill, palette.control_stroke, text)
     };
     canvas.clipped(bounds, || {
@@ -117,13 +109,13 @@ pub fn draw_segment(
     let style = Text::new(Role::Body, text).aligned(Align::Center);
     canvas.text(bounds, label, style);
     if state.focused {
-        let ring = scale.px(FOCUS_RING);
         let color = if selected {
             palette.accent.on
         } else {
             palette.accent.base
         };
-        canvas.stroke_round(inset(bounds, ring), radius, color, ring);
+        let inner = inset(bounds, scale.px(FOCUS_RING));
+        focus_ring(canvas, scale, (inner, radius), color);
     }
 }
 
@@ -162,7 +154,7 @@ pub fn draw_nav(
     };
     canvas.text(text_area, label, Text::new(role, palette.text));
     if state.focused {
-        canvas.stroke_round(bounds, radius, palette.accent.base, scale.px(FOCUS_RING));
+        focus_ring(canvas, scale, (bounds, radius), palette.accent.base);
     }
 }
 
@@ -188,16 +180,11 @@ pub fn draw_chip(
     let radius = scale.px(CONTROL_RADIUS);
     let margin = scale.px(FOCUS_MARGIN);
     let shape = inset(bounds, margin);
-    let wash = pick(
-        state,
-        palette.card,
-        palette.control_hover,
-        palette.control_pressed,
-    );
+    let rest = wash(palette, state, palette.card);
     match chip {
         ChipState::Keys => {
             if state.hot || state.pressed {
-                canvas.fill_round(inset(shape, -scale.px(FOCUS_GAP)), radius, wash);
+                canvas.fill_round(inset(shape, -scale.px(FOCUS_GAP)), radius, rest);
             }
             let origin = (shape.left, shape.top);
             keycaps(canvas, (scale, palette), origin, key_labels(label));
@@ -213,18 +200,18 @@ pub fn draw_chip(
                     palette.text_secondary,
                 )
             };
-            canvas.fill_round(shape, radius, wash);
+            canvas.fill_round(shape, radius, rest);
             canvas.stroke_round(shape, radius, edge, thickness);
             let style = Text::new(Role::Body, color).aligned(Align::Center);
             canvas.text(shape, label, style);
         }
     }
     if state.focused && chip != ChipState::Recording {
-        canvas.stroke_round(
-            bounds,
-            radius + margin,
+        focus_ring(
+            canvas,
+            scale,
+            (bounds, radius + margin),
             palette.accent.base,
-            scale.px(FOCUS_RING),
         );
     }
 }
@@ -290,6 +277,6 @@ pub fn draw_slider(
             2 * extent,
             2 * extent,
         );
-        canvas.stroke_round(halo, extent, palette.accent.base, ring);
+        focus_ring(canvas, scale, (halo, extent), palette.accent.base);
     }
 }

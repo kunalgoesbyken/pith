@@ -2,10 +2,10 @@ use pith_core::{Event, log};
 use pith_infer::UpdateCheck;
 
 use super::App;
+use crate::command::TrayCommand;
 use crate::registry;
 use crate::rival;
 use crate::settings::{UiEvent, take_events};
-use crate::tray::TrayCommand;
 use crate::update::Update;
 use crate::util::{open_path, open_target};
 

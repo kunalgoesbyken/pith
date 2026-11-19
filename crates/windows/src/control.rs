@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::time::Duration;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -10,8 +11,10 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use crate::appearance::is_appearance_change;
+use crate::messages::WM_WAKE;
 
-const WM_WAKE: u32 = WM_APP + 1;
+const REVEAL_ATTEMPTS: u32 = 50;
+const REVEAL_RETRY: Duration = Duration::from_millis(100);
 const CONTROL_CLASS: PCWSTR = w!("PithControl");
 
 fn reveal_message() -> u32 {
@@ -19,10 +22,18 @@ fn reveal_message() -> u32 {
     *MESSAGE.get_or_init(|| unsafe { RegisterWindowMessageW(w!("PithReveal")) })
 }
 
+fn running_control() -> Option<HWND> {
+    for _ in 0..REVEAL_ATTEMPTS {
+        if let Ok(control) = unsafe { FindWindowW(CONTROL_CLASS, None) } {
+            return Some(control);
+        }
+        std::thread::sleep(REVEAL_RETRY);
+    }
+    None
+}
+
 pub fn reveal_running_instance() {
-    let Ok(control) =
-        (unsafe { FindWindowExW(Some(HWND_MESSAGE), None, CONTROL_CLASS, PCWSTR::null()) })
-    else {
+    let Some(control) = running_control() else {
         return;
     };
     let mut pid = 0u32;

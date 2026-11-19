@@ -1,4 +1,6 @@
-use pith_core::{Config, IDLE_UNLOAD_CHOICES, ModelPreset, Reach, Setting, thread_choices};
+use pith_core::{
+    Backend, Config, IDLE_UNLOAD_CHOICES, ModelPreset, Reach, Setting, thread_choices,
+};
 
 use super::super::UiEvent;
 use super::super::action::Action;
@@ -9,14 +11,6 @@ use crate::format::number;
 use crate::ui::Tone;
 
 const BYTES_PER_MB: u64 = 1_000_000;
-
-pub fn model_name(config: &Config, recommended: ModelPreset) -> String {
-    match (&config.remote_url, &config.model_path) {
-        (Some(_), _) => "Remote model".to_string(),
-        (None, Some(_)) => "Custom model".to_string(),
-        (None, None) => format!("{} model", config.preset(recommended).label()),
-    }
-}
 
 fn preset_row(model: &Model, preset: ModelPreset) -> Row {
     let in_use = model.config.preset(model.recommended) == preset;
@@ -41,11 +35,11 @@ fn preset_row(model: &Model, preset: ModelPreset) -> Row {
     }
 }
 
-fn external_row(config: &Config) -> Row {
-    let title = match config.reach() {
-        Reach::Server(host) => format!("Using the server at {host}"),
-        Reach::ThisPc if config.remote_url.is_some() => "Using a server on this PC".to_string(),
-        Reach::ThisPc => "Using your own model file".to_string(),
+fn external_row(config: &Config, backend: &Backend) -> Row {
+    let title = match (backend, config.reach()) {
+        (Backend::Remote { .. }, Reach::Server(host)) => format!("Using the server at {host}"),
+        (Backend::Remote { .. }, Reach::ThisPc) => "Using a server on this PC".to_string(),
+        _ => "Using your own model file".to_string(),
     };
     Row::titled(&title)
         .caption("Change it in the settings file.")
@@ -62,7 +56,7 @@ fn external_row(config: &Config) -> Row {
 fn idle_label(seconds: u64) -> String {
     match seconds {
         0 => "Never".to_string(),
-        seconds => format!("{} min", seconds / 60),
+        seconds => format!("{} min", number(seconds / 60)),
     }
 }
 
@@ -106,14 +100,15 @@ fn performance_rows(model: &Model) -> Vec<Row> {
 
 pub fn build(model: &Model, sheet: &mut Sheet) {
     sheet.heading("Model");
-    if model.config.uses_preset() {
-        let rows = ModelPreset::ALL
-            .into_iter()
-            .map(|preset| preset_row(model, preset))
-            .collect();
-        sheet.card(rows);
-    } else {
-        sheet.card(vec![external_row(&model.config)]);
+    match model.config.backend(model.recommended) {
+        Backend::Preset(_) => {
+            let rows = ModelPreset::ALL
+                .into_iter()
+                .map(|preset| preset_row(model, preset))
+                .collect();
+            sheet.card(rows);
+        }
+        external => sheet.card(vec![external_row(&model.config, &external)]),
     }
     sheet.heading("Performance");
     sheet.card(performance_rows(model));

@@ -1,4 +1,4 @@
-use pith_core::{Chord, KeyAction, Setting};
+use pith_core::{KeyAction, Setting};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, EndPaint, GetMonitorInfoW, HDC, MONITOR_DEFAULTTONEAREST, MONITORINFO,
@@ -7,20 +7,20 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
-use windows::Win32::UI::Input::KeyboardAndMouse::{SetFocus, VK_BACK, VK_ESCAPE};
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use super::action::Action;
-use super::controls::{plan, reconcile};
-use super::layout::{self, DEFAULT_CLIENT, MIN_CLIENT, NAV_ID, PAGE_ID};
+use super::controls::{is_page_control, plan, reconcile};
+use super::layout::{self, DEFAULT_CLIENT, MIN_CLIENT, NAV_ID};
 use super::model::{self, Model, read, update};
 use super::page::Page;
-use super::recorder::{WM_RECORDED, unpack};
+use super::recorder::{Recorded, interpret};
 use super::slider::{self, TBM_GETPOS};
 use super::view::{draw_item, paint_page};
 use super::{Overview, UiEvent, emit, picker};
-use crate::keys::key_of;
+use crate::messages::{WM_RECORDED, WM_RELAYOUT};
 use crate::ui::{self, BASE_DPI, Scale, Theme, height, rect, width};
 
 pub const WINDOW: WINDOW_STYLE =
@@ -31,8 +31,6 @@ const WHEEL_STEP: i32 = 120;
 const PAGE_STEP: i32 = 96;
 const REVEAL_MARGIN: i32 = 16;
 const SCREEN_SHARE_PERCENT: i32 = 90;
-const WM_RELAYOUT: u32 = WM_APP + 3;
-const NO_OTHER_APPS: &str = "No other apps are open";
 const UNUSABLE_KEY: &str = "That key can not be used for a shortcut.";
 
 fn instance() -> HINSTANCE {
@@ -114,51 +112,32 @@ fn go(window: HWND, page: Page) {
     relayout(window);
 }
 
-fn sentence(message: &str) -> String {
-    let mut chars = message.chars();
-    let first: String = chars
-        .next()
-        .into_iter()
-        .flat_map(char::to_uppercase)
-        .collect();
-    format!("{first}{}.", chars.as_str().trim_end_matches('.'))
-}
-
-fn choose_app(window: HWND, button: i32) {
+fn apply(window: HWND, setting: Setting) {
     let Some(config) = read(|model| model.config.clone()) else {
         return;
     };
-    let choices: Vec<(String, Setting)> = picker::running_apps()
-        .into_iter()
-        .filter_map(|app| {
-            let setting = config.switch_app(&app)?;
-            matches!(setting, Setting::Block(_) | Setting::Allow(_)).then_some((app, setting))
-        })
-        .collect();
-    let labels: Vec<String> = choices
-        .iter()
-        .map(|(app, setting)| match setting {
-            Setting::Allow(_) => format!("{app} (off by default)"),
-            _ => app.clone(),
-        })
-        .collect();
-    let mut bounds = RECT::default();
-    unsafe {
-        let _ = GetWindowRect(
-            GetDlgItem(Some(window), button).unwrap_or_default(),
-            &mut bounds,
-        );
-    }
-    let picked = picker::choose(window, (bounds.left, bounds.bottom), &labels, NO_OTHER_APPS);
-    if let Some((_, setting)) = picked.and_then(|index| choices.into_iter().nth(index)) {
-        dispatch(window, UiEvent::Apply(setting));
+    match setting.checked(&config) {
+        Ok(setting) => {
+            update(|model| {
+                model.recording = None;
+                model.notice = None;
+            });
+            dispatch(window, UiEvent::Apply(setting));
+        }
+        Err(message) => {
+            update(|model| {
+                model.recording = None;
+                model.notice = Some(message);
+            });
+            relayout(window);
+        }
     }
 }
 
 fn begin_recording(window: HWND, binding: KeyAction, slot: usize) {
     update(|model| {
         model.recording = Some((binding, slot));
-        model.key_notice = None;
+        model.notice = None;
     });
     relayout(window);
 }
@@ -174,12 +153,18 @@ fn click(window: HWND, id: i32) {
         return;
     };
     match action {
-        Action::None | Action::Opacity => {}
+        Action::None => {}
         Action::Go(page) => go(window, page),
-        Action::Apply(setting) => dispatch(window, UiEvent::Apply(setting)),
+        Action::Apply(setting) => apply(window, setting),
         Action::Emit(event) => dispatch(window, event),
         Action::Record(binding, slot) => begin_recording(window, binding, slot),
-        Action::ChooseApp => choose_app(window, id),
+        Action::ChooseApp => {
+            let config = read(|model| model.config.clone());
+            if let Some(setting) = config.and_then(|config| picker::choose_app(window, id, &config))
+            {
+                apply(window, setting);
+            }
+        }
     }
 }
 
@@ -194,55 +179,21 @@ fn slide(window: HWND, slider: HWND, released: bool) {
     relayout(window);
 }
 
-fn rebind(window: HWND, (binding, slot): (KeyAction, usize), chord: Option<Chord>) {
-    let outcome = read(|model| model.config.rebind(binding, slot, chord));
-    match outcome {
-        Some(Ok(_)) => {
-            update(|model| {
-                model.recording = None;
-                model.key_notice = None;
-            });
-            dispatch(window, UiEvent::Apply(Setting::Bind(binding, slot, chord)));
-        }
-        Some(Err(message)) => {
-            update(|model| {
-                model.recording = None;
-                model.key_notice = Some(sentence(&message));
-            });
-            relayout(window);
-        }
-        None => {}
-    }
-}
-
 fn recorded(window: HWND, packed: LPARAM) {
-    let Some(target) = read(|model| model.recording).flatten() else {
+    let Some((binding, slot)) = read(|model| model.recording).flatten() else {
         return;
     };
-    let pressed = unpack(packed);
-    let plain = !(pressed.ctrl || pressed.shift || pressed.alt);
-    match (pressed.key, plain) {
-        (key, true) if key == VK_ESCAPE.0 => {
+    match interpret(packed) {
+        Recorded::Cancel => {
             update(|model| model.recording = None);
             relayout(window);
         }
-        (key, true) if key == VK_BACK.0 => rebind(window, target, None),
-        _ => match key_of(pressed.key) {
-            Some(key) => {
-                let chord = Chord {
-                    ctrl: pressed.ctrl,
-                    shift: pressed.shift,
-                    alt: pressed.alt,
-                    win: false,
-                    key,
-                };
-                rebind(window, target, Some(chord));
-            }
-            None => {
-                update(|model| model.key_notice = Some(UNUSABLE_KEY.to_string()));
-                relayout(window);
-            }
-        },
+        Recorded::Clear => apply(window, Setting::Bind(binding, slot, None)),
+        Recorded::Chord(chord) => apply(window, Setting::Bind(binding, slot, Some(chord))),
+        Recorded::Unusable => {
+            update(|model| model.notice = Some(UNUSABLE_KEY.to_string()));
+            relayout(window);
+        }
     }
 }
 
@@ -255,8 +206,7 @@ fn recorder_lost_focus(window: HWND) {
 }
 
 fn reveal(window: HWND, control: HWND) {
-    let id = unsafe { GetDlgCtrlID(control) };
-    if id < PAGE_ID {
+    if !is_page_control(unsafe { GetDlgCtrlID(control) }) {
         return;
     }
     let mut bounds = RECT::default();

@@ -33,7 +33,7 @@ mod text;
 mod types;
 mod typo;
 
-pub use apps::{Access, inserts_by_paste};
+pub use apps::{Access, inserts_by_paste, same_app};
 pub use chord::{Chord, Key};
 pub use color::{CHANNEL_MAX, Rgb, argb};
 pub use config::{
@@ -61,7 +61,7 @@ pub use scene::{
     fit_cuts, inline_anchor, inline_font_px, keycap_label_origin,
 };
 pub use setting::{
-    IDLE_UNLOAD_CHOICES, Length, SLIDER_OPACITY, Setting, Suggestions, clamp_opacity,
+    AppChoice, Backend, IDLE_UNLOAD_CHOICES, Length, Setting, Suggestions, clamp_opacity,
     thread_choices,
 };
 pub use shading::{Pill, PillStyle, Scheme, Shading};

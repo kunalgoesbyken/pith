@@ -1,13 +1,17 @@
-use windows::Win32::Foundation::{HWND, LPARAM};
+use pith_core::{Config, Setting, same_app};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, EnumWindows, GW_OWNER, GWL_EXSTYLE, GetWindow,
-    GetWindowLongPtrW, GetWindowTextLengthW, IsWindowVisible, MF_DISABLED, MF_STRING,
-    TPM_LEFTALIGN, TPM_RETURNCMD, TPM_TOPALIGN, TrackPopupMenu, WS_EX_TOOLWINDOW,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, EnumWindows, GW_OWNER, GWL_EXSTYLE, GetDlgItem,
+    GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, IsWindowVisible,
+    MF_DISABLED, MF_STRING, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_TOPALIGN, TrackPopupMenu,
+    WS_EX_TOOLWINDOW,
 };
 use windows::core::{BOOL, PCWSTR};
 
 use crate::util::{process_name, wide, window_pid};
+
+const NO_OTHER_APPS: &str = "No other apps are open";
 
 fn is_cloaked(window: HWND) -> bool {
     let mut cloaked = 0u32;
@@ -40,7 +44,7 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
         .filter(|pid| *pid != own)
         .and_then(process_name);
     if let Some(name) = name
-        && !apps.iter().any(|known| known.eq_ignore_ascii_case(&name))
+        && !apps.iter().any(|known| same_app(known, &name))
     {
         apps.push(name);
     }
@@ -59,7 +63,7 @@ pub fn running_apps() -> Vec<String> {
     apps
 }
 
-pub fn choose(window: HWND, at: (i32, i32), labels: &[String], empty: &str) -> Option<usize> {
+fn choose(window: HWND, at: (i32, i32), labels: &[String], empty: &str) -> Option<usize> {
     let menu = unsafe { CreatePopupMenu() }.ok()?;
     if labels.is_empty() {
         let text = wide(empty);
@@ -90,4 +94,33 @@ pub fn choose(window: HWND, at: (i32, i32), labels: &[String], empty: &str) -> O
     usize::try_from(picked.0)
         .ok()
         .and_then(|id| id.checked_sub(1))
+}
+
+pub fn choose_app(window: HWND, button: i32, config: &Config) -> Option<Setting> {
+    let choices: Vec<_> = running_apps()
+        .into_iter()
+        .filter_map(|app| config.app_choice(&app).map(|choice| (app, choice)))
+        .collect();
+    let labels: Vec<String> = choices
+        .iter()
+        .map(|(app, choice)| {
+            if choice.off_by_default {
+                format!("{app} (off by default)")
+            } else {
+                app.clone()
+            }
+        })
+        .collect();
+    let mut bounds = RECT::default();
+    unsafe {
+        let _ = GetWindowRect(
+            GetDlgItem(Some(window), button).unwrap_or_default(),
+            &mut bounds,
+        );
+    }
+    let picked = choose(window, (bounds.left, bounds.bottom), &labels, NO_OTHER_APPS)?;
+    choices
+        .into_iter()
+        .nth(picked)
+        .map(|(_, choice)| choice.setting)
 }

@@ -3,11 +3,12 @@ use pith_core::{Chord, Key, KeyAction, Setting};
 use super::super::action::Action;
 use super::super::layout::{Item, Row, Sheet, Voice};
 use super::super::model::Model;
+use super::notice;
 use crate::ui::{ChipState, Tone};
 
 const RECORDING_HINT: &str = "Press the new keys. Esc cancels, Backspace removes.";
 
-fn describe(binding: KeyAction) -> (&'static str, &'static str) {
+pub(super) fn describe(binding: KeyAction) -> (&'static str, &'static str) {
     match binding {
         KeyAction::AcceptAll => ("Keep the suggestion", "Keeps the whole suggestion."),
         KeyAction::AcceptWord => ("Keep one word", "Keeps only the next word."),
@@ -47,8 +48,9 @@ fn binding_row(model: &Model, binding: KeyAction) -> Row {
 }
 
 fn escape_row() -> Row {
-    Row::titled("Hide the suggestion")
-        .caption("Always Esc.")
+    let (title, caption) = describe(KeyAction::Dismiss);
+    Row::titled(title)
+        .caption(caption)
         .keys(vec![Chord::ESCAPE.label()])
 }
 
@@ -69,9 +71,7 @@ pub fn build(model: &Model, sheet: &mut Sheet) {
         .collect();
     rows.push(escape_row());
     sheet.card(rows);
-    if let Some(notice) = &model.key_notice {
-        sheet.note(notice, Voice::Alert);
-    }
+    notice(model, sheet);
     if let Some(note) = tab_note(model) {
         sheet.note(&note, Voice::Quiet);
     }

@@ -122,11 +122,4 @@ impl Item {
     pub fn enabled(self, enabled: bool) -> Self {
         Self { enabled, ..self }
     }
-
-    pub fn disabled(self) -> Self {
-        Self {
-            enabled: false,
-            ..self
-        }
-    }
 }

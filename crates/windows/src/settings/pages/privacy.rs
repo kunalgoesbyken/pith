@@ -5,18 +5,14 @@ use super::super::model::Model;
 use crate::reach;
 use crate::ui::Tone;
 
+const OPEN: (&str, Tone) = ("Open", Tone::Standard);
+
 const READS: &str = "Pith reads the text around your caret in the field you are typing in, to write a suggestion. It skips password fields and terminals, and keeps counts, never your text.";
 
-fn open_row(title: &str, caption: &str, event: UiEvent) -> Row {
+fn event_row(title: &str, caption: &str, (label, tone): (&str, Tone), event: UiEvent) -> Row {
     Row::titled(title)
         .caption(caption)
-        .control(Item::button("Open", Tone::Standard, Action::Emit(event)).named(title))
-}
-
-fn danger_row(title: &str, caption: &str, label: &str, event: UiEvent) -> Row {
-    Row::titled(title)
-        .caption(caption)
-        .control(Item::button(label, Tone::Danger, Action::Emit(event)).named(title))
+        .control(Item::button(label, tone, Action::Emit(event)).named(title))
 }
 
 pub fn build(model: &Model, sheet: &mut Sheet) {
@@ -27,26 +23,28 @@ pub fn build(model: &Model, sheet: &mut Sheet) {
     ]);
     sheet.heading("Your data");
     sheet.card(vec![
-        open_row(
+        event_row(
             "Open data folder",
             "The model and log live on this PC.",
+            OPEN,
             UiEvent::OpenDataFolder,
         ),
-        open_row(
+        event_row(
             "Open settings file",
             "Every setting, including the ones not shown here.",
+            OPEN,
             UiEvent::OpenConfigFile,
         ),
-        danger_row(
+        event_row(
             "Reset stats",
             "The counts never leave this PC.",
-            "Reset",
+            ("Reset", Tone::Danger),
             UiEvent::ResetStats,
         ),
-        danger_row(
+        event_row(
             "Delete model and data",
             "Settings are kept. The model downloads again.",
-            "Delete",
+            ("Delete", Tone::Danger),
             UiEvent::DeleteData,
         ),
     ]);

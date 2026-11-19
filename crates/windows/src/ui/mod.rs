@@ -21,7 +21,7 @@ pub use control::{
 };
 pub use font::gdi_font;
 pub use hover::attach as track_hover;
-pub use keycap::{KEYCAP_HEIGHT, key_labels, keycap, keycaps, keycaps_width};
+pub use keycap::{KEYCAP_HEIGHT, key_labels, keycaps, keycaps_width};
 pub use mark::{app_icon, mark_width, paint_mark};
 pub use metrics::{BASE_DPI, CARD_RADIUS, Role, STROKE, Scale, height, inset, rect, width};
 pub use opaque::make_opaque;

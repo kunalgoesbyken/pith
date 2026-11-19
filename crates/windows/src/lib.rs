@@ -4,6 +4,7 @@ mod appearance;
 pub mod brand;
 mod caret;
 mod clipboard;
+mod command;
 mod control;
 mod erase;
 mod events;
@@ -11,6 +12,7 @@ mod foreground;
 mod format;
 mod keys;
 mod language;
+mod messages;
 mod onboarding;
 mod overlay;
 mod power;
@@ -29,6 +31,7 @@ mod update;
 mod util;
 
 pub use clipboard::{Trigger, paste};
+pub use command::{ForegroundApp, TrayCommand};
 pub use control::reveal_running_instance;
 pub use keys::KeyAction;
 pub use onboarding::{
@@ -40,10 +43,11 @@ pub use overlay::{Picture, Sample, preview};
 pub use reader::{Reader, SnapshotCallback, Source};
 pub use registry::{BACKGROUND_FLAG, refresh_start_with_windows};
 pub use rival::Rival;
-pub use run::{Inbound, Inbox, InsertMode, Options, run};
-pub use settings::{Overview, Page, SettingsWindow, StatsView};
+pub use run::{Inbound, Inbox, InsertMode, Options, Start, run};
+#[doc(hidden)]
+pub use settings::Page;
+pub use settings::{Overview, SettingsWindow, StatsView};
 pub use shortcut::ensure_start_menu_shortcut;
-pub use tray::{ForegroundApp, TrayCommand};
 #[doc(hidden)]
 pub use ui::{Taskbar, force_dark_theme};
 pub use util::{hardware, open_path, single_instance};

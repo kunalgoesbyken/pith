@@ -209,7 +209,11 @@ impl Access {
 }
 
 pub fn same_app(a: &str, b: &str) -> bool {
-    canonical(a).eq_ignore_ascii_case(canonical(b))
+    lowered(a).eq(lowered(b))
+}
+
+fn lowered(app: &str) -> impl Iterator<Item = char> + '_ {
+    canonical(app).chars().flat_map(char::to_lowercase)
 }
 
 fn canonical(app: &str) -> &str {

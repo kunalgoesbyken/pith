@@ -2,10 +2,10 @@ use std::path::Path;
 
 use crate::apps::{Access, editor, same_app};
 use crate::config::{MAX_GHOST_OPACITY, MIN_GHOST_OPACITY};
+use crate::keybind::ensure_bindable;
 use crate::stored::{patch, read, write_atomically};
 use crate::{Chord, Config, KeyAction, ModelPreset, TriggerMode, app_name};
 
-pub const SLIDER_OPACITY: (u8, u8) = (30, 90);
 pub const IDLE_UNLOAD_CHOICES: [u64; 4] = [60, 300, 900, 0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,6 +109,22 @@ pub enum Setting {
     Disallow(String),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppChoice {
+    pub setting: Setting,
+    pub off_by_default: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Backend<'a> {
+    Remote {
+        url: &'a str,
+        model: Option<&'a str>,
+    },
+    File(&'a Path),
+    Preset(ModelPreset),
+}
+
 impl Setting {
     pub fn apply(&self, config: &mut Config) {
         match self {
@@ -122,18 +138,12 @@ impl Setting {
                 config.force_trigger |= *mode == TriggerMode::Manual;
             }
             Self::SmartSpace(on) => config.smart_space = *on,
-            Self::AutoPause(on) => {
-                config.auto_pause_after = if *on {
-                    Config::default().auto_pause_after
-                } else {
-                    0
-                };
-            }
-            Self::Bind(action, slot, chord) => {
-                if let Ok(next) = config.rebind(*action, *slot, *chord) {
-                    *config = next;
-                }
-            }
+            Self::AutoPause(on) => match (*on, config.auto_pause_after) {
+                (false, _) => config.auto_pause_after = 0,
+                (true, 0) => config.auto_pause_after = Config::default().auto_pause_after,
+                (true, _) => {}
+            },
+            Self::Bind(action, slot, chord) => config.set_chord(*action, *slot, *chord),
             Self::DefaultKeys => *config = config.default_keys(),
             Self::Model(preset) => config.model = Some(*preset),
             Self::IdleUnload(seconds) => config.idle_unload_secs = *seconds,
@@ -154,6 +164,16 @@ impl Setting {
         }
     }
 
+    pub fn checked(self, config: &Config) -> Result<Self, String> {
+        if let Self::Bind(action, _, chord) = &self {
+            ensure_bindable(*action, *chord)?;
+        }
+        let mut next = config.clone();
+        self.apply(&mut next);
+        next.ensure_keys()?;
+        Ok(self)
+    }
+
     pub fn persist(&self, path: &Path) -> Result<(), String> {
         let source = read(path)?.unwrap_or_default();
         let before = Config::from_toml(&source)?;
@@ -172,26 +192,47 @@ impl Config {
         self.auto_pause_after > 0
     }
 
+    pub fn backend(&self, recommended: ModelPreset) -> Backend<'_> {
+        match (&self.remote_url, &self.model_path) {
+            (Some(url), _) => Backend::Remote {
+                url,
+                model: self.remote_model.as_deref(),
+            },
+            (None, Some(path)) => Backend::File(path),
+            (None, None) => Backend::Preset(self.preset(recommended)),
+        }
+    }
+
     pub fn same_backend(&self, other: &Self, recommended: ModelPreset) -> bool {
-        self.preset(recommended) == other.preset(recommended)
-            && self.model_path == other.model_path
-            && self.remote_url == other.remote_url
-            && self.remote_model == other.remote_model
+        self.backend(recommended) == other.backend(recommended)
             && self.threads == other.threads
             && self.context_tokens == other.context_tokens
             && self.idle_unload_secs == other.idle_unload_secs
     }
 
-    pub fn switch_app(&self, app: &str) -> Option<Setting> {
+    pub fn app_choice(&self, app: &str) -> Option<AppChoice> {
         match self.access(app) {
-            Access::On | Access::OptedIn => Some(Setting::Block(app.to_string())),
-            Access::OffByDefault => Some(Setting::Allow(app.to_string())),
-            Access::Off => self
-                .blocked_apps
-                .iter()
-                .any(|blocked| same_app(blocked, app))
-                .then(|| Setting::Unblock(app.to_string())),
+            Access::On | Access::OptedIn => Some(AppChoice {
+                setting: Setting::Block(app.to_string()),
+                off_by_default: false,
+            }),
+            Access::OffByDefault => Some(AppChoice {
+                setting: Setting::Allow(app.to_string()),
+                off_by_default: true,
+            }),
+            Access::Off => None,
         }
+    }
+
+    pub fn switch_app(&self, app: &str) -> Option<Setting> {
+        self.app_choice(app)
+            .map(|choice| choice.setting)
+            .or_else(|| {
+                self.blocked_apps
+                    .iter()
+                    .any(|blocked| same_app(blocked, app))
+                    .then(|| Setting::Unblock(app.to_string()))
+            })
     }
 
     pub fn block_app(&mut self, app: &str) -> bool {

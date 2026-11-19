@@ -101,14 +101,20 @@ pub struct KeyGroup {
 }
 
 #[derive(Clone, Debug)]
+pub struct PlacedSample {
+    pub area: RECT,
+    pub caret: RECT,
+    pub sample: Sample,
+}
+
+#[derive(Clone, Debug)]
 pub struct PlacedRow {
-    pub bounds: RECT,
-    pub divided: bool,
+    pub divider: Option<RECT>,
     pub title: Option<(RECT, String)>,
     pub caption: Option<(RECT, String, Voice)>,
     pub badge: Option<(RECT, String)>,
     pub keys: Vec<KeyGroup>,
     pub separators: Vec<RECT>,
     pub value: Option<(RECT, String)>,
-    pub sample: Option<(RECT, Sample)>,
+    pub sample: Option<PlacedSample>,
 }

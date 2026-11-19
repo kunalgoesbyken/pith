@@ -5,9 +5,9 @@ use pith_infer::{Stage, UpdateCheck, check_for_update};
 use windows::Win32::Foundation::HWND;
 
 use super::App;
+use crate::command::TrayCommand;
 use crate::control::Waker;
 use crate::onboarding::Event as OnboardingEvent;
-use crate::tray::TrayCommand;
 use crate::update::Update;
 
 pub enum Inbound {

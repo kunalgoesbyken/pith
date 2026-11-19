@@ -19,8 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, IsIconic, IsWindow, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
 };
 
+use crate::command::{ForegroundApp, TrayCommand};
 use crate::rival::Rival;
-use crate::tray::{ForegroundApp, TrayCommand};
 
 pub use page::Page;
 
@@ -99,6 +99,7 @@ impl SettingsWindow {
         }
     }
 
+    #[doc(hidden)]
     pub fn show_page(&self, page: Page) {
         if model::update(|model| model.go(page)).is_some() {
             window::relayout(self.hwnd);
@@ -132,8 +133,8 @@ impl Drop for SettingsWindow {
 #[cfg(test)]
 mod tests {
     use super::model::read;
-    use super::recorder::WM_RECORDED;
     use super::*;
+    use crate::messages::WM_RECORDED;
     use crate::ui::{self, Theme, force_dark_theme};
     use pith_core::{Chord, KeyAction, Length, PauseSpan, Suggestions};
     use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
@@ -249,7 +250,7 @@ mod tests {
         click(&window, "Keep one word: Shift+Tab");
         send(window.hwnd, WM_RECORDED, 0, VK_F9.0 as isize);
         assert_eq!(take_events(), []);
-        let notice = read(|model| model.key_notice.clone()).flatten();
+        let notice = read(|model| model.notice.clone()).flatten();
         assert!(notice.is_some_and(|text| text.ends_with('.')));
     }
 

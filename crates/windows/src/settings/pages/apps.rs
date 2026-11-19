@@ -7,23 +7,24 @@ use crate::ui::Tone;
 
 const OFF_BY_DEFAULT: &str = "Off by default";
 
+fn rule_row(name: &str, verb: &str, caption: &str, setting: Setting) -> Row {
+    let button = Item::button(
+        &format!("Turn {verb}"),
+        Tone::Standard,
+        Action::Apply(setting),
+    )
+    .named(&format!("Turn Pith {verb} in {name}"));
+    Row::titled(name).caption(caption).control(button)
+}
+
 fn blocked_row(name: &str) -> Row {
-    let action = Action::Apply(Setting::Unblock(name.to_string()));
-    let button =
-        Item::button("Turn on", Tone::Standard, action).named(&format!("Turn Pith on in {name}"));
-    Row::titled(name)
-        .caption("Pith is off here.")
-        .control(button)
+    let setting = Setting::Unblock(name.to_string());
+    rule_row(name, "on", "Pith is off here.", setting)
 }
 
 fn allowed_row(name: &str) -> Row {
-    let action = Action::Apply(Setting::Disallow(name.to_string()));
-    let button =
-        Item::button("Turn off", Tone::Standard, action).named(&format!("Turn Pith off in {name}"));
-    Row::titled(name)
-        .badge(OFF_BY_DEFAULT)
-        .caption("You turned Pith on in this editor.")
-        .control(button)
+    let setting = Setting::Disallow(name.to_string());
+    rule_row(name, "off", "You turned Pith on in this editor.", setting).badge(OFF_BY_DEFAULT)
 }
 
 fn rule_rows(model: &Model) -> Vec<Row> {

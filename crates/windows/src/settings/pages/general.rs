@@ -1,10 +1,10 @@
-use pith_core::{Length, SLIDER_OPACITY, Setting, Suggestions, TriggerMode};
+use pith_core::{Length, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, Setting, Suggestions, TriggerMode};
 
 use super::super::UiEvent;
 use super::super::action::Action;
 use super::super::layout::{Item, Row, Sample, Sheet};
 use super::super::model::Model;
-use super::{choice, switch};
+use super::{choice, notice, switch};
 use crate::format::number;
 
 fn frequency_label(level: Suggestions) -> &'static str {
@@ -93,17 +93,19 @@ fn writing_rows(model: &Model) -> Vec<Row> {
 
 fn ghost_rows(model: &Model) -> Vec<Row> {
     let opacity = model.opacity();
-    let (low, high) = SLIDER_OPACITY;
-    let shown = opacity.clamp(low, high);
     vec![
         Row::titled("Ghost text opacity")
             .caption("Make suggestions fainter or clearer.")
             .control(Item::slider(
                 "Ghost text opacity",
-                (i32::from(shown), i32::from(low), i32::from(high)),
-                Action::Opacity,
+                (
+                    i32::from(opacity),
+                    i32::from(MIN_GHOST_OPACITY),
+                    i32::from(MAX_GHOST_OPACITY),
+                ),
+                Action::None,
             ))
-            .value(&number(u64::from(shown))),
+            .value(&number(u64::from(opacity))),
         Row::sample(Sample {
             typed: "Thanks for the update. I will send the files".to_string(),
             ghost: " over by Friday afternoon.".to_string(),
@@ -129,6 +131,7 @@ fn system_rows(model: &Model) -> Vec<Row> {
 pub fn build(model: &Model, sheet: &mut Sheet) {
     sheet.heading("Suggestions");
     sheet.card(suggestion_rows(model));
+    notice(model, sheet);
     sheet.heading("Writing");
     sheet.card(writing_rows(model));
     sheet.heading("Ghost text");

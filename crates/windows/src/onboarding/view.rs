@@ -7,10 +7,9 @@ use super::step::Glyph;
 use super::{DONE_ID, HINT_ID, KEYS_ID, PROGRESS_ID, STATUS_ID};
 use crate::ui::{
     self, Align, CARD_RADIUS, Canvas, KEYCAP_HEIGHT, Look, Role, STROKE, Text, Tone, height,
-    keycap, paint_backdrop, paint_mark, rect, width,
+    keycaps, paint_backdrop, paint_mark, rect, width,
 };
 
-const KEYCAP_GAP: i32 = 6;
 const KEY_CAPTION_GAP: i32 = 8;
 const RING: i32 = 2;
 const MARK: f32 = 0.22;
@@ -105,10 +104,7 @@ fn paint_keys(canvas: &Canvas, model: &Model, bounds: RECT) {
     let top = bounds.top + (height(bounds) - content) / 2;
     for (index, (keys, caption)) in KEY_HINTS.iter().enumerate() {
         let left = bounds.left + index as i32 * column;
-        let mut x = left;
-        for key in *keys {
-            x += keycap(canvas, (scale, palette), (x, top), key) + scale.px(KEYCAP_GAP);
-        }
+        keycaps(canvas, (scale, palette), (left, top), keys.iter().copied());
         let caption_bounds = rect(
             left,
             top + scale.px(KEYCAP_HEIGHT + KEY_CAPTION_GAP),

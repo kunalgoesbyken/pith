@@ -434,7 +434,10 @@ impl Config {
         }
     }
 
-    fn keys_are_distinct(&self) -> bool {
+    pub(crate) fn ensure_keys(&self) -> Result<(), String> {
+        if self.trigger_mode == TriggerMode::Manual && !self.force_trigger {
+            return Err("Suggest now needs a key while Pith only suggests when you ask.".into());
+        }
         let keymap = self.keymap();
         let mut taken = vec![Chord::ESCAPE];
         for chord in keymap
@@ -444,17 +447,18 @@ impl Config {
             .chain(&keymap.trigger)
         {
             if taken.contains(chord) {
-                return false;
+                return Err(format!(
+                    "{} is already used by another shortcut.",
+                    chord.label()
+                ));
             }
             taken.push(*chord);
         }
-        true
+        Ok(())
     }
 
     pub fn validate(mut self) -> Result<Self, String> {
-        if !self.keys_are_distinct() {
-            return Err("each key can be bound to only one action, and Esc hides".into());
-        }
+        self.ensure_keys()?;
         let blocked = &self.blocked_apps;
         self.allowed_apps = allowable_among(&self.allowed_apps)
             .into_iter()
@@ -493,10 +497,6 @@ impl Config {
             (
                 self.accept_race_ms <= MAX_ACCEPT_RACE_MS,
                 "accept_race_ms must be at most 1000",
-            ),
-            (
-                self.trigger_mode == TriggerMode::Auto || self.force_trigger,
-                "trigger_mode manual needs force_trigger",
             ),
             (
                 self.remote_url.as_deref().is_none_or(is_private_remote),

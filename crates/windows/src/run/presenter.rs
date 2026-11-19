@@ -5,14 +5,15 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
 use super::preferences::Preferences;
-use super::{App, Options};
+use super::{App, Options, Start};
 use crate::appearance::Appearance;
+use crate::command::{ForegroundApp, TrayCommand};
 use crate::foreground::Foreground;
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::registry;
 use crate::rival;
 use crate::settings::{Overview, SettingsWindow, StatsView};
-use crate::tray::{ForegroundApp, Tray, TrayCommand, TrayView};
+use crate::tray::{Tray, TrayView};
 use crate::update::Update;
 use crate::util::local_time;
 
@@ -50,11 +51,12 @@ impl Presenter {
         } else {
             None
         };
-        let onboarding = options.onboarding.clone().and_then(|marker| {
-            Onboarding::create(marker, true, &config.reach())
+        let onboarding = match &options.start {
+            Start::Onboarding(marker) => Onboarding::create(marker.clone(), true, &config.reach())
                 .map_err(|error| log(&format!("welcome window failed: {error}")))
-                .ok()
-        });
+                .ok(),
+            Start::Tray | Start::Home => None,
+        };
         let mut ledger = Ledger::new(options.data_dir.as_ref().map(|dir| dir.join(STATS_FILE)));
         if let Err(error) = ledger.load() {
             log(&format!(
@@ -85,7 +87,7 @@ impl Presenter {
 
     pub fn set_appearance(&mut self, appearance: Appearance, prefs: &Preferences) {
         self.appearance = appearance;
-        self.refresh_tray(prefs);
+        self.show_tray(prefs, self.foreground_view(prefs));
     }
 
     pub fn update(&self) -> &Update {
@@ -148,17 +150,22 @@ impl Presenter {
     }
 
     pub fn refresh(&self, prefs: &Preferences) {
-        self.refresh_settings(prefs);
-        self.refresh_tray(prefs);
+        let app = self.foreground_view(prefs);
+        self.show_settings(prefs, app.clone());
+        self.show_tray(prefs, app);
     }
 
     pub fn refresh_settings(&self, prefs: &Preferences) {
+        self.show_settings(prefs, self.foreground_view(prefs));
+    }
+
+    fn show_settings(&self, prefs: &Preferences, app: Option<ForegroundApp>) {
         if let Some(window) = self.settings.as_ref().filter(|window| window.is_open()) {
-            window.refresh(prefs.saved(), &self.overview(prefs));
+            window.refresh(prefs.saved(), &self.overview(prefs, app));
         }
     }
 
-    fn refresh_tray(&self, prefs: &Preferences) {
+    fn show_tray(&self, prefs: &Preferences, app: Option<ForegroundApp>) {
         let Some(tray) = &self.tray else { return };
         tray.show(TrayView {
             status: self.status_line(prefs),
@@ -166,7 +173,7 @@ impl Presenter {
             taskbar: self.appearance.taskbar,
             icon_px: self.appearance.icon_px,
             pause: prefs.shown_pause(),
-            foreground: self.foreground_view(prefs),
+            foreground: app,
             update: self.update.clone(),
         });
     }
@@ -186,7 +193,7 @@ impl Presenter {
         self.foreground.app().map(|name| ForegroundApp {
             name: name.to_string(),
             access: prefs.saved().access(name),
-            switchable: prefs.saved().switch_app(name).is_some(),
+            switch: prefs.saved().switch_app(name),
         })
     }
 
@@ -200,12 +207,12 @@ impl Presenter {
         }
     }
 
-    fn overview(&self, prefs: &Preferences) -> Overview {
+    fn overview(&self, prefs: &Preferences, app: Option<ForegroundApp>) -> Overview {
         Overview {
             status: self.status_line(prefs),
             stats: self.stats_view(),
             pause: prefs.shown_pause(),
-            app: self.foreground_view(prefs),
+            app,
             start_with_windows: registry::start_with_windows(),
         }
     }
@@ -232,7 +239,11 @@ impl Presenter {
             window.set_rival(rival::detect());
             return;
         }
-        match SettingsWindow::open(prefs.saved(), prefs.recommended(), &self.overview(prefs)) {
+        match SettingsWindow::open(
+            prefs.saved(),
+            prefs.recommended(),
+            &self.overview(prefs, self.foreground_view(prefs)),
+        ) {
             Ok(window) => {
                 window.show();
                 window.set_rival(rival::detect());

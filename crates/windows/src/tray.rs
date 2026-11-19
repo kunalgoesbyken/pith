@@ -11,6 +11,7 @@ use windows::Win32::UI::Shell::{
 
 use crate::appearance::Appearance;
 use crate::brand;
+use crate::command::{ForegroundApp, TrayCommand};
 use crate::reach::tooltip;
 use crate::ui::Taskbar;
 use crate::update::Update;
@@ -25,24 +26,6 @@ fn menu_text(text: &str) -> String {
         shown.push('\u{2026}');
     }
     shown.replace('&', "&&")
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TrayCommand {
-    Pause(PauseSpan),
-    Resume,
-    ChangeApp,
-    Update,
-    Open,
-    Quit,
-    ResumeApp(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ForegroundApp {
-    pub name: String,
-    pub access: Access,
-    pub switchable: bool,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -62,7 +45,7 @@ impl TrayView {
             Some(ForegroundApp {
                 name,
                 access: Access::Off,
-                switchable: true,
+                switch: Some(_),
             }) => format!("Turn on in {name}"),
             Some(ForegroundApp {
                 name,
@@ -80,7 +63,7 @@ impl TrayView {
     }
 
     fn can_change_app(&self) -> bool {
-        matches!(&self.foreground, Some(app) if app.switchable)
+        matches!(&self.foreground, Some(app) if app.switch.is_some())
     }
 
     fn resumable(&self) -> bool {
@@ -304,6 +287,7 @@ impl Tray {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pith_core::Setting;
 
     #[test]
     fn app_item_names_the_app_and_arms_for_any_app_the_user_can_change() {
@@ -319,7 +303,7 @@ mod tests {
             view.foreground = Some(ForegroundApp {
                 name: "Slack".into(),
                 access,
-                switchable: access != Access::Off,
+                switch: (access != Access::Off).then(|| Setting::Block("Slack".into())),
             });
             assert_eq!(view.app_label(), label);
             assert_eq!(view.can_change_app(), armed);

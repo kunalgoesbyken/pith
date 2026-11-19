@@ -34,3 +34,14 @@ pub const STRIP_HEIGHT: i32 = 120;
 pub const THUMB_INSET: i32 = 4;
 pub const THUMB_WIDTH: i32 = 4;
 pub const MIN_THUMB: i32 = 32;
+
+pub const BADGE_RADIUS: i32 = 10;
+pub const CARET_WIDTH: i32 = 1;
+pub const TILE_TEXT_INSET: i32 = 12;
+pub const STRIP_GAP: i32 = 8;
+pub const BAR_GAP: i32 = 4;
+pub const BAR_MIN: i32 = 2;
+pub const BAR_RADIUS: i32 = 2;
+
+pub const MARK_HEIGHT: i32 = 24;
+pub const MARK_GAP: i32 = 12;

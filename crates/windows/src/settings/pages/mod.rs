@@ -1,25 +1,39 @@
 mod apps;
+mod backend;
 mod general;
 mod home;
-mod model;
 mod privacy;
 mod shortcuts;
 
-use pith_core::Setting;
+use pith_core::{Backend, Setting};
 
 use super::action::Action;
-use super::layout::{Item, Sheet};
-use super::model::Model as State;
+use super::layout::{Item, Sheet, Voice};
+use super::model::Model;
 use super::page::Page;
 
-pub fn build(state: &State, sheet: &mut Sheet) {
-    match state.page {
-        Page::Home => home::build(state, sheet),
-        Page::General => general::build(state, sheet),
-        Page::Shortcuts => shortcuts::build(state, sheet),
-        Page::Apps => apps::build(state, sheet),
-        Page::Model => model::build(state, sheet),
-        Page::Privacy => privacy::build(state, sheet),
+pub fn build(model: &Model, sheet: &mut Sheet) {
+    match model.page {
+        Page::Home => home::build(model, sheet),
+        Page::General => general::build(model, sheet),
+        Page::Shortcuts => shortcuts::build(model, sheet),
+        Page::Apps => apps::build(model, sheet),
+        Page::Model => backend::build(model, sheet),
+        Page::Privacy => privacy::build(model, sheet),
+    }
+}
+
+fn backend_name(backend: &Backend) -> String {
+    match backend {
+        Backend::Remote { .. } => "Remote model".to_string(),
+        Backend::File(_) => "Custom model".to_string(),
+        Backend::Preset(preset) => format!("{} model", preset.label()),
+    }
+}
+
+fn notice(model: &Model, sheet: &mut Sheet) {
+    if let Some(notice) = &model.notice {
+        sheet.note(notice, Voice::Alert);
     }
 }
 

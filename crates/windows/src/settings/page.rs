@@ -1,5 +1,6 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
+    #[default]
     Home,
     General,
     Shortcuts,
@@ -27,12 +28,5 @@ impl Page {
             Self::Model => "Model",
             Self::Privacy => "Privacy & data",
         }
-    }
-
-    pub fn index(self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|page| *page == self)
-            .unwrap_or_default()
     }
 }

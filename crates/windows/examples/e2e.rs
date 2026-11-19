@@ -11,7 +11,7 @@ use pith_core::{
 use pith_infer::{Backend, Worker};
 use pith_windows::{
     Inbound, Inbox, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep, Options,
-    Outcome, Reader, Source, TrayCommand, Trigger, paste, run,
+    Outcome, Reader, Source, Start, TrayCommand, Trigger, paste, run,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -2398,7 +2398,7 @@ fn main() {
         rig.report.failed
     });
     let options = Options {
-        onboarding: None,
+        start: Start::Tray,
         source: Source::Window(&TARGET),
         insert: InsertMode::Custom(match insert_lag_ms {
             0 => Box::new(insert_now),
@@ -2412,7 +2412,6 @@ fn main() {
         data_dir: None,
         notice: None,
         recommended: ModelPreset::Standard,
-        open_home: false,
     };
     run(config, worker, inbox, receiver, options).expect("run");
     let failed = driver.join().unwrap_or(1);
