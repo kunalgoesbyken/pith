@@ -4,8 +4,9 @@ permissions:
   contents: read
 
 on:
+  workflow_dispatch:
   push:
-    branches: [master, linux]
+    branches: [master, linux, linux-app]
   pull_request:
 
 env:
@@ -24,9 +25,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      - run: cargo build -p pith-linux --all-targets
-      - run: cargo clippy -p pith-linux --all-targets -- -D warnings
-      - run: cargo fmt -p pith-linux --check
+      - run: cargo build --locked -p pith-linux --all-targets --features e2e
+      - run: cargo clippy --locked -p pith -p pith-linux --all-targets -- -D warnings
+      - run: cargo clippy --locked -p pith -p pith-linux --all-targets --features e2e -- -D warnings
+      - run: cargo fmt --all --check
 
   engine:
     runs-on: ubuntu-24.04
@@ -38,8 +40,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: sudo apt-get install -y --no-install-recommends libclang-18-dev
-      - run: cargo build -p pith-core -p pith-infer
-      - run: cargo test -p pith-core -p pith-infer
+      - run: cargo build --locked -p pith-core -p pith-infer
+      - run: cargo test --locked -p pith-core -p pith-infer
 
   e2e:
     runs-on: ubuntu-24.04
@@ -54,12 +56,54 @@ jobs:
           sudo apt-get install -y --no-install-recommends
           xvfb xdotool x11-utils openbox dbus-x11 at-spi2-core
           python3-gi gir1.2-gtk-3.0 gir1.2-gtk-4.0
-      - run: cargo build -p pith-linux --example probe
+      - run: cargo build --locked -p pith-linux --example probe --features e2e
       - name: GTK 4
-        run: sh crates/linux/e2e/session.sh gtk4
+        run: sh crates/linux/e2e/session.sh crates/linux/e2e/harness.py --ci-runner --probe target/debug/examples/probe --target gtk4
       - name: GTK 3
         if: ${{ !cancelled() }}
-        run: sh crates/linux/e2e/session.sh gtk3
+        run: sh crates/linux/e2e/session.sh crates/linux/e2e/harness.py --ci-runner --probe target/debug/examples/probe --target gtk3
       - name: Firefox
         if: ${{ !cancelled() }}
-        run: sh crates/linux/e2e/session.sh firefox
+        run: sh crates/linux/e2e/session.sh crates/linux/e2e/harness.py --ci-runner --probe target/debug/examples/probe --target firefox
+
+  app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PITH_E2E_DATA: ${{ github.workspace }}/pith-data
+      PITH_E2E_SHOTS: ${{ github.workspace }}/pith-shots
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: pith-data/pith/models
+          key: linux-model-${{ hashFiles('crates/infer/src/models.rs') }}
+      - run: >
+          sudo apt-get install -y --no-install-recommends
+          libclang-18-dev xvfb xdotool x11-utils openbox xcompmgr imagemagick
+          dbus-x11 at-spi2-core python3-gi gir1.2-gtk-3.0 fonts-dejavu-core fonts-lohit-deva
+      - run: cargo build --locked --release -p pith
+      - name: Binary size
+        run: |
+          bytes=$(stat -c %s target/release/pith)
+          echo "pith release binary: $bytes bytes ($((bytes / 1048576)) MiB)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cargo build --locked --release -p pith --features e2e
+      - run: cargo build --locked -p pith-linux --example probe --example ghost --features e2e
+      - name: Ghost text with a compositor
+        run: PITH_E2E_COMPOSITOR=1 sh crates/linux/e2e/session.sh crates/linux/e2e/app.py --ci-runner --pith target/release/pith --probe target/debug/examples/probe --compositor on
+      - name: Complex scripts
+        if: ${{ !cancelled() }}
+        run: PITH_E2E_COMPOSITOR=1 sh crates/linux/e2e/session.sh crates/linux/e2e/scripts.py --ci-runner --ghost target/debug/examples/ghost
+      - name: Pill without a compositor
+        if: ${{ !cancelled() }}
+        run: PITH_E2E_COMPOSITOR=0 sh crates/linux/e2e/session.sh crates/linux/e2e/app.py --ci-runner --pith target/release/pith --probe target/debug/examples/probe --compositor off
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: screenshots
+          path: pith-shots
+          if-no-files-found: ignore

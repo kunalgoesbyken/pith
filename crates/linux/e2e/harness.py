@@ -23,6 +23,8 @@ WINDOW_MARGIN = 150
 INLINE = "Inline"
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 GTK_FIXTURE = str(FIXTURES / "gtk_field.py")
+HOSTED_APP = "gtk_field"
+HOSTED_TERMINAL = "xterm"
 SEED = "a😀 héllo wörld 日本語"
 SEED_ASTRAL_HEAD = SEED[:2]
 SEED_ASTRAL_REST = SEED[2:]
@@ -254,22 +256,30 @@ def typing_rows(app, probe, window, multiline, caret_rect):
     return table.rows
 
 
-def unicode_rows(app, probe):
+def unicode_rows(app, probe, caret_rect):
     table = Table(app, probe)
+
+    def placed(snapshot):
+        return not caret_rect or caret(snapshot) is not None
+
     table.step(
         "unicode text before the caret",
         lambda: inject.press("End"),
-        lambda s: s["before"] == SEED and s["after"] == "",
+        lambda s: s["before"] == SEED and s["after"] == "" and placed(s),
     )
     table.step(
         "unicode around the caret",
         lambda: inject.press("Left", "Left"),
-        lambda s: s["before"] == SEED_BEFORE_CJK_TAIL and s["after"] == SEED_CJK_TAIL,
+        lambda s: s["before"] == SEED_BEFORE_CJK_TAIL
+        and s["after"] == SEED_CJK_TAIL
+        and placed(s),
     )
     table.step(
         "astral character boundary",
         lambda: inject.press("Home", "Right", "Right"),
-        lambda s: s["before"] == SEED_ASTRAL_HEAD and s["after"] == SEED_ASTRAL_REST,
+        lambda s: s["before"] == SEED_ASTRAL_HEAD
+        and s["after"] == SEED_ASTRAL_REST
+        and placed(s),
     )
     return table.rows
 
@@ -294,11 +304,20 @@ def blocked_rows(app, executable, probe):
     return table.rows
 
 
+def hosted_terminal_rows(app, probe):
+    table = Table(app, probe)
+    table.step(
+        "interpreter-hosted terminal is hidden",
+        lambda: type_text("private"),
+        lambda s: s["app"] == HOSTED_TERMINAL and s["before"] == "" and s["after"] == "",
+    )
+    return table.rows
+
+
 def gtk(target, probe_binary):
     version = GTK_VERSIONS[target]
     caret_rect = GTK_CARET_RECTS[target]
     label = f"GTK {version[0]}"
-    executable = os.path.basename(os.path.realpath(sys.executable))
     rows = []
 
     def fixture(kind, *seed):
@@ -315,15 +334,22 @@ def gtk(target, probe_binary):
             )
         with running(fixture(kind, SEED), probe_binary) as probe:
             find_window(window_title(kind))
-            rows += unicode_rows(f"{label} {kind}", probe)
+            rows += unicode_rows(f"{label} {kind}", probe, caret_rect)
     with running(fixture("password"), probe_binary) as probe:
         find_window(window_title("password"))
         rows += password_rows(f"{label} password", probe)
     with running(
-        fixture("entry"), probe_binary, "--block", executable
+        fixture("entry"), probe_binary, "--block", HOSTED_APP
     ) as probe:
         find_window(window_title("entry"))
-        rows += blocked_rows(f"{label} entry", executable, probe)
+        rows += blocked_rows(f"{label} entry", HOSTED_APP, probe)
+    with tempfile.TemporaryDirectory(prefix="pith-terminal-") as directory:
+        script = pathlib.Path(directory, HOSTED_TERMINAL)
+        shutil.copy(GTK_FIXTURE, script)
+        command = [sys.executable, str(script), version, "entry"]
+        with running(command, probe_binary) as probe:
+            find_window(window_title("entry"))
+            rows += hosted_terminal_rows(f"{label} entry", probe)
     return rows
 
 
@@ -362,7 +388,7 @@ def firefox(probe_binary):
         firefox_command(firefox_profile(), "textarea.html", SEED), probe_binary
     ) as probe:
         find_window("pith-firefox-textarea")
-        rows += unicode_rows("Firefox textarea", probe)
+        rows += unicode_rows("Firefox textarea", probe, True)
     with running(
         firefox_command(firefox_profile(), "password.html"), probe_binary
     ) as probe:

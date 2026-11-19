@@ -1,10 +1,10 @@
 <h1 align="center"><img src="assets/logo.svg" alt="Pith" width="280"></h1>
 
-Local autocomplete for every text box on Windows. Pause while you type and Pith shows the rest of your sentence in grey at the caret. Tab keeps all of it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, and Ctrl+Shift+Space asks for a suggestion right away. When you finish a misspelled word, Pith offers the fix instead (`teh → the`) and Tab applies it.
+Local autocomplete for every text box on Windows, and experimentally on Linux with X11. Pause while you type and Pith shows the rest of your sentence in grey at the caret. Tab keeps all of it, Shift+Tab or Ctrl+Right keeps one word, Esc hides it, and Ctrl+Shift+Space asks for a suggestion right away. When you finish a misspelled word, Pith offers the fix instead (`teh → the`) and Tab applies it.
 
 A 0.6B model runs on your CPU. There is no account and no telemetry. The only network use is the one-time model download and the update check you start yourself. It is built for ordinary laptops with 8 GB RAM and no GPU.
 
-Status: Windows MVP. macOS and Linux are planned; the engine and inference crates are already platform-free.
+Status: Windows MVP. Linux (X11) is experimental, see the Linux section. macOS is planned; the engine and inference crates are platform-free.
 
 ## What stays on your PC
 
@@ -13,10 +13,10 @@ Status: Windows MVP. macOS and Linux are planned; the engine and inference crate
 | Text you type | Read from the focused field only, held in memory for the prompt, never written to disk or sent anywhere |
 | Network | Two things, and only these. One download of the model from Hugging Face (pinned revision, SHA-256 checked). One request to `api.github.com` for the releases of this repository, only when you click Check for updates in the tray; it sends no text and no identifier, and nothing is downloaded or installed. Nothing else, unless you set `remote_url` |
 | Telemetry | None |
-| Keystrokes | Never seen. There is no keyboard hook |
+| Keystrokes | Never seen. Windows has no keyboard hook. Linux grabs only the accept keys, Esc and the force-suggestion key, and only while a suggestion is shown; every other key goes straight to the app |
 | Password fields, password managers, sign-in screens, blocked apps | Never read |
 | Spell checking | The one word you just finished is checked by the spell checker built into Windows (the Windows Spell Checking API, Windows 8 and later), which runs on this PC and uses your own Windows dictionaries. Pith adds no network request for it |
-| Clipboard | Accepting pastes through the clipboard, excluded from clipboard history, cloud clipboard and clipboard monitors, then restores what you had |
+| Clipboard | Windows: accepting pastes through the clipboard, excluded from clipboard history, cloud clipboard and clipboard monitors, then restores what you had. Linux: text goes in through the accessibility interface when the app supports it; otherwise it is pasted through the clipboard and the previous text is restored, and nothing is pasted if the clipboard holds anything but text. Linux has no way to hide a paste from clipboard managers |
 | On disk | `config.toml` (your settings), `stats.toml` (counts of suggestions shown and accepted, no text), `pith.log` (timings, errors and app names, capped at 1 MB) and the model |
 
 Settings > Delete model and data removes everything except your settings.
@@ -165,7 +165,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 | `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; `https`, or `http` to this computer |
 | `remote_model` | none | the `model` name sent to that server |
 
-## How it works
+## How it works on Windows
 
 - **Reads text** through Windows UI Automation on a background thread with 250 ms timeouts, so a hung app never freezes Pith.
 - **Notices typing** through WinEvents (focus, value, caret), not a keyboard hook.
@@ -180,7 +180,8 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 crates/core      engine, config, policy, placement, stats (platform-free, unit-tested)
 crates/infer     llama.cpp session, worker thread, model download, remote backend
 crates/windows   UI Automation, WinEvents, overlay, pill, hotkeys, tray, settings, onboarding
-crates/app       pith.exe
+crates/linux     AT-SPI reader, X11 overlay, key grabs, insertion, event loop (X11 only)
+crates/app       pith.exe on Windows, pith on Linux
 ```
 
 ## Build and test
@@ -210,7 +211,32 @@ cargo run --release -p pith-windows --example ui_shots
 - Snippets and per-site rules
 - Several candidates to choose from
 - Code signing, winget and automatic update notices
-- macOS (Accessibility API) and Linux (AT-SPI)
+- macOS (Accessibility API) and Linux on Wayland (Linux on X11 is experimental)
+
+## Linux (X11, experimental)
+
+Run `pith --allow-accessibility` in an X11 session. It refuses to start in a Wayland session. Desktop accessibility must be on; the flag switches it on for the session and `SIGINT` or `SIGTERM` (Ctrl+C, a kill, a logout) restores it. A process that is killed hard leaves it on.
+
+- **Reads text** through AT-SPI from the focused field only. The accessibility bus delivers focus, caret and selection events from every app, but they carry object references and no text; Pith never asks any other field for its text.
+- **Captures the accept keys and Esc** with an X key grab only while a suggestion is shown, plus the force-suggestion chord while Pith is on. A key it does not act on is handed back to the app unchanged; if Pith does not answer within 150 ms the key goes to the app.
+- **Draws** the suggestion in an override-redirect window that never takes the focus or the mouse. With a compositing manager it is inline at the caret, in the field's font and colour at reduced opacity. Without one it is a pill below the caret.
+- **Inserts** through the accessibility interface and checks that the text landed, and falls back to the clipboard only when the field refuses it or accepted nothing.
+- **Config and data** live in `~/.config/pith/config.toml` and `~/.local/share/pith/` (the model and `pith.log`), or under `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME`. `blocked_apps` and `allowed_apps` use the lower-case program name, for example `keepassxc`.
+- **Build** with `cargo build --release -p pith`. CI runs the end-to-end suite on Xvfb with GTK 3 and Firefox.
+
+Which app is behind a window comes from the process that owns it. Programs run by an interpreter or a sandbox are named as follows, and Pith reads nothing from a window it cannot name:
+
+- Python, Perl, Ruby, Node, Mono, .NET, shell scripts: the script or assembly name, after skipping the interpreter's own options and their values. `-c`, `-m` and `-e` give no name, so nothing is read.
+- Java: only `-jar` gives a name; a main class does not, so nothing is read.
+- Flatpak and Snap: the full application id (`FLATPAK_ID` or `SNAP_NAME`), matched through a table of known ids such as `org.keepassxc.KeePassXC` to `keepassxc`. An id that is not in the table is treated as an ordinary app.
+- Apps seen only through the sandbox bridge (`bwrap`, `flatpak-spawn`, `xdg-dbus-proxy`) have no name, so nothing is read.
+- A shared Electron binary opening an `.asar` has no name, so nothing is read. An Electron app that ships its own executable is named after it.
+
+Known gaps:
+
+- No tray, settings window, autostart or packaging yet.
+- GTK 4 does not report the caret position, so there is no placement in GTK 4 fields.
+- The inline ghost wraps against the monitor, not the field.
 
 ## License
 
