@@ -6,13 +6,10 @@ use super::model::Model;
 use super::step::Glyph;
 use super::{DONE_ID, HINT_ID, KEYS_ID, PROGRESS_ID, STATUS_ID};
 use crate::ui::{
-    self, Align, CARD_RADIUS, CONTROL_RADIUS, Canvas, Look, Role, STROKE, Text, Tone, height,
-    measure, paint_backdrop, paint_mark, rect, width,
+    self, Align, CARD_RADIUS, Canvas, KEYCAP_HEIGHT, Look, Role, STROKE, Text, Tone, height,
+    keycap, paint_backdrop, paint_mark, rect, width,
 };
 
-const KEYCAP_HEIGHT: i32 = 28;
-const KEYCAP_PAD: i32 = 10;
-const KEYCAP_MIN: i32 = 28;
 const KEYCAP_GAP: i32 = 6;
 const KEY_CAPTION_GAP: i32 = 8;
 const RING: i32 = 2;
@@ -99,19 +96,6 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     canvas.fill_round(divider, 0, palette.card_stroke);
 }
 
-fn keycap(canvas: &Canvas, model: &Model, origin: (i32, i32), label: &str) -> i32 {
-    let palette = &model.theme.palette;
-    let scale = model.scale;
-    let style = Text::new(Role::Body, palette.text).aligned(Align::Center);
-    let label_width = measure(scale, label, style, 0).0;
-    let cap_width = (label_width + 2 * scale.px(KEYCAP_PAD)).max(scale.px(KEYCAP_MIN));
-    let bounds = rect(origin.0, origin.1, cap_width, scale.px(KEYCAP_HEIGHT));
-    let radius = scale.px(CONTROL_RADIUS);
-    canvas.card(bounds, radius, palette.control, palette.control_stroke);
-    canvas.text(bounds, label, style);
-    cap_width
-}
-
 fn paint_keys(canvas: &Canvas, model: &Model, bounds: RECT) {
     let palette = &model.theme.palette;
     let scale = model.scale;
@@ -123,7 +107,7 @@ fn paint_keys(canvas: &Canvas, model: &Model, bounds: RECT) {
         let left = bounds.left + index as i32 * column;
         let mut x = left;
         for key in *keys {
-            x += keycap(canvas, model, (x, top), key) + scale.px(KEYCAP_GAP);
+            x += keycap(canvas, (scale, palette), (x, top), key) + scale.px(KEYCAP_GAP);
         }
         let caption_bounds = rect(
             left,

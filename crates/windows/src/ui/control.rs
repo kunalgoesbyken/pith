@@ -3,26 +3,29 @@ use windows::Win32::UI::Controls::{
     DRAWITEMSTRUCT, ODS_DISABLED, ODS_FOCUS, ODS_NOFOCUSRECT, ODS_SELECTED,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BS_OWNERDRAW, CreateWindowExW, HMENU, WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_TABSTOP,
-    WS_VISIBLE,
+    BS_AUTORADIOBUTTON, BS_CHECKBOX, BS_NOTIFY, BS_OWNERDRAW, CreateWindowExW, HMENU,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_GROUP, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, w};
 
-use super::canvas::{Align, Canvas, Text, paint};
+use super::canvas::{Align, Canvas, Text, measure, paint};
 use super::hover;
 use super::metrics::{
-    CONTROL_RADIUS, FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, origin, rect, width,
+    CONTROL_RADIUS, FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, origin, width,
 };
+use super::skin;
 use super::theme::{Palette, Rgb, Theme};
+use super::widgets;
 use crate::util::wide;
 
 pub const TOGGLE_WIDTH: i32 = 40;
 pub const TOGGLE_HEIGHT: i32 = 20;
 pub const BUTTON_HEIGHT: i32 = 32;
+pub const SLIDER_WIDTH: i32 = 200;
 pub const FOCUS_MARGIN: i32 = FOCUS_RING + FOCUS_GAP;
-const KNOB: i32 = 12;
-const KNOB_PAD: i32 = 4;
-const TOGGLE_LABEL_GAP: i32 = 12;
+const BUTTON_PAD: i32 = 16;
+const BUTTON_MIN: i32 = 88;
+const SEGMENT_MIN: i32 = 72;
 const SS_OWNERDRAW: u32 = 0x0D;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,10 +36,64 @@ pub enum Tone {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Seam {
+    Only,
+    First,
+    Middle,
+    Last,
+}
+
+impl Seam {
+    pub fn of(index: usize, count: usize) -> Self {
+        match (index, count) {
+            (_, 0 | 1) => Self::Only,
+            (0, _) => Self::First,
+            (last, count) if last + 1 == count => Self::Last,
+            _ => Self::Middle,
+        }
+    }
+
+    pub fn joins_before(self) -> bool {
+        matches!(self, Self::Middle | Self::Last)
+    }
+
+    pub fn joins_after(self) -> bool {
+        matches!(self, Self::First | Self::Middle)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChipState {
+    Keys,
+    Empty,
+    Recording,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Look<'a> {
-    Toggle { on: bool, label: &'a str },
-    Segment { selected: bool, label: &'a str },
-    Button { tone: Tone, label: &'a str },
+    Toggle {
+        on: bool,
+    },
+    Segment {
+        selected: bool,
+        label: &'a str,
+        seam: Seam,
+    },
+    Button {
+        tone: Tone,
+        label: &'a str,
+    },
+    Nav {
+        selected: bool,
+        label: &'a str,
+    },
+    Chip {
+        state: ChipState,
+        label: &'a str,
+    },
+    Slider {
+        fraction: f32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,11 +104,11 @@ pub struct Surface {
 }
 
 #[derive(Clone, Copy)]
-struct Interaction {
-    hot: bool,
-    pressed: bool,
-    focused: bool,
-    disabled: bool,
+pub(super) struct Interaction {
+    pub hot: bool,
+    pub pressed: bool,
+    pub focused: bool,
+    pub disabled: bool,
 }
 
 impl Interaction {
@@ -72,7 +129,7 @@ struct Fill {
     text: Rgb,
 }
 
-fn pick(state: Interaction, rest: Rgb, hot: Rgb, pressed: Rgb) -> Rgb {
+pub(super) fn pick(state: Interaction, rest: Rgb, hot: Rgb, pressed: Rgb) -> Rgb {
     match (state.pressed, state.hot) {
         (true, _) => pressed,
         (false, true) => hot,
@@ -99,7 +156,7 @@ fn standard(theme: &Theme, state: Interaction, text: Rgb) -> Fill {
     }
 }
 
-fn accent_fill(palette: &Palette, state: Interaction) -> Rgb {
+pub(super) fn accent_fill(palette: &Palette, state: Interaction) -> Rgb {
     let accent = &palette.accent;
     pick(state, accent.base, accent.hover, accent.pressed)
 }
@@ -152,93 +209,29 @@ fn draw_button(
     }
 }
 
-fn draw_toggle(
-    canvas: &Canvas,
-    surface: &Surface,
-    bounds: RECT,
-    on: bool,
-    label: &str,
-    state: Interaction,
-) {
-    let scale = surface.scale;
-    let palette = &surface.theme.palette;
-    let pill_width = scale.px(TOGGLE_WIDTH);
-    let pill_height = scale.px(TOGGLE_HEIGHT);
-    let left = bounds.right - scale.px(FOCUS_MARGIN) - pill_width;
-    let top = bounds.top + (height(bounds) - pill_height) / 2;
-    let pill = rect(left, top, pill_width, pill_height);
-    let radius = pill_height / 2;
-    let (knob_color, knob_x) = if on {
-        canvas.fill_round(pill, radius, accent_fill(palette, state));
-        (
-            palette.accent.on,
-            pill.right - scale.px(KNOB_PAD + KNOB / 2),
-        )
-    } else {
-        if state.hot || state.pressed {
-            canvas.fill_round(
-                pill,
-                radius,
-                pick(
-                    state,
-                    palette.card,
-                    palette.control_hover,
-                    palette.control_pressed,
-                ),
-            );
-        }
-        canvas.stroke_round(pill, radius, palette.strong_stroke, scale.px(STROKE));
-        (
-            palette.text_secondary,
-            pill.left + scale.px(KNOB_PAD + KNOB / 2),
-        )
-    };
-    canvas.disc(
-        (knob_x as f32, (top + pill_height / 2) as f32),
-        scale.size(KNOB as f32 / 2.0),
-        knob_color,
-    );
-    let gap = scale.px(TOGGLE_LABEL_GAP);
-    let label_area = RECT {
-        left: bounds.left,
-        top: bounds.top,
-        right: pill.left - gap,
-        bottom: bounds.bottom,
-    };
-    canvas.text(
-        label_area,
-        label,
-        Text::new(Role::Body, palette.text).aligned(Align::End),
-    );
-    if state.focused {
-        let margin = scale.px(FOCUS_MARGIN);
-        let ring = scale.px(FOCUS_RING);
-        canvas.stroke_round(
-            inset(pill, -margin),
-            radius + margin,
-            palette.accent.base,
-            ring,
-        );
-    }
-}
-
 pub fn draw(item: &DRAWITEMSTRUCT, surface: &Surface, look: Look) {
     let state = Interaction::of(item);
     let local = origin(item.rcItem);
     paint(item.hDC, item.rcItem, surface.scale, |canvas| {
         canvas.clear(Some(surface.backdrop));
         match look {
-            Look::Toggle { on, label } => draw_toggle(canvas, surface, local, on, label, state),
-            Look::Segment { selected, label } => {
-                let tone = if selected {
-                    Tone::Accent
-                } else {
-                    Tone::Standard
-                };
-                draw_button(canvas, surface, local, (tone, label), state);
-            }
+            Look::Toggle { on } => widgets::draw_toggle(canvas, surface, local, on, state),
+            Look::Segment {
+                selected,
+                label,
+                seam,
+            } => widgets::draw_segment(canvas, surface, local, (selected, label, seam), state),
             Look::Button { tone, label } => {
                 draw_button(canvas, surface, local, (tone, label), state);
+            }
+            Look::Nav { selected, label } => {
+                widgets::draw_nav(canvas, surface, local, (selected, label), state);
+            }
+            Look::Chip { state: chip, label } => {
+                widgets::draw_chip(canvas, surface, local, (chip, label), state);
+            }
+            Look::Slider { fraction } => {
+                widgets::draw_slider(canvas, surface, local, fraction, state);
             }
         }
     });
@@ -252,8 +245,21 @@ pub fn paint_backdrop(item: &DRAWITEMSTRUCT, surface: &Surface, draw: impl FnOnc
     });
 }
 
-pub fn toggle_width(scale: Scale, label_width: i32) -> i32 {
-    scale.px(TOGGLE_WIDTH + TOGGLE_LABEL_GAP) + label_width
+pub fn toggle_width(scale: Scale) -> i32 {
+    scale.px(TOGGLE_WIDTH)
+}
+
+pub fn button_width(scale: Scale, label: &str) -> i32 {
+    let style = Text::new(Role::Body, Rgb::BLACK);
+    let wanted = measure(scale, label, style, 0).0 + 2 * scale.px(BUTTON_PAD);
+    wanted.max(scale.px(BUTTON_MIN))
+}
+
+pub fn segment_width<'a>(scale: Scale, labels: impl Iterator<Item = &'a str>) -> i32 {
+    let style = Text::new(Role::Body, Rgb::BLACK);
+    labels
+        .map(|label| measure(scale, label, style, 0).0 + 2 * scale.px(BUTTON_PAD))
+        .fold(scale.px(SEGMENT_MIN), i32::max)
 }
 
 pub fn expand(visual: RECT, scale: Scale) -> RECT {
@@ -293,15 +299,38 @@ impl Parent {
         }
     }
 
-    pub fn button(&self, id: i32, name: &str, bounds: RECT) -> windows::core::Result<HWND> {
+    fn native(&self, id: i32, name: &str, style: u32, bounds: RECT) -> windows::core::Result<HWND> {
         let button = self.child(
             w!("BUTTON"),
             name,
-            BS_OWNERDRAW as u32 | WS_TABSTOP.0,
+            style | BS_NOTIFY as u32 | WS_TABSTOP.0,
             id,
             bounds,
         )?;
         hover::attach(button);
+        Ok(button)
+    }
+
+    pub fn button(&self, id: i32, name: &str, bounds: RECT) -> windows::core::Result<HWND> {
+        self.native(id, name, BS_OWNERDRAW as u32 | WS_GROUP.0, bounds)
+    }
+
+    pub fn check(&self, id: i32, name: &str, bounds: RECT) -> windows::core::Result<HWND> {
+        let button = self.native(id, name, BS_CHECKBOX as u32 | WS_GROUP.0, bounds)?;
+        skin::attach(button);
+        Ok(button)
+    }
+
+    pub fn radio(
+        &self,
+        id: i32,
+        name: &str,
+        bounds: RECT,
+        first_in_group: bool,
+    ) -> windows::core::Result<HWND> {
+        let group = if first_in_group { WS_GROUP.0 } else { 0 };
+        let button = self.native(id, name, BS_AUTORADIOBUTTON as u32 | group, bounds)?;
+        skin::attach(button);
         Ok(button)
     }
 

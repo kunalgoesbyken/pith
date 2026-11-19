@@ -246,3 +246,17 @@ impl Theme {
         self.mode == Mode::Contrast
     }
 }
+
+const SIDEBAR_SHADE_LIGHT: u32 = 244;
+const SIDEBAR_SHADE_DARK: u32 = 208;
+
+impl Theme {
+    pub fn sidebar(&self) -> Rgb {
+        let palette = &self.palette;
+        match self.mode {
+            Mode::Contrast => palette.page,
+            Mode::Dark => pith_core::blend(palette.page, Rgb::BLACK, SIDEBAR_SHADE_DARK),
+            Mode::Light => pith_core::blend(palette.page, palette.text, SIDEBAR_SHADE_LIGHT),
+        }
+    }
+}
