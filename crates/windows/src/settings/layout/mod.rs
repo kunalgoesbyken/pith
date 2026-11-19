@@ -57,9 +57,10 @@ impl Layout {
     }
 }
 
-pub fn pane_size(scale: Scale, client_width: i32) -> (i32, i32) {
+fn pane_size(scale: Scale, client_width: i32) -> (i32, i32) {
     let left = scale.px(SIDEBAR_WIDTH) + scale.px(PANE_PAD);
-    let span = (client_width - left - scale.px(PANE_PAD)).clamp(0, scale.px(COLUMN_MAX));
+    let width = client_width.max(scale.px(MIN_CLIENT.0));
+    let span = (width - left - scale.px(PANE_PAD)).clamp(0, scale.px(COLUMN_MAX));
     (left, span)
 }
 

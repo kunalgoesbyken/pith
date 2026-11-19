@@ -370,14 +370,14 @@ mod tests {
                         ..Default::default()
                     } as *const RECT as isize,
                 );
-                let (controls, client) =
-                    read(|model| (model.layout.controls.clone(), model.viewport)).unwrap();
+                let (controls, width) = read(|model| {
+                    let floor = model.scale.px(layout::MIN_CLIENT.0);
+                    (model.layout.controls.clone(), model.viewport.0.max(floor))
+                })
+                .unwrap();
                 for (index, placed) in controls.iter().enumerate() {
                     let bounds = placed.bounds;
-                    assert!(
-                        bounds.left >= 0 && bounds.right <= client.0,
-                        "{page:?} {dpi}"
-                    );
+                    assert!(bounds.left >= 0 && bounds.right <= width, "{page:?} {dpi}");
                     for other in &controls[index + 1..] {
                         let apart = bounds.right <= other.bounds.left
                             || other.bounds.right <= bounds.left
