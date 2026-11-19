@@ -101,6 +101,9 @@ jobs:
       - name: Pill without a compositor
         if: ${{ !cancelled() }}
         run: PITH_E2E_COMPOSITOR=0 sh crates/linux/e2e/session.sh crates/linux/e2e/app.py --ci-runner --pith target/release/pith --probe target/debug/examples/probe --compositor off
+      - name: Tray, notices, single instance and autostart
+        if: ${{ !cancelled() }}
+        run: sh crates/linux/e2e/session.sh crates/linux/e2e/tray.py --ci-runner --pith target/release/pith
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
