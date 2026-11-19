@@ -110,6 +110,7 @@ mod spike {
             queue.roundtrip(&mut state)?;
             report("preedit", json!(SUGGESTION));
             std::thread::sleep(PREEDIT_HOLD);
+            queue.roundtrip(&mut state)?;
             method.set_preedit_string(String::new(), NO_CURSOR, NO_CURSOR);
             method.commit_string(SUGGESTION.to_string());
             method.commit(state.serial);
