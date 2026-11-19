@@ -94,6 +94,7 @@ mod spike {
                 continue;
             }
             state.fresh = false;
+            report("state", json!(state.current.surrounding));
             if !state.current.active {
                 acted = false;
                 continue;

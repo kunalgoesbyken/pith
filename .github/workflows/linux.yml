@@ -80,5 +80,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: ime-preedit
-          path: ime-preedit.png
+          path: |
+            ime-preedit.png
+            ime-committed.png
           if-no-files-found: ignore

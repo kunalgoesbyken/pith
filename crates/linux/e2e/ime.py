@@ -10,6 +10,8 @@ import harness
 SEED = "hi "
 SUGGESTION = "ghost"
 SCREENSHOT = "ime-preedit.png"
+COMMITTED_SCREENSHOT = "ime-committed.png"
+COMMIT_SETTLE_SECONDS = 1.0
 EVENT_SECONDS = 20.0
 KEYBOARD_SECONDS = 1.0
 
@@ -79,13 +81,17 @@ def main():
                 )
             )
             committed = wait_for_event(lines, "committed")
+            time.sleep(COMMIT_SETTLE_SECONDS)
+            subprocess.run(["grim", COMMITTED_SCREENSHOT], check=False)
             after = probe.wait(lambda s: s["before"] == SEED + SUGGESTION)
             rows.append(
                 (
                     "sway input-method-v2",
                     "committed text reaches the app",
                     committed is not None and after is not None,
-                    harness.short(after if after is not None else probe.latest()),
+                    harness.short(after if after is not None else probe.latest())
+                    + " states="
+                    + json.dumps([l["detail"] for l in lines if l["event"] == "state"]),
                 )
             )
         finally:
