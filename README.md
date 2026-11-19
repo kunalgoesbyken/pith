@@ -12,15 +12,16 @@ Status: Windows MVP. Linux (X11) is experimental, see the Linux section. macOS i
 |---|---|
 | Text you type | Read from the focused field only, held in memory for the prompt, never written to disk or sent anywhere |
 | Nearby text | The label of the box, the subject and recipient fields and the last message around it, read only to build the prompt. Held in memory, never written to disk or logged, and never sent to a server outside this PC. Never read for password fields, password managers, blocked apps or Pith's own windows. `nearby_context = false` turns it off |
+| Your style | Off until you turn it on. Then Pith keeps the finished sentences in which you used a suggestion, up to 200, on this PC only. Windows encrypts them with your Windows account (DPAPI) in `style.bin`. They are used as examples only in the app they came from, never sent anywhere, never written to the log, and you can read and remove each one in Settings, Privacy & data. Never learned from password fields, password managers, blocked apps, text you are still composing with an input method, or anything typed while Pith is paused. `style_memory = false` turns it off |
 | Network | Two things, and only these. One download of the model from Hugging Face (pinned revision, SHA-256 checked). One request to `api.github.com` for the releases of this repository, only when you click Check for updates in the tray; it sends no text and no identifier, and nothing is downloaded or installed. Nothing else, unless you set `remote_url` |
 | Telemetry | None |
 | Keystrokes | Never seen. Windows has no keyboard hook. Linux grabs only the accept keys and Esc while a suggestion is shown, and the force-suggestion key while a field Pith may read is focused; every other key goes straight to the app |
 | Password fields, password managers, sign-in screens, blocked apps | Never read |
 | Spell checking | The one word you just finished is checked by the spell checker built into Windows (the Windows Spell Checking API, Windows 8 and later), which runs on this PC and uses your own Windows dictionaries. Pith adds no network request for it |
 | Clipboard | Windows: accepting pastes through the clipboard, excluded from clipboard history, cloud clipboard and clipboard monitors, then restores what you had. Linux: text goes in through the accessibility interface when the app supports it. Only when the field has no editable text interface or refuses the insert is it pasted through the clipboard. Before pasting, Pith saves the previous clipboard only if every format on offer is text (plain text, UTF-8 text or HTML) or part of the selection protocol; an image, files or any other format means nothing is pasted and the clipboard is left untouched. It serves the saved text again about 300 ms after the last request, but only while Pith still owns the clipboard, so something you copy meanwhile is left alone. Just before pressing Ctrl+V it checks that the same field and window still have the focus, and if the app has not asked for the text within one second it counts the paste as failed, restores the clipboard and pastes nothing; an app slower than that may paste nothing or the previous clipboard text. If Pith exits while it owns the clipboard it hands the contents to a running clipboard manager. Linux has no way to hide a paste from clipboard managers |
-| On disk | `config.toml` (your settings), `stats.toml` (counts of suggestions shown and accepted, no text), `pith.log` (timings, errors and app names, capped at 1 MB) and the model |
+| On disk | `config.toml` (your settings), `stats.toml` (counts of suggestions shown and accepted, no text), `pith.log` (timings, errors and app names, capped at 1 MB), `style.bin` (only if you turn on Your style) and the model |
 
-Settings > Delete model and data removes everything except your settings.
+Settings > Delete model and data removes everything except your settings, including `style.bin`.
 
 With `remote_url` set, the text before the caret is sent to that server. Pith accepts only `https`, or `http` to this computer. The tray tooltip, the Settings footer and the welcome window then name the server, and say "on this PC" only when it really is.
 
@@ -114,6 +115,17 @@ Pith adds a few lines from around the box you type in to the start of the prompt
 - The lines go before the text you typed, so the model's cache is reused while you type. They are capped at `nearby_tokens` (300) and by what is left of `context_tokens` after the text you typed. The first suggestion in a field takes a little longer because the lines are read by the model once.
 - With `remote_url` set nothing from around the box is sent, only the text you typed as before. The Use nearby text switch in Settings, Privacy, or `nearby_context = false`, turns the whole feature off.
 
+### Your style
+
+When you turn on Learn my writing style in Settings, Privacy & data, Pith remembers the finished sentences in which you kept a suggestion with Tab, so later suggestions sound more like you. Nothing is learned until you do.
+
+- A sentence is learned only after you accept part of a suggestion and then finish that sentence with a full stop, a question or exclamation mark, or a new line. Only the sentence you finished is kept, between 12 and 160 characters of ordinary prose. Sentences with an email address, a link, a long number or a code-like word are dropped.
+- Up to three of the most recent sentences from the same app and the same script (Latin, Devanagari, Han, Arabic and so on) go in front of the text you typed, within 96 tokens. This works in any language and needs no model change. A small model can repeat an example word for word.
+- Sentences carry over between conversations in the same app. They are never used in another app. Turning Pith off in an app forgets what it learned there, and nothing is learned while Pith is paused.
+- With `remote_url` set nothing is sent: the examples are left out, so the server sees only the text you typed as before.
+- Settings lists every remembered sentence with the app it came from. Forget removes one, Forget all removes the file. Turning the switch off stops learning and stops using the sentences, and they stay in the list until you remove them.
+- On Windows the file is encrypted with DPAPI, so another Windows account or a copied disk cannot read it, but a program running as you can. On Linux there is no encryption: `~/.local/share/pith/style.toml` is a plain file that only your account can read (mode 0600 in a 0700 folder), and you remove sentences by editing or deleting it.
+
 ## Verify your download
 
 Every release carries `pith.exe`, a portable zip and `SHA256SUMS`. GitHub Actions also signs a build provenance attestation for `pith.exe` and for the zip (not for `SHA256SUMS`). It says which commit and which workflow of this repository built the file.
@@ -173,6 +185,7 @@ Every setting lives in `%APPDATA%\Pith\config\config.toml`. An invalid value is 
 | `allowed_apps` | [] | code editors to turn Pith on in: `Code`, `Cursor`, `devenv`, `idea64`, `pycharm64`, `rider64`, `zed`. Any other name, including a terminal or password manager, is ignored. Pith completes prose, not code: it skips only lines that are mostly symbols or numbers, so expect suggestions in comments and some in code |
 | `nearby_context` | true | read the label, subject and last message around the box to help the suggestion; never password boxes, never sent to a remote server |
 | `nearby_tokens` | 300 | most tokens of that text added to the prompt, at most half of `context_tokens` |
+| `style_memory` | false | learn the finished sentences in which you accept a suggestion and use the latest three from the same app as examples; stored encrypted on Windows, never sent |
 | `typing_wpm` | 40 | your typing speed, used for the time-saved estimate (1 to 500) |
 | `remote_url` | none | use an OpenAI-compatible `/v1/completions` server instead of the local model; `https`, or `http` to this computer |
 | `remote_model` | none | the `model` name sent to that server |
@@ -217,7 +230,6 @@ cargo run --release -p pith-windows --example ui_shots
 ## Roadmap
 
 - Tested support for Chrome, Edge, Slack, Teams, Outlook, Word and WhatsApp
-- Learns your phrasing from text you accept, kept on this PC
 - Context from the rest of the window, such as the email you are replying to
 - Suggestions before words in the middle of a line, which needs a model that reads what follows the caret
 - Snippets and per-site rules
@@ -233,7 +245,7 @@ Run `pith --allow-accessibility` in an X11 session. It refuses to start in a Way
 - **Captures the accept keys and Esc** with an X key grab only while a suggestion is shown, plus the force-suggestion chord while a field Pith may read is focused. A key it does not act on is handed back to the app unchanged; if Pith does not answer within 150 ms the key goes to the app.
 - **Draws** the suggestion in an override-redirect window that never takes the focus or the mouse. With a compositing manager it is inline at the caret, in the field's font and colour at reduced opacity. Without one it is a pill below the caret.
 - **Inserts** through the accessibility interface. It falls back to the clipboard only when the field has no editable text interface or refuses the insert. Once a field has accepted an insert Pith never pastes, even if the text cannot be confirmed; it re-reads the field once and takes whatever is there. Firefox, Thunderbird, LibreWolf and Tor Browser accept the insert call but ignore it, so Pith pastes in them from the start. Before either path Pith checks that the focused field and app are still the ones the suggestion was made for.
-- **Config and data** live in `~/.config/pith/config.toml` and `~/.local/share/pith/` (the model and `pith.log`), or under `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME`. `blocked_apps` and `allowed_apps` use the lower-case program name, for example `keepassxc`.
+- **Config and data** live in `~/.config/pith/config.toml` and `~/.local/share/pith/` (the model, `pith.log` and `style.toml` when `style_memory = true`), or under `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME`. `blocked_apps` and `allowed_apps` use the lower-case program name, for example `keepassxc`.
 - **Build** with `cargo build --release -p pith`. CI runs the end-to-end suite on Xvfb with GTK 3 and Firefox.
 
 Which app is behind a window comes from the process that owns it. Programs run by an interpreter or a sandbox are named as follows, and Pith reads nothing from a window it cannot name:
