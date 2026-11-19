@@ -179,6 +179,7 @@ impl App {
                 | Action::ArmReplaceTimeout { .. }
                 | Action::Overwrite(_)
                 | Action::Collapse { .. } => {}
+                Action::Learn(sample) => self.learn(sample),
                 Action::Hide => self.overlay.hide(),
                 Action::Insert(text) => self.insert(text),
                 Action::AutoPaused(apps) => log(&format!("auto-paused in {apps:?}")),

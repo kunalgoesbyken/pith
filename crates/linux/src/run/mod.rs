@@ -1,10 +1,12 @@
 mod effects;
 mod inbox;
 mod keyboard;
+mod style;
 mod timers;
 
 use std::fmt;
 use std::io;
+use std::path::PathBuf;
 #[cfg(feature = "e2e")]
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -12,7 +14,7 @@ use std::time::Instant;
 
 #[cfg(feature = "e2e")]
 use pith_core::Action;
-use pith_core::{Config, Engine, log};
+use pith_core::{Config, Engine, StyleStore, log};
 use pith_infer::Worker;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -65,6 +67,7 @@ impl InsertPolicy {
 
 pub struct Options {
     pub consent: Option<Consent>,
+    pub style: Option<PathBuf>,
     #[cfg(feature = "e2e")]
     pub insert: InsertPolicy,
     #[cfg(feature = "e2e")]
@@ -75,6 +78,7 @@ impl Options {
     pub fn new(consent: Option<Consent>) -> Self {
         Self {
             consent,
+            style: None,
             #[cfg(feature = "e2e")]
             insert: InsertPolicy::Auto,
             #[cfg(feature = "e2e")]
@@ -129,6 +133,7 @@ struct App {
     worker: Worker,
     overlay: Overlay,
     current: Current,
+    style: Option<StyleStore>,
 }
 
 impl App {
@@ -237,6 +242,7 @@ pub fn run(
     let effects = Effects::new(options.insert, options.observer, clipboard);
     #[cfg(not(feature = "e2e"))]
     let effects = Effects::new(InsertPolicy::Auto, clipboard);
+    let style = style::open(options.style, &config);
     let mut app = App {
         engine: Engine::new(config),
         keyboard,
@@ -246,7 +252,9 @@ pub fn run(
         worker,
         overlay,
         current,
+        style,
     };
+    app.share_style();
     let outcome = app.serve(&inbound);
     app.shutdown();
     outcome

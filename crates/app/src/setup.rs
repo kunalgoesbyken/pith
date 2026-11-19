@@ -11,6 +11,8 @@ pub struct Paths {
     pub config: PathBuf,
     pub models: PathBuf,
     pub log: PathBuf,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub style: PathBuf,
 }
 
 pub fn directories() -> Result<ProjectDirs, String> {
@@ -23,6 +25,7 @@ impl Paths {
             config: dirs.config_dir().join("config.toml"),
             models: dirs.data_local_dir().join("models"),
             log: dirs.data_local_dir().join("pith.log"),
+            style: dirs.data_local_dir().join("style.toml"),
         }
     }
 }

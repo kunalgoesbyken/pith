@@ -24,6 +24,7 @@ fn start() -> Result<(), String> {
         return Ok(());
     };
     let mut options = Options::new(cli.has(ALLOW_ACCESSIBILITY).then(Consent::granted));
+    options.style = Some(paths.style.clone());
     hooks::apply(&cli, &mut options)?;
     let (inbox, receiver) = Inbox::channel();
     let recommended = recommend(hardware());
