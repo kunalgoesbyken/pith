@@ -74,7 +74,7 @@ impl Chord {
         self.spell(&self.key.label())
     }
 
-    fn ensure_safe(&self, source: &str) -> Result<(), String> {
+    pub fn ensure_safe(&self, source: &str) -> Result<(), String> {
         let types_text = matches!(self.key, Key::Char(_) | Key::Space);
         let command = self.ctrl || self.alt || self.win;
         if types_text && !command {

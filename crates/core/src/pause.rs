@@ -3,25 +3,53 @@ use std::time::{Duration, SystemTime};
 use crate::Config;
 
 const MINUTES_PER_DAY: u32 = 24 * 60;
+const MINUTES_PER_HOUR: u32 = 60;
 const SECONDS_PER_MINUTE: u64 = 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PauseSpan {
     Minutes(u32),
+    UntilTomorrow,
     UntilResumed,
 }
 
 impl PauseSpan {
-    pub const CHOICES: [Self; 3] = [Self::Minutes(15), Self::Minutes(60), Self::UntilResumed];
+    pub const CHOICES: [Self; 4] = [
+        Self::Minutes(15),
+        Self::Minutes(60),
+        Self::UntilTomorrow,
+        Self::UntilResumed,
+    ];
+
+    pub fn short_label(self) -> String {
+        match self {
+            Self::Minutes(minutes) if minutes % MINUTES_PER_HOUR == 0 => {
+                match minutes / MINUTES_PER_HOUR {
+                    1 => "1 hour".to_string(),
+                    hours => format!("{hours} hours"),
+                }
+            }
+            Self::Minutes(minutes) => format!("{minutes} min"),
+            Self::UntilTomorrow => "Until tomorrow".to_string(),
+            Self::UntilResumed => "Until I resume".to_string(),
+        }
+    }
 
     pub fn label(self) -> String {
         match self {
-            Self::Minutes(minutes) if minutes % 60 == 0 => match minutes / 60 {
-                1 => "Pause for 1 hour".to_string(),
-                hours => format!("Pause for {hours} hours"),
-            },
-            Self::Minutes(minutes) => format!("Pause for {minutes} min"),
+            Self::UntilTomorrow => "Pause until tomorrow".to_string(),
             Self::UntilResumed => "Pause until I resume".to_string(),
+            Self::Minutes(_) => format!("Pause for {}", self.short_label()),
+        }
+    }
+
+    fn minutes(self, clock: (u32, u32)) -> Option<u32> {
+        match self {
+            Self::Minutes(minutes) => Some(minutes),
+            Self::UntilTomorrow => {
+                Some(MINUTES_PER_DAY - ((clock.0 % 24) * MINUTES_PER_HOUR + clock.1 % 60))
+            }
+            Self::UntilResumed => None,
         }
     }
 }
@@ -53,12 +81,12 @@ pub struct Pauses {
 
 impl Pauses {
     pub fn start(&mut self, span: PauseSpan, clock: (u32, u32), now: SystemTime) {
-        self.user = Some(match span {
-            PauseSpan::UntilResumed => UserPause {
+        self.user = Some(match span.minutes(clock) {
+            None => UserPause {
                 shown: Pause::UntilResumed,
                 ends: None,
             },
-            PauseSpan::Minutes(minutes) => UserPause {
+            Some(minutes) => UserPause {
                 shown: Pause::Until(clock_after(clock.0, clock.1, minutes)),
                 ends: now.checked_add(Duration::from_secs(u64::from(minutes) * SECONDS_PER_MINUTE)),
             },

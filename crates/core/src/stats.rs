@@ -9,6 +9,9 @@ use crate::stored::write_atomically;
 const CHARS_PER_WORD: u64 = 5;
 const SECONDS_PER_MINUTE: u64 = 60;
 const HINTED_ACCEPTS: u64 = 3;
+pub const HISTORY_DAYS: usize = 14;
+const DAYS_PER_ERA: i64 = 146_097;
+const EPOCH_SHIFT: i64 = 719_468;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Day(u32);
@@ -17,6 +20,30 @@ impl Day {
     pub fn from_ymd(year: u16, month: u8, day: u8) -> Self {
         Self(u32::from(year) * 10_000 + u32::from(month) * 100 + u32::from(day))
     }
+
+    fn ordinal(self) -> i64 {
+        let year = i64::from(self.0 / 10_000);
+        let month = i64::from(self.0 / 100 % 100);
+        let day = i64::from(self.0 % 100);
+        let year = year - i64::from(month <= 2);
+        let era = year.div_euclid(400);
+        let year_of_era = year - era * 400;
+        let shifted_month = (month + 9) % 12;
+        let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
+        let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+        era * DAYS_PER_ERA + day_of_era - EPOCH_SHIFT
+    }
+
+    fn days_since(self, earlier: Day) -> i64 {
+        self.ordinal() - earlier.ordinal()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+struct DayWords {
+    day: Day,
+    words: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,16 +102,42 @@ pub struct Stats {
     day: Day,
     today: Counts,
     total: Counts,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    history: Vec<DayWords>,
 }
 
 impl Stats {
     pub fn record(&mut self, counts: Counts, day: Day) {
         if day != self.day {
-            self.day = day;
-            self.today = Counts::default();
+            self.close_day(day);
         }
         self.today.add(counts);
         self.total.add(counts);
+    }
+
+    fn close_day(&mut self, next: Day) {
+        if self.today.words > 0 {
+            self.history.push(DayWords {
+                day: self.day,
+                words: self.today.words,
+            });
+        }
+        self.history
+            .retain(|entry| (1..HISTORY_DAYS as i64).contains(&next.days_since(entry.day)));
+        self.day = next;
+        self.today = Counts::default();
+    }
+
+    pub fn recent_words(&self, today: Day) -> [u64; HISTORY_DAYS] {
+        let mut words = [0; HISTORY_DAYS];
+        words[HISTORY_DAYS - 1] = self.today(today).words;
+        for entry in &self.history {
+            let age = today.days_since(entry.day);
+            if (1..HISTORY_DAYS as i64).contains(&age) {
+                words[HISTORY_DAYS - 1 - age as usize] = entry.words;
+            }
+        }
+        words
     }
 
     pub fn today(&self, day: Day) -> Counts {

@@ -3,7 +3,10 @@ use std::path::Path;
 use crate::apps::{Access, editor, same_app};
 use crate::config::{MAX_GHOST_OPACITY, MIN_GHOST_OPACITY};
 use crate::stored::{patch, read, write_atomically};
-use crate::{Config, ModelPreset, app_name};
+use crate::{Chord, Config, KeyAction, ModelPreset, TriggerMode, app_name};
+
+pub const SLIDER_OPACITY: (u8, u8) = (30, 90);
+pub const IDLE_UNLOAD_CHOICES: [u64; 4] = [60, 300, 900, 0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Suggestions {
@@ -77,6 +80,13 @@ pub fn clamp_opacity(percent: u8) -> u8 {
     percent.clamp(MIN_GHOST_OPACITY, MAX_GHOST_OPACITY)
 }
 
+pub fn thread_choices(cores: usize) -> Vec<usize> {
+    let doubling = std::iter::successors(Some(1usize), |threads| threads.checked_mul(2));
+    std::iter::once(0)
+        .chain(doubling.take_while(|threads| *threads <= cores))
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Setting {
     Enabled(bool),
@@ -84,7 +94,15 @@ pub enum Setting {
     Suggestions(Suggestions),
     Length(Length),
     GhostOpacity(u8),
+    TriggerMode(TriggerMode),
+    SmartSpace(bool),
+    AutoPause(bool),
+    Bind(KeyAction, usize, Option<Chord>),
+    DefaultKeys,
     Model(ModelPreset),
+    IdleUnload(u64),
+    BatterySaver(bool),
+    Threads(usize),
     Block(String),
     Unblock(String),
     Allow(String),
@@ -99,7 +117,28 @@ impl Setting {
             Self::Suggestions(level) => level.apply(config),
             Self::Length(length) => length.apply(config),
             Self::GhostOpacity(percent) => config.ghost_opacity = clamp_opacity(*percent),
+            Self::TriggerMode(mode) => {
+                config.trigger_mode = *mode;
+                config.force_trigger |= *mode == TriggerMode::Manual;
+            }
+            Self::SmartSpace(on) => config.smart_space = *on,
+            Self::AutoPause(on) => {
+                config.auto_pause_after = if *on {
+                    Config::default().auto_pause_after
+                } else {
+                    0
+                };
+            }
+            Self::Bind(action, slot, chord) => {
+                if let Ok(next) = config.rebind(*action, *slot, *chord) {
+                    *config = next;
+                }
+            }
+            Self::DefaultKeys => *config = config.default_keys(),
             Self::Model(preset) => config.model = Some(*preset),
+            Self::IdleUnload(seconds) => config.idle_unload_secs = *seconds,
+            Self::BatterySaver(on) => config.pause_on_battery_saver = *on,
+            Self::Threads(threads) => config.threads = *threads,
             Self::Block(app) => {
                 config.block_app(app);
             }
@@ -129,6 +168,32 @@ impl Setting {
 }
 
 impl Config {
+    pub fn auto_pause_on(&self) -> bool {
+        self.auto_pause_after > 0
+    }
+
+    pub fn same_backend(&self, other: &Self, recommended: ModelPreset) -> bool {
+        self.preset(recommended) == other.preset(recommended)
+            && self.model_path == other.model_path
+            && self.remote_url == other.remote_url
+            && self.remote_model == other.remote_model
+            && self.threads == other.threads
+            && self.context_tokens == other.context_tokens
+            && self.idle_unload_secs == other.idle_unload_secs
+    }
+
+    pub fn switch_app(&self, app: &str) -> Option<Setting> {
+        match self.access(app) {
+            Access::On | Access::OptedIn => Some(Setting::Block(app.to_string())),
+            Access::OffByDefault => Some(Setting::Allow(app.to_string())),
+            Access::Off => self
+                .blocked_apps
+                .iter()
+                .any(|blocked| same_app(blocked, app))
+                .then(|| Setting::Unblock(app.to_string())),
+        }
+    }
+
     pub fn block_app(&mut self, app: &str) -> bool {
         match self.access(app) {
             Access::On => {

@@ -12,6 +12,7 @@ mod hosts;
 #[path = "hosts_none.rs"]
 mod hosts;
 mod ignore;
+mod keybind;
 mod keys;
 mod log;
 mod pause;
@@ -42,7 +43,7 @@ pub use emphasis::Emphasis;
 pub use engine::{Action, Engine, Event};
 pub use field::{AFTER_CHARS, FieldParts, Surrounding, is_redacted};
 pub use ghost::{
-    Flow, Ink, Line, fits, flow_bounds, ink, is_rtl, layout, lines_that_fit, median_by_luminance,
+    Flow, Ink, Line, blend, fits, flow_bounds, ink, is_rtl, layout, lines_that_fit, median_by_luminance,
     next_word_alpha, opacity_alpha, strong_span,
 };
 pub use hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
@@ -59,9 +60,12 @@ pub use scene::{
     Form, KEYCAP_FONT_PX, KeycapLabel, PILL_ELEVATION, PILL_FONT_PX, Placed, Point, Size, Surface,
     fit_cuts, inline_anchor, inline_font_px, keycap_label_origin,
 };
-pub use setting::{Length, Setting, Suggestions, clamp_opacity};
+pub use setting::{
+    IDLE_UNLOAD_CHOICES, Length, SLIDER_OPACITY, Setting, Suggestions, clamp_opacity,
+    thread_choices,
+};
 pub use shading::{Pill, PillStyle, Scheme, Shading};
-pub use stats::{Counts, Day, Ledger, Stats};
+pub use stats::{Counts, Day, HISTORY_DAYS, Ledger, Stats};
 pub use status::{Model, Status, skip_label};
 pub use suffix::{After, Suffix};
 pub use text::{
