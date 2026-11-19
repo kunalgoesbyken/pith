@@ -177,6 +177,12 @@ pub struct LlamaSession<'a> {
     batch: LlamaBatch<'static>,
 }
 
+impl LlamaSession<'_> {
+    pub fn count_tokens(&self, text: &str) -> usize {
+        self.handle.tokenize(text).len()
+    }
+}
+
 impl Completer for LlamaSession<'_> {
     fn complete(
         &mut self,

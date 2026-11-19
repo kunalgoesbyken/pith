@@ -2,6 +2,12 @@ use pith_core::{After, Completion, Config, next_word, split_partial, suggestion}
 
 pub const MISS_TOKENS: usize = 16;
 
+#[derive(Clone, Copy)]
+pub struct Prompt {
+    pub tokens: usize,
+    pub estimate: usize,
+}
+
 pub struct Record {
     pub position: usize,
     pub before: String,
@@ -10,6 +16,7 @@ pub struct Record {
     pub completion: Completion,
     pub ms: f64,
     pub evaluated: usize,
+    pub prompt: Prompt,
 }
 
 pub struct Shown {
@@ -92,6 +99,9 @@ pub struct Stats {
     partial: usize,
     wrong: usize,
     held: usize,
+    prompts: usize,
+    undercounts: usize,
+    tightest: Option<f64>,
 }
 
 impl Stats {
@@ -99,6 +109,13 @@ impl Stats {
         self.ms.push(record.ms);
         self.evaluated.push(record.evaluated as f64);
         self.tokens.push(record.completion.tokens as f64);
+        self.prompts += 1;
+        self.undercounts += usize::from(record.prompt.estimate < record.prompt.tokens);
+        let margin = record.prompt.estimate as f64 / record.prompt.tokens.max(1) as f64;
+        self.tightest = Some(
+            self.tightest
+                .map_or(margin, |tightest| tightest.min(margin)),
+        );
     }
 
     pub fn after_backspace(&mut self, record: &Record) {
@@ -164,6 +181,12 @@ impl Stats {
         self.partial += other.partial;
         self.wrong += other.wrong;
         self.held += other.held;
+        self.prompts += other.prompts;
+        self.undercounts += other.undercounts;
+        self.tightest = match (self.tightest, other.tightest) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
     }
 }
 
@@ -214,6 +237,15 @@ pub fn print_row(name: &str, stats: &Stats) {
         percentile(&stats.evaluated, 1.0),
         stats.misses.len(),
         percentile(&stats.after_backspace, 0.5),
+    );
+}
+
+pub fn print_estimator(name: &str, stats: &Stats) {
+    println!(
+        "estimator {name}: {} prompts, {} undercounted, tightest estimate/actual {:.2}",
+        stats.prompts,
+        stats.undercounts,
+        stats.tightest.unwrap_or_default()
     );
 }
 
