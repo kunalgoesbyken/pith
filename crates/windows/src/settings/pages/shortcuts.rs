@@ -23,7 +23,7 @@ fn chip(model: &Model, binding: KeyAction, slot: usize) -> Option<Item> {
     let first_empty = (0..slot).all(|earlier| model.config.chord(binding, earlier).is_some());
     let (state, label) = match chord {
         _ if recording => (ChipState::Recording, "Press the keys".to_string()),
-        Some(chord) => (ChipState::Keys, chord.to_string()),
+        Some(chord) => (ChipState::Keys, chord.label()),
         None if first_empty => (ChipState::Empty, "Add a key".to_string()),
         None => return None,
     };
@@ -49,7 +49,7 @@ fn binding_row(model: &Model, binding: KeyAction) -> Row {
 fn escape_row() -> Row {
     Row::titled("Hide the suggestion")
         .caption("Always Esc.")
-        .keys(vec![Chord::ESCAPE.to_string()])
+        .keys(vec![Chord::ESCAPE.label()])
 }
 
 fn tab_note(model: &Model) -> Option<String> {

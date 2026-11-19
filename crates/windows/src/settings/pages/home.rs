@@ -117,7 +117,7 @@ fn rival_row(rival: &Rival) -> Row {
 fn chords(model: &Model, binding: KeyAction) -> Vec<String> {
     (0..binding.slots())
         .filter_map(|slot| model.config.chord(binding, slot))
-        .map(|chord| chord.to_string())
+        .map(|chord| chord.label())
         .collect()
 }
 
@@ -130,7 +130,7 @@ fn key_rows(model: &Model) -> Vec<Row> {
     if !trigger.is_empty() {
         rows.push(Row::titled("Suggest now").keys(trigger));
     }
-    rows.push(Row::titled("Hide the suggestion").keys(vec![pith_core::Chord::ESCAPE.to_string()]));
+    rows.push(Row::titled("Hide the suggestion").keys(vec![pith_core::Chord::ESCAPE.label()]));
     rows.push(
         Row::titled("Use other keys").control(
             Item::button("Change", Tone::Standard, Action::Go(Page::Shortcuts))

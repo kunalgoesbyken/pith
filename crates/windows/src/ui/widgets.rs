@@ -282,12 +282,14 @@ pub fn draw_slider(
     };
     canvas.disc(center, core - shrink, accent_fill(palette, state));
     if state.focused {
-        let gap = scale.size(FOCUS_GAP as f32 + FOCUS_RING as f32 / 2.0);
-        canvas.ring(
-            center,
-            outer + gap,
-            scale.size(FOCUS_RING as f32),
-            palette.accent.base,
+        let ring = scale.px(FOCUS_RING);
+        let extent = (outer.ceil() as i32) + scale.px(FOCUS_GAP) + ring;
+        let halo = rect(
+            center.0.round() as i32 - extent,
+            center.1.round() as i32 - extent,
+            2 * extent,
+            2 * extent,
         );
+        canvas.stroke_round(halo, extent, palette.accent.base, ring);
     }
 }
