@@ -37,7 +37,7 @@ enum Exit {
 }
 
 enum Next {
-    Event(Event),
+    Event(Box<Event>),
     Stopped,
     Closed,
 }
@@ -102,7 +102,7 @@ impl Session {
         let mut last: Option<Reading> = None;
         loop {
             let mut batch = match next(&mut events, stopped).await {
-                Next::Event(event) => vec![event],
+                Next::Event(event) => vec![*event],
                 Next::Stopped => return Exit::Stopped,
                 Next::Closed => return Exit::BusClosed,
             };
@@ -156,7 +156,7 @@ async fn next(events: &mut (impl Stream<Item = Event> + Unpin), stopped: &Receiv
     or(
         async {
             match events.next().await {
-                Some(event) => Next::Event(event),
+                Some(event) => Next::Event(Box::new(event)),
                 None => Next::Closed,
             }
         },
