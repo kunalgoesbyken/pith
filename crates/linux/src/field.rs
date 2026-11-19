@@ -11,6 +11,7 @@ use crate::process::{owner_pid, process_name};
 use crate::{caret, style, window};
 
 const AFTER_CHARS: i32 = 200;
+const ASTRAL_FILLER: char = '\u{feff}';
 
 fn field_id(target: &ObjectRefOwned) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -29,8 +30,10 @@ async fn surrounding(
         .max(0);
     let end = caret.saturating_add(AFTER_CHARS).min(count);
     Ok((
-        text.get_text(start, caret).await?,
-        text.get_text(caret, end).await?,
+        text.get_text(start, caret)
+            .await?
+            .replace(ASTRAL_FILLER, ""),
+        text.get_text(caret, end).await?.replace(ASTRAL_FILLER, ""),
     ))
 }
 

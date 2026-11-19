@@ -29,7 +29,7 @@ def activate(application, kind, seed):
     field = build(kind, seed)
     window.add(field)
     window.show_all()
-    field.grab_focus()
+    getattr(field, "grab_focus_without_selecting", field.grab_focus)()
 
 
 application = Gtk.Application()

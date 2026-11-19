@@ -224,7 +224,7 @@ def unicode_rows(app, probe):
     table = Table(app, probe)
     table.step(
         "unicode text before the caret",
-        lambda: None,
+        lambda: press("End"),
         lambda s: s["before"] == SEED and s["after"] == "",
     )
     table.step(
