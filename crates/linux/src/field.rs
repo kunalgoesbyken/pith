@@ -11,8 +11,8 @@ use zbus::Connection;
 
 use crate::focus::Focus;
 use crate::reading::Reading;
-use crate::text::{split_at_chars, without_astral_fillers};
-use crate::{caret, style};
+use crate::text::without_astral_fillers;
+use crate::{caret, style, window};
 
 const TEAR_RETRIES: usize = 2;
 
@@ -34,7 +34,7 @@ async fn position(text: &TextProxy<'_>) -> Result<Option<(i32, i32)>, AtspiError
     Ok((caret >= 0 && count >= 0).then_some((caret.min(count), count)))
 }
 
-async fn window(
+async fn around_caret(
     text: &TextProxy<'_>,
     caret: i32,
     count: i32,
@@ -46,11 +46,9 @@ async fn window(
     let end = caret
         .saturating_add(i32::try_from(AFTER_CHARS).unwrap_or(i32::MAX))
         .min(count);
-    let raw = text.get_text(start, end).await?;
-    let (before, after) = split_at_chars(&raw, usize::try_from(caret - start).unwrap_or(0));
     let surrounding = Surrounding {
-        before: without_astral_fillers(before),
-        after: without_astral_fillers(after),
+        before: without_astral_fillers(&text.get_text(start, caret).await?),
+        after: without_astral_fillers(&text.get_text(caret, end).await?),
     };
     Ok((surrounding, text.caret_offset().await?))
 }
@@ -72,13 +70,16 @@ async fn view(
     }
     let mut retries = 0;
     loop {
-        let (surrounding, settled) = window(text, caret, count, lookback).await?;
-        if settled == caret || retries == TEAR_RETRIES {
+        let (surrounding, settled) = around_caret(text, caret, count, lookback).await?;
+        if settled == caret {
             return Ok(Some(View {
                 caret,
                 count,
                 surrounding: Some(surrounding),
             }));
+        }
+        if retries == TEAR_RETRIES {
+            return Ok(None);
         }
         retries += 1;
         let Some(moved) = position(text).await? else {
@@ -121,7 +122,7 @@ pub(crate) async fn read(
         FieldParts {
             field_id: field_id(&target),
             app: identity.app.clone(),
-            window_title: identity.title.clone(),
+            window_title: window::title(connection, &target).await.unwrap_or_default(),
             surrounding: view.surrounding,
             has_selection: caret::has_selection(&text).await,
             is_password,

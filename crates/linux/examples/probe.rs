@@ -15,10 +15,9 @@ mod probe {
         config: Config,
     }
 
-    fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
+    fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         let mut consent = None;
         let mut config = Config::default();
-        let mut args = args;
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 ALLOW_ACCESSIBILITY => consent = Some(Consent::granted()),

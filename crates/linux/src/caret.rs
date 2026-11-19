@@ -28,7 +28,7 @@ pub(crate) async fn rect(
         && let Some(last) = glyph(text, caret - 1).await
     {
         return Some(Rect {
-            x: last.x + last.width,
+            x: last.x.saturating_add(last.width),
             width: CARET_WIDTH,
             ..last
         });

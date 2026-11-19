@@ -9,6 +9,7 @@ pub enum ReaderError {
     BusClosed,
     Spawn(std::io::Error),
     Stopped,
+    StartupTimedOut,
 }
 
 impl fmt::Display for ReaderError {
@@ -19,6 +20,7 @@ impl fmt::Display for ReaderError {
             Self::BusClosed => f.write_str("the accessibility bus closed"),
             Self::Spawn(error) => write!(f, "reader thread: {error}"),
             Self::Stopped => f.write_str("reader stopped before it started"),
+            Self::StartupTimedOut => f.write_str("the accessibility bus did not answer in time"),
         }
     }
 }

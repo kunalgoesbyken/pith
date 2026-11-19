@@ -78,6 +78,8 @@ impl Tracker {
             ObjectEvents::TextCaretMoved(moved) => {
                 if self.is_focused(&moved.item) {
                     true
+                } else if self.focus.is_some() {
+                    false
                 } else {
                     match bounded(stopped, holds_focus(connection, &moved.item)).await {
                         Bounded::Done(true) => {

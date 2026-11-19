@@ -2,12 +2,10 @@ use atspi::{AtspiError, ObjectRefOwned};
 use zbus::Connection;
 
 use crate::process::{owner_pid, process_name};
-use crate::window;
 
 pub(crate) struct Identity {
     pub(crate) pid: u32,
     pub(crate) app: Option<String>,
-    pub(crate) title: String,
 }
 
 impl Identity {
@@ -19,7 +17,6 @@ impl Identity {
         Ok(Self {
             pid,
             app: process_name(pid),
-            title: window::title(connection, target).await.unwrap_or_default(),
         })
     }
 }
