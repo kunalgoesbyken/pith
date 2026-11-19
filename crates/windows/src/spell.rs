@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::{Duration, Instant};
 
-use pith_core::Spelling;
+use pith_core::{Spelling, log};
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Globalization::{
     CORRECTIVE_ACTION_GET_SUGGESTIONS, CORRECTIVE_ACTION_REPLACE, ISpellChecker,
@@ -18,6 +19,7 @@ use crate::language::input_language;
 use crate::util::wide;
 
 const WARM_UP_WORD: &str = "the";
+const FACTORY_RETRY_AFTER: Duration = Duration::from_secs(30);
 
 struct Check {
     generation: u64,
@@ -64,21 +66,37 @@ impl Drop for Apartment {
     }
 }
 
-fn create_factory() -> Option<ISpellCheckerFactory> {
-    unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }.ok()
+fn create_factory() -> windows::core::Result<ISpellCheckerFactory> {
+    unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }
 }
 
 #[derive(Default)]
 struct Checkers {
     factory: Option<ISpellCheckerFactory>,
+    retry_at: Option<Instant>,
     by_language: HashMap<String, Option<ISpellChecker>>,
 }
 
 impl Checkers {
-    fn spelling(&mut self, language: &str, word: &str) -> Spelling {
-        if self.factory.is_none() {
-            self.factory = create_factory();
+    fn connect(&mut self) {
+        let due = self.retry_at.is_none_or(|at| Instant::now() >= at);
+        if self.factory.is_some() || !due {
+            return;
         }
+        match create_factory() {
+            Ok(factory) => {
+                self.factory = Some(factory);
+                self.retry_at = None;
+            }
+            Err(error) => {
+                log(&format!("spell checking unavailable: {error}"));
+                self.retry_at = Some(Instant::now() + FACTORY_RETRY_AFTER);
+            }
+        }
+    }
+
+    fn spelling(&mut self, language: &str, word: &str) -> Spelling {
+        self.connect();
         let Some(factory) = &self.factory else {
             return Spelling::Correct;
         };
@@ -92,12 +110,14 @@ impl Checkers {
 
 fn serve(queue: Receiver<Check>, on_result: impl Fn(u64, Spelling)) {
     let apartment = Apartment::enter();
+    if apartment.is_none() {
+        log("spell checking unavailable: COM did not start");
+    }
     let mut checkers = Checkers::default();
-    if apartment.is_some() {
-        let language = input_language(unsafe { GetForegroundWindow() });
-        if let Some(language) = language {
-            checkers.spelling(&language, WARM_UP_WORD);
-        }
+    if apartment.is_some()
+        && let Some(language) = input_language(unsafe { GetForegroundWindow() })
+    {
+        checkers.spelling(&language, WARM_UP_WORD);
     }
     while let Ok(request) = queue.recv() {
         let spelling = match apartment {

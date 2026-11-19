@@ -50,7 +50,7 @@ pub enum Poke {
     Changed,
     Key(u64),
     Select(Selection),
-    Collapse(u64),
+    Collapse(u64, String),
 }
 
 pub type SnapshotCallback = Box<dyn Fn(Option<FieldSnapshot>, Option<u64>) + Send>;
@@ -91,8 +91,8 @@ impl Reader {
         let _ = self.pokes.send(Poke::Select(selection));
     }
 
-    pub fn collapse(&self, field_id: u64) {
-        let _ = self.pokes.send(Poke::Collapse(field_id));
+    pub fn collapse(&self, field_id: u64, text: String) {
+        let _ = self.pokes.send(Poke::Collapse(field_id, text));
     }
 
     pub fn sender(&self) -> Sender<Poke> {
@@ -134,7 +134,7 @@ fn serve(
                 Poke::Changed => {}
                 Poke::Key(id) => served = served.max(Some(id)),
                 Poke::Select(selection) => select(&automation, source, selection),
-                Poke::Collapse(field_id) => collapse(&automation, source, field_id),
+                Poke::Collapse(field_id, text) => collapse(&automation, source, field_id, &text),
             }
         }
         let current = config
@@ -207,11 +207,11 @@ fn select(automation: &IUIAutomation, source: Source, selection: Selection) {
     done(selected);
 }
 
-fn collapse(automation: &IUIAutomation, source: Source, field_id: u64) {
+fn collapse(automation: &IUIAutomation, source: Source, field_id: u64, text: &str) {
     if let Ok(target) = target(automation, source)
         && runtime_id(&target.element) == field_id
     {
-        let _ = collapse_selection(&target.element);
+        let _ = collapse_selection(&target.element, text);
     }
 }
 

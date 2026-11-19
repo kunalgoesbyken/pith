@@ -106,11 +106,12 @@ impl App {
                     drawn = Some(outcome);
                 }
                 Action::Replace {
+                    generation,
                     field_id,
                     correction,
-                } => self.replace(field_id, correction),
+                } => self.replace(generation, field_id, correction),
                 Action::Overwrite(text) => self.effects.insert(text),
-                Action::Collapse { field_id } => self.reader.collapse(field_id),
+                Action::Collapse { field_id, text } => self.reader.collapse(field_id, text),
                 Action::Show {
                     cuts,
                     placement,
@@ -144,12 +145,12 @@ impl App {
         }
     }
 
-    fn replace(&mut self, field_id: u64, correction: Correction) {
+    fn replace(&mut self, generation: u64, field_id: u64, correction: Correction) {
         let inbox = self.inbox.clone();
         self.reader.select(Selection {
             field_id,
             text: correction.current(),
-            done: Box::new(move |selected| inbox.post(Inbound::Selected(selected))),
+            done: Box::new(move |selected| inbox.post(Inbound::Selected(generation, selected))),
         });
     }
 

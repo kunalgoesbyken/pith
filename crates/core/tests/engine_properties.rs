@@ -145,7 +145,7 @@ struct Harness {
     shown: Option<String>,
     lagging: bool,
     offer: Option<Correction>,
-    selecting: Option<Correction>,
+    selecting: Option<(u64, Correction)>,
     checking: Option<(u64, String)>,
     armed: bool,
     dismissed: Option<(u64, String)>,
@@ -238,8 +238,16 @@ impl Harness {
         let pre_offer = self.offer.clone();
         let accepting = matches!(event, Event::AcceptAll | Event::AcceptWord);
         let spelled = matches!(event, Event::Spelled { .. });
-        let spelled_selection = matches!(event, Event::Selected(true));
-        let pending = self.selecting.clone();
+        let spelled_selection = matches!(event, Event::Selected { selected: true, .. });
+        let verdict_for = match &event {
+            Event::Selected { generation, .. } => Some(*generation),
+            _ => None,
+        };
+        let answered = self
+            .selecting
+            .clone()
+            .filter(|(generation, _)| Some(*generation) == verdict_for)
+            .map(|(_, correction)| correction);
         match &event {
             Event::Field(field) => self.sent = field.clone(),
             Event::SetConfig(config) => self.config = config.clone(),
@@ -364,6 +372,7 @@ impl Harness {
                     self.offer = Some(correction.clone());
                 }
                 Action::Replace {
+                    generation,
                     field_id,
                     correction,
                 } => {
@@ -378,21 +387,20 @@ impl Harness {
                         }),
                         "replace for text that is not before the caret",
                     );
-                    self.expect(self.selecting.is_none(), "replace while one is pending");
                     self.stats.replaces += 1;
                     replacing = true;
-                    self.selecting = Some(correction.clone());
+                    self.selecting = Some((*generation, correction.clone()));
                 }
                 Action::Overwrite(text) => {
                     self.expect(spelled_selection, "overwrite without a selection result");
                     self.expect(
-                        self.selecting
+                        answered
                             .as_ref()
                             .is_some_and(|correction| correction.corrected() == *text),
                         "overwrite with text that was not asked for",
                     );
                     self.expect(
-                        self.selecting.as_ref().is_some_and(|correction| {
+                        answered.as_ref().is_some_and(|correction| {
                             self.sent.as_ref().is_some_and(|f| {
                                 f.has_selection || f.before.ends_with(&correction.current())
                             })
@@ -401,10 +409,13 @@ impl Harness {
                     );
                     overwritten = Some(text.clone());
                 }
-                Action::Collapse { field_id } => {
+                Action::Collapse { field_id, text } => {
                     self.expect(spelled_selection, "collapse without a selection result");
                     self.expect(
-                        pending.is_some() && *field_id != 0,
+                        answered
+                            .as_ref()
+                            .is_some_and(|correction| correction.current() == *text)
+                            && *field_id != 0,
                         "collapse without a pending replace",
                     );
                 }
@@ -462,17 +473,14 @@ impl Harness {
         if let (Some(inserted), Some(field)) = (&inserted, &mut self.sent) {
             field.before.push_str(inserted);
         }
-        if let (Some(correction), Some(field), Some(_)) = (&pending, &mut self.sent, &overwritten) {
+        if let (Some(correction), Some(field), Some(_)) = (&answered, &mut self.sent, &overwritten)
+        {
             let start = field.before.len() - correction.current().len();
             field.before.truncate(start);
             field.before.push_str(&correction.corrected());
         }
-        if let Event::Selected(selected) = &event {
-            self.expect(
-                pending.is_none() || self.selecting == pending,
-                "selection result left the replace pending",
-            );
-            if pending.is_some() {
+        if let Event::Selected { selected, .. } = &event {
+            if answered.is_some() {
                 self.selecting = None;
             }
             self.expect(
@@ -480,12 +488,9 @@ impl Harness {
                 "a failed selection acted",
             );
             self.expect(
-                pending.is_some() || actions.is_empty(),
+                answered.is_some() || actions.is_empty(),
                 "selection result without a replace acted",
             );
-        }
-        if self.selecting.is_some() && matches!(event, Event::Field(_)) {
-            self.expect(actions.is_empty(), "a field change acted during a replace");
         }
         self.expect(
             self.shown.as_deref() == self.engine.suggestion(),
@@ -541,12 +546,12 @@ impl Harness {
             | Event::SetConfig(_)
             | Event::AcceptAll
             | Event::AcceptWord
-            | Event::Selected(_)
+            | Event::Selected { .. }
             | Event::Field(None) => {
                 let changed = match &event {
                     Event::Field(Some(_)) => before_key != context_key(&self.sent),
                     Event::AcceptAll | Event::AcceptWord => pre.is_some(),
-                    Event::Selected(_) => pending.is_some(),
+                    Event::Selected { .. } => answered.is_some(),
                     _ => true,
                 };
                 if changed && !scheduled_now {
@@ -675,7 +680,15 @@ impl Harness {
 
     fn select(&mut self) {
         let selected = self.rng.chance(70);
-        let actions = self.send(Event::Selected(selected));
+        let generation = match &self.selecting {
+            Some((generation, _)) if self.rng.chance(90) => *generation,
+            Some((generation, _)) => generation + 1,
+            None => self.rng.below(5) as u64,
+        };
+        let actions = self.send(Event::Selected {
+            generation,
+            selected,
+        });
         if actions
             .iter()
             .any(|action| matches!(action, Action::Overwrite(_)))

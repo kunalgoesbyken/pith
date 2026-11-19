@@ -35,7 +35,10 @@ pub enum Event {
         generation: u64,
         spelling: Spelling,
     },
-    Selected(bool),
+    Selected {
+        generation: u64,
+        selected: bool,
+    },
     Trigger,
     Resume(String),
     SetConfig(Config),
@@ -62,12 +65,14 @@ pub enum Action {
         placement: Placement,
     },
     Replace {
+        generation: u64,
         field_id: u64,
         correction: Correction,
     },
     Overwrite(String),
     Collapse {
         field_id: u64,
+        text: String,
     },
     Show {
         cuts: Vec<String>,
@@ -149,26 +154,26 @@ struct Offer {
 }
 
 struct Replacing {
+    id: u64,
     correction: Correction,
     field: FieldKey,
     prefix: String,
     aborted: bool,
-    latest: Option<FieldSnapshot>,
 }
 
 impl Replacing {
-    fn of(correction: Correction, field: &FieldSnapshot) -> Self {
+    fn of(id: u64, correction: Correction, field: &FieldSnapshot) -> Self {
         let prefix = field
             .before
             .strip_suffix(&correction.current())
             .unwrap_or_default()
             .to_string();
         Self {
+            id,
             correction,
             field: FieldKey::of(field),
             prefix,
             aborted: false,
-            latest: None,
         }
     }
 
@@ -178,9 +183,8 @@ impl Replacing {
                 || (field.has_selection && self.prefix.ends_with(&field.before)))
     }
 
-    fn observe(&mut self, field: FieldSnapshot) {
-        self.aborted |= !self.expects(&field);
-        self.latest = Some(field);
+    fn observe(&mut self, field: &FieldSnapshot) {
+        self.aborted |= !self.expects(field);
     }
 }
 
@@ -271,7 +275,6 @@ impl Engine {
             Event::Field(None) => {
                 if let Some(replacing) = &mut self.replacing {
                     replacing.aborted = true;
-                    replacing.latest = None;
                 }
                 self.reset(&mut out);
                 self.field = None;
@@ -285,6 +288,7 @@ impl Engine {
             Event::AcceptWord => self.on_accept(true, &mut out),
             Event::Dismiss => {
                 let ignored = self.unengaged_app();
+                self.decline_offer();
                 self.reset(&mut out);
                 if let Some(app) = ignored {
                     self.note_ignored(&app, &mut out);
@@ -299,7 +303,10 @@ impl Engine {
                 generation,
                 spelling,
             } => self.on_spelled(generation, spelling, &mut out),
-            Event::Selected(selected) => self.on_selected(selected, &mut out),
+            Event::Selected {
+                generation,
+                selected,
+            } => self.on_selected(generation, selected, &mut out),
             Event::Trigger => self.on_trigger(&mut out),
             Event::Resume(app) => {
                 if self.ignores.resume(&app) {
@@ -346,7 +353,6 @@ impl Engine {
     }
 
     fn reset(&mut self, out: &mut Vec<Action>) {
-        self.decline_offer();
         match self.phase {
             Phase::Idle => {}
             Phase::Requested => {
@@ -376,7 +382,6 @@ impl Engine {
     fn on_trigger(&mut self, out: &mut Vec<Action>) {
         let Some(field) = &self.field else { return };
         if !matches!(self.phase, Phase::Idle | Phase::Checking(_))
-            || self.replacing.is_some()
             || field.placement.is_none()
             || check_forced(field, &self.config).is_err()
         {
@@ -437,7 +442,7 @@ impl Engine {
 
     fn on_field(&mut self, mut field: FieldSnapshot, out: &mut Vec<Action>) {
         if let Some(replacing) = &mut self.replacing {
-            return replacing.observe(field);
+            replacing.observe(&field);
         }
         if self.insert_pending(&field) {
             return;
@@ -496,6 +501,9 @@ impl Engine {
                 ignored = self.unengaged_app();
             }
         }
+        if self.typed_past(&field) {
+            self.decline_offer();
+        }
         self.reset(out);
         if let Some(app) = ignored {
             self.note_ignored(&app, out);
@@ -504,6 +512,12 @@ impl Engine {
         if !self.start_check(finished, out) {
             self.schedule(out);
         }
+    }
+
+    fn typed_past(&self, field: &FieldSnapshot) -> bool {
+        self.field.as_ref().is_some_and(|previous| {
+            FieldKey::of(previous).matches(field) && previous.before != field.before
+        })
     }
 
     fn finished_word(&self, field: &FieldSnapshot) -> Option<Finished> {
@@ -572,27 +586,24 @@ impl Engine {
         }
     }
 
-    fn on_selected(&mut self, selected: bool, out: &mut Vec<Action>) {
-        let Some(replacing) = self.replacing.take() else {
+    fn on_selected(&mut self, generation: u64, selected: bool, out: &mut Vec<Action>) {
+        let Some(replacing) = self
+            .replacing
+            .take_if(|replacing| replacing.id == generation)
+        else {
             return;
         };
-        if selected && !replacing.aborted {
-            out.push(Action::Overwrite(replacing.correction.corrected()));
-            if replacing.latest.is_some() {
-                self.field = replacing.latest;
-            }
-            return;
+        if !selected {
+            return self.schedule(out);
         }
-        self.declined.insert(&replacing.correction.word);
-        if selected {
+        if replacing.aborted {
             out.push(Action::Collapse {
                 field_id: replacing.field.id,
+                text: replacing.correction.current(),
             });
+            return self.schedule(out);
         }
-        match replacing.latest {
-            Some(field) => self.on_field(field, out),
-            None => self.schedule(out),
-        }
+        out.push(Action::Overwrite(replacing.correction.corrected()));
     }
 
     fn typed_through(&self, previous: &FieldSnapshot, field: &FieldSnapshot) -> Option<String> {
@@ -688,15 +699,17 @@ impl Engine {
     }
 
     fn accept_correction(&mut self, correction: Correction, out: &mut Vec<Action>) {
+        let generation = self.generation + 1;
         if let Some(field) = &self.field {
             out.push(Action::Replace {
+                generation,
                 field_id: field.field_id,
                 correction: correction.clone(),
             });
-            self.replacing = Some(Replacing::of(correction, field));
+            self.replacing = Some(Replacing::of(generation, correction, field));
         }
         self.withdraw(out);
-        self.generation += 1;
+        self.generation = generation;
     }
 
     fn accept_suggestion(&mut self, suggestion: String, one_word: bool, out: &mut Vec<Action>) {

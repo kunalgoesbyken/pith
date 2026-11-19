@@ -105,18 +105,22 @@ pub fn select_before_caret(element: &IUIAutomationElement, text: &str) -> Result
                 continue;
             }
             range.Select()?;
-            if selected_text(element)? == text {
+            if selected_text(element).is_ok_and(|selected| selected == text) {
                 return Ok(());
             }
             caret.Select()?;
-            break;
         }
         Err(E_FAIL.into())
     }
 }
 
-pub fn collapse_selection(element: &IUIAutomationElement) -> Result<()> {
-    unsafe { caret_range(element)?.Select() }
+pub fn collapse_selection(element: &IUIAutomationElement, text: &str) -> Result<()> {
+    unsafe {
+        if selected_text(element)? != text {
+            return Err(E_FAIL.into());
+        }
+        caret_range(element)?.Select()
+    }
 }
 
 pub fn text_around(
