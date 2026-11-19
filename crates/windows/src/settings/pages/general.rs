@@ -71,6 +71,9 @@ fn suggestion_rows(model: &Model) -> Vec<Row> {
 fn writing_rows(model: &Model) -> Vec<Row> {
     let config = &model.config;
     vec![
+        Row::titled("Fix typos")
+            .caption("Offer the right spelling after a misspelled word.")
+            .control(switch("Fix typos", config.typo_fix, Setting::TypoFix)),
         Row::titled("Add a space after I keep a word")
             .caption("Saves a keystroke.")
             .control(switch(
