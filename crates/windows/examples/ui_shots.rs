@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
-use pith_core::{Config, Counts, ModelPreset, Placement, Reach, Rect, Rgb, TextStyle, is_rtl};
+use pith_core::{
+    Access, Config, Counts, ModelPreset, Pause, Placement, Reach, Rect, Rgb, TextStyle, is_rtl,
+};
 use pith_windows::{
-    Onboarding, OnboardingEvent, Picture, Rival, Sample, SettingsWindow, StatsView,
-    force_dark_theme, preview,
+    ForegroundApp, Onboarding, OnboardingEvent, Overview, Page, Picture, Rival, Sample,
+    SettingsWindow, StatsView, force_dark_theme, preview,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -19,7 +21,10 @@ mod common;
 use common::{bgra_to_rgba, bitmap_info, png, window_rect};
 
 const OUT_DIR: &str = "target/ui-shots";
-const DPIS: [u32; 2] = [96, 144];
+const DPIS: [u32; 3] = [96, 144, 192];
+const FULL_PAGE: (i32, i32) = (880, 1000);
+const SMALL_LAPTOP_CLIENT: (i32, i32) = (800, 392);
+const PAGE_NAMES: [&str; 6] = ["home", "general", "shortcuts", "apps", "model", "privacy"];
 const APP_BACKDROPS: [[u8; 3]; 2] = [[0xFF; 3], [0x1E; 3]];
 const OVERLAY_DPIS: [u32; 3] = [96, 144, 192];
 const OVERLAY_WIDTH: i32 = 560;
@@ -117,43 +122,135 @@ fn park(hwnd: HWND, dpi: u32) {
     pump();
 }
 
-fn sample_stats() -> StatsView {
-    StatsView {
-        today: Counts {
-            shown: 48,
-            accepted: 17,
-            accepted_words: 9,
-            words: 112,
-            chars: 640,
+fn sample_overview() -> Overview {
+    Overview {
+        status: "Ready".into(),
+        stats: StatsView {
+            today: Counts {
+                shown: 48,
+                accepted: 17,
+                accepted_words: 9,
+                words: 112,
+                chars: 640,
+            },
+            total: Counts {
+                shown: 12_480,
+                accepted: 3_912,
+                accepted_words: 2_207,
+                words: 41_530,
+                chars: 236_400,
+            },
+            days: [0, 0, 40, 220, 310, 0, 90, 180, 260, 140, 75, 330, 205, 112],
         },
-        total: Counts {
-            shown: 12_480,
-            accepted: 3_912,
-            accepted_words: 2_207,
-            words: 41_530,
-            chars: 236_400,
-        },
+        pause: None,
+        app: Some(ForegroundApp {
+            name: "Slack".into(),
+            access: Access::On,
+            switchable: true,
+        }),
+        start_with_windows: true,
     }
 }
 
-fn settings(name: &str, apps: &[&str], rival: Option<Rival>, dpi: u32, fallback: [u8; 3]) {
+fn resize(hwnd: HWND, dpi: u32, logical: (i32, i32)) {
+    let scale = |value: i32| value * dpi as i32 / 96;
+    let (frame, client) = (window_rect(hwnd), client_rect(hwnd));
+    let extra = (
+        frame.right - frame.left - client.right,
+        frame.bottom - frame.top - client.bottom,
+    );
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            PARKED_X,
+            PARKED_Y,
+            scale(logical.0) + extra.0,
+            scale(logical.1) + extra.1,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    pump();
+}
+
+fn client_rect(hwnd: HWND) -> RECT {
+    let mut area = RECT::default();
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut area);
+    }
+    area
+}
+
+fn home(config: &Config, overview: &Overview, rival: Option<Rival>) -> SettingsWindow {
+    let window = SettingsWindow::open(config, ModelPreset::Standard, overview).unwrap();
+    window.set_rival(rival);
+    window
+}
+
+fn page_shot(name: &str, window: &SettingsWindow, page: Page, (dpi, fallback): (u32, [u8; 3])) {
+    window.show_page(page);
+    park(window.hwnd(), dpi);
+    resize(window.hwnd(), dpi, FULL_PAGE);
+    capture(window.hwnd(), name, fallback);
+}
+
+fn pages(tag: &str, dpi: u32, fallback: [u8; 3]) {
     let config = Config {
-        blocked_apps: apps.iter().map(|app| app.to_string()).collect(),
+        blocked_apps: vec!["Slack".into(), "Figma".into(), "Notion".into()],
+        allowed_apps: vec!["Code".into()],
         ghost_opacity: 70,
         max_words: 10,
         ..Config::default()
     };
-    let window = SettingsWindow::open(
-        &config,
-        ModelPreset::Standard,
-        true,
-        "Ready",
-        &sample_stats(),
-    )
-    .unwrap();
-    window.set_rival(rival);
-    park(window.hwnd(), dpi);
-    capture(window.hwnd(), name, fallback);
+    let window = home(&config, &sample_overview(), None);
+    for page in Page::ALL {
+        let name = format!("{}-{tag}", PAGE_NAMES[page.index()]);
+        page_shot(&name, &window, page, (dpi, fallback));
+    }
+}
+
+fn fits_small_laptop(theme: &str, fallback: [u8; 3]) {
+    let window = home(&Config::default(), &sample_overview(), None);
+    window.show_page(Page::General);
+    park(window.hwnd(), 144);
+    resize(window.hwnd(), 144, SMALL_LAPTOP_CLIENT);
+    capture(
+        window.hwnd(),
+        &format!("laptop-1366x768-150-{theme}"),
+        fallback,
+    );
+}
+
+fn variants(theme: &str, fallback: [u8; 3]) {
+    let quiet = Overview {
+        status: "Ready".into(),
+        ..Overview::default()
+    };
+    let paused = Overview {
+        pause: Some(Pause::Until("14:35".into())),
+        status: "Paused until 14:35".into(),
+        ..sample_overview()
+    };
+    let remote = Config {
+        remote_url: Some("https://api.example.com/v1".into()),
+        ..Config::default()
+    };
+    let cases = [
+        ("home-new", Page::Home, Config::default(), quiet, None),
+        ("home-paused", Page::Home, Config::default(), paused, None),
+        (
+            "home-rival",
+            Page::Home,
+            Config::default(),
+            sample_overview(),
+            Some(Rival::TextSuggestions),
+        ),
+        ("model-remote", Page::Model, remote, sample_overview(), None),
+    ];
+    for (name, page, config, overview, rival) in cases {
+        let window = home(&config, &overview, rival);
+        page_shot(&format!("{name}-{theme}-96"), &window, page, (96, fallback));
+    }
 }
 
 fn onboarding(name: &str, events: &[OnboardingEvent], dpi: u32, fallback: [u8; 3]) {
@@ -172,8 +269,38 @@ fn control_size(hwnd: HWND) -> (i32, i32) {
     (rect.right - rect.left, rect.bottom - rect.top)
 }
 
-fn draw_state(window: HWND, id: i32, state: u32, dc: HDC, at: (i32, i32)) {
-    let control = unsafe { GetDlgItem(Some(window), id) }.unwrap();
+struct Search {
+    name: Vec<u16>,
+    found: HWND,
+}
+
+unsafe extern "system" fn match_name(child: HWND, data: LPARAM) -> windows::core::BOOL {
+    let search = unsafe { &mut *(data.0 as *mut Search) };
+    let title = common::window_title(child);
+    let hit = title.encode_utf16().collect::<Vec<u16>>() == search.name;
+    if hit {
+        search.found = child;
+    }
+    windows::core::BOOL::from(!hit)
+}
+
+fn find_control(window: HWND, name: &str) -> HWND {
+    let mut search = Search {
+        name: name.encode_utf16().collect(),
+        found: HWND::default(),
+    };
+    unsafe {
+        let _ = EnumChildWindows(
+            Some(window),
+            Some(match_name),
+            LPARAM(&mut search as *mut Search as isize),
+        );
+    }
+    search.found
+}
+
+fn draw_state(window: HWND, control: HWND, state: u32, dc: HDC, at: (i32, i32)) {
+    let id = unsafe { GetDlgCtrlID(control) };
     let (width, height) = control_size(control);
     let item = DRAWITEMSTRUCT {
         CtlType: ODT_BUTTON,
@@ -201,23 +328,28 @@ fn draw_state(window: HWND, id: i32, state: u32, dc: HDC, at: (i32, i32)) {
 }
 
 fn states(name: &str, card: [u8; 3]) {
-    const CONTROLS: [i32; 9] = [101, 101, 103, 102, 120, 112, 113, 105, 109];
+    const SAMPLES: [(Page, &str, bool); 10] = [
+        (Page::Home, "Suggest as I type", false),
+        (Page::Home, "Suggest as I type", true),
+        (Page::General, "Fewer", false),
+        (Page::General, "Normal", false),
+        (Page::General, "Ghost text opacity", false),
+        (Page::Shortcuts, "Keep the suggestion: Tab", false),
+        (Page::Apps, "Turn Pith on in Slack", false),
+        (Page::Privacy, "Delete model and data", false),
+        (Page::Model, "Use: Large model", false),
+        (Page::Home, "General", false),
+    ];
     const STATES: [u32; 4] = [0, 0x10, 0x1, 0x4];
-    const CELL: (i32, i32) = (150, 52);
+    const CELL: (i32, i32) = (260, 52);
     let config = Config {
         blocked_apps: vec!["Slack".into()],
         ..Config::default()
     };
-    let window = SettingsWindow::open(
-        &config,
-        ModelPreset::Standard,
-        true,
-        "Ready",
-        &StatsView::default(),
-    )
-    .unwrap();
+    let window = home(&config, &sample_overview(), None);
     park(window.hwnd(), 96);
-    let (width, height) = (CELL.0 * STATES.len() as i32, CELL.1 * CONTROLS.len() as i32);
+    resize(window.hwnd(), 96, FULL_PAGE);
+    let (width, height) = (CELL.0 * STATES.len() as i32, CELL.1 * SAMPLES.len() as i32);
     let info = bitmap_info(width, height);
     let mut bits = std::ptr::null_mut();
     unsafe {
@@ -228,14 +360,18 @@ fn states(name: &str, card: [u8; 3]) {
         for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel[..3].copy_from_slice(&[card[2], card[1], card[0]]);
         }
-        for (row, id) in CONTROLS.iter().enumerate() {
-            if row == 1 {
-                let toggle = GetDlgItem(Some(window.hwnd()), *id).unwrap();
-                SendMessageW(toggle, BM_CLICK, None, None);
+        for (row, (page, control_name, flip)) in SAMPLES.iter().enumerate() {
+            window.show_page(*page);
+            pump();
+            let mut control = find_control(window.hwnd(), control_name);
+            if *flip {
+                SendMessageW(control, BM_CLICK, None, None);
+                pump();
+                control = find_control(window.hwnd(), control_name);
             }
             for (column, state) in STATES.iter().enumerate() {
                 let at = (column as i32 * CELL.0, row as i32 * CELL.1);
-                draw_state(window.hwnd(), *id, *state, dc, at);
+                draw_state(window.hwnd(), control, *state, dc, at);
             }
         }
         for pixel in pixels.as_chunks_mut::<4>().0 {
@@ -366,13 +502,18 @@ fn main() {
     let failed = [OnboardingEvent::Failed(
         "the model could not be downloaded. Check your connection and start Pith again.".into(),
     )];
-    let many = ["Slack", "Figma", "Notion", "Zoom", "Teams"];
     for (theme, dark, fallback, card) in THEMES {
         force_dark_theme(Some(dark));
         for dpi in DPIS {
-            let tag = format!("{theme}-{dpi}");
-            settings(&format!("settings-{tag}"), &many[..3], None, dpi, fallback);
-            onboarding(&format!("onboarding-practice-{tag}"), &ready, dpi, fallback);
+            pages(&format!("{theme}-{dpi}"), dpi, fallback);
+        }
+        for dpi in [96, 144] {
+            onboarding(
+                &format!("onboarding-practice-{theme}-{dpi}"),
+                &ready,
+                dpi,
+                fallback,
+            );
         }
         for dpi in OVERLAY_DPIS {
             overlay(
@@ -383,27 +524,8 @@ fn main() {
             );
         }
         states(&format!("states-{theme}"), card);
-        settings(
-            &format!("settings-empty-{theme}-96"),
-            &[],
-            None,
-            96,
-            fallback,
-        );
-        settings(
-            &format!("settings-many-{theme}-96"),
-            &many,
-            None,
-            96,
-            fallback,
-        );
-        for (kind, rival) in [
-            ("os", Rival::TextSuggestions),
-            ("app", Rival::App("Lightkey")),
-        ] {
-            let name = format!("settings-rival-{kind}-{theme}-96");
-            settings(&name, &many[..3], Some(rival), 96, fallback);
-        }
+        variants(theme, fallback);
+        fits_small_laptop(theme, fallback);
         onboarding(
             &format!("onboarding-download-{theme}-96"),
             &download,

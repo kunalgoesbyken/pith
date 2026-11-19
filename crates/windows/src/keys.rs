@@ -19,6 +19,20 @@ pub fn virtual_key(key: Key) -> u16 {
     }
 }
 
+pub fn key_of(code: u16) -> Option<Key> {
+    let function_keys = VK_F1.0..VK_F1.0 + 24;
+    match code {
+        code if code == VK_TAB.0 => Some(Key::Tab),
+        code if code == VK_RIGHT.0 => Some(Key::Right),
+        code if code == VK_ESCAPE.0 => Some(Key::Escape),
+        code if code == VK_SPACE.0 => Some(Key::Space),
+        code if function_keys.contains(&code) => Some(Key::Function((code - VK_F1.0 + 1) as u8)),
+        code => char::from_u32(u32::from(code))
+            .filter(char::is_ascii_alphanumeric)
+            .map(Key::Char),
+    }
+}
+
 fn hot_key_modifiers(chord: &Chord) -> HOT_KEY_MODIFIERS {
     let flags = [
         (chord.ctrl, MOD_CONTROL),

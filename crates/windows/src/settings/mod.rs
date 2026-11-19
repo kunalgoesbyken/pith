@@ -1,103 +1,50 @@
+mod action;
+mod controls;
 mod layout;
 mod model;
+mod page;
+mod pages;
+mod picker;
+mod recorder;
+mod slider;
 mod view;
 mod window;
 
 use std::cell::RefCell;
 
-use pith_core::{Config, Counts, Length, ModelPreset, Setting, Suggestions};
+use pith_core::{Config, Counts, HISTORY_DAYS, ModelPreset, Pause, Setting};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyWindow, IsWindow, SW_SHOWNORMAL, SetForegroundWindow, ShowWindow,
+    DestroyWindow, IsIconic, IsWindow, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
 };
 
 use crate::rival::Rival;
-use model::update;
+use crate::tray::{ForegroundApp, TrayCommand};
 
-const ID_ENABLED: i32 = 101;
-const ID_FEWER: i32 = 102;
-const ID_NORMAL: i32 = 103;
-const ID_MORE: i32 = 104;
-const ID_SHORT: i32 = 105;
-const ID_NORMAL_LENGTH: i32 = 106;
-const ID_LONG: i32 = 107;
-const ID_OPACITY_DOWN: i32 = 108;
-const ID_OPACITY_UP: i32 = 109;
-const ID_OPEN_DATA: i32 = 112;
-const ID_DELETE_DATA: i32 = 113;
-const ID_START: i32 = 114;
-const ID_RESET_STATS: i32 = 115;
-const ID_RIVAL_OPEN: i32 = 116;
-const ID_TYPO: i32 = 117;
-const ID_REMOVE_FIRST: i32 = 120;
-const ID_SMALL: i32 = 130;
-const ID_STANDARD: i32 = 131;
-const ID_LARGE: i32 = 132;
-const MAX_APP_ROWS: usize = 3;
-const OPACITY_STEP: u8 = 10;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Choice {
-    Frequency(Suggestions),
-    Length(Length),
-    Model(ModelPreset),
-}
-
-impl Choice {
-    fn setting(self) -> Setting {
-        match self {
-            Self::Frequency(level) => Setting::Suggestions(level),
-            Self::Length(length) => Setting::Length(length),
-            Self::Model(preset) => Setting::Model(preset),
-        }
-    }
-
-    fn caption(self, label: &'static str, selected: bool) -> &'static str {
-        match (self, selected) {
-            (Self::Model(_), true) => "In use",
-            (Self::Model(_), false) => "Use",
-            _ => label,
-        }
-    }
-}
-
-type Segment = (i32, Choice, &'static str);
-
-const FREQUENCY: [Segment; 3] = [
-    (ID_FEWER, Choice::Frequency(Suggestions::Fewer), "Fewer"),
-    (ID_NORMAL, Choice::Frequency(Suggestions::Normal), "Normal"),
-    (ID_MORE, Choice::Frequency(Suggestions::More), "More"),
-];
-const LENGTH: [Segment; 3] = [
-    (ID_SHORT, Choice::Length(Length::Short), "Short"),
-    (ID_NORMAL_LENGTH, Choice::Length(Length::Normal), "Normal"),
-    (ID_LONG, Choice::Length(Length::Long), "Long"),
-];
-
-const MODELS: [Segment; 3] = [
-    (ID_SMALL, Choice::Model(ModelPreset::Small), "Small model"),
-    (
-        ID_STANDARD,
-        Choice::Model(ModelPreset::Standard),
-        "Standard model",
-    ),
-    (ID_LARGE, Choice::Model(ModelPreset::Large), "Large model"),
-];
-
-fn segments() -> impl Iterator<Item = &'static Segment> {
-    FREQUENCY.iter().chain(&LENGTH).chain(&MODELS)
-}
+pub use page::Page;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StatsView {
     pub today: Counts,
     pub total: Counts,
+    pub days: [u64; HISTORY_DAYS],
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Overview {
+    pub status: String,
+    pub stats: StatsView,
+    pub pause: Option<Pause>,
+    pub app: Option<ForegroundApp>,
+    pub start_with_windows: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiEvent {
     Apply(Setting),
+    Command(TrayCommand),
     OpenDataFolder,
+    OpenConfigFile,
     DeleteData,
     StartWithWindows(bool),
     ResetStats,
@@ -125,11 +72,9 @@ impl SettingsWindow {
     pub fn open(
         config: &Config,
         recommended: ModelPreset,
-        start_with_windows: bool,
-        status: &str,
-        stats: &StatsView,
+        overview: &Overview,
     ) -> windows::core::Result<Self> {
-        let hwnd = window::create(config, recommended, start_with_windows, status, stats)?;
+        let hwnd = window::create(config, recommended, overview)?;
         Ok(Self { hwnd })
     }
 
@@ -142,26 +87,31 @@ impl SettingsWindow {
     }
 
     pub fn show(&self) {
+        let command = if unsafe { IsIconic(self.hwnd) }.as_bool() {
+            SW_RESTORE
+        } else {
+            SW_SHOW
+        };
         unsafe {
-            let _ = ShowWindow(self.hwnd, SW_SHOWNORMAL);
+            let _ = ShowWindow(self.hwnd, command);
             let _ = SetForegroundWindow(self.hwnd);
         }
     }
 
-    pub fn set_rival(&self, rival: Option<Rival>) {
-        if update(|model| model.rival = rival).is_some() {
+    pub fn show_page(&self, page: Page) {
+        if model::update(|model| model.go(page)).is_some() {
             window::relayout(self.hwnd);
         }
     }
 
-    pub fn refresh(
-        &self,
-        config: &Config,
-        start_with_windows: bool,
-        status: &str,
-        stats: &StatsView,
-    ) {
-        let changed = update(|model| model.refresh(config, start_with_windows, status, stats));
+    pub fn set_rival(&self, rival: Option<Rival>) {
+        if model::update(|model| model.rival = rival).is_some() {
+            window::relayout(self.hwnd);
+        }
+    }
+
+    pub fn refresh(&self, config: &Config, overview: &Overview) {
+        let changed = model::update(|model| model.refresh(config, overview));
         if changed == Some(true) {
             window::relayout(self.hwnd);
         }
@@ -180,12 +130,14 @@ impl Drop for SettingsWindow {
 
 #[cfg(test)]
 mod tests {
-    use super::layout::build;
     use super::model::read;
+    use super::recorder::WM_RECORDED;
     use super::*;
-    use crate::ui::{self, Scale, Theme, force_dark_theme};
-    use windows::Win32::Foundation::{LPARAM, POINT, RECT, WPARAM};
-    use windows::Win32::Graphics::Gdi::ClientToScreen;
+    use crate::ui::{self, Theme, force_dark_theme};
+    use pith_core::{Chord, KeyAction, Length, PauseSpan, Suggestions};
+    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+    use windows::Win32::UI::Controls::BST_CHECKED;
+    use windows::Win32::UI::Input::KeyboardAndMouse::VK_F9;
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::core::w;
 
@@ -193,31 +145,37 @@ mod tests {
         unsafe { SendMessageW(hwnd, message, Some(WPARAM(wparam)), Some(LPARAM(lparam))).0 }
     }
 
-    fn item(window: &SettingsWindow, id: i32) -> HWND {
-        unsafe { GetDlgItem(Some(window.hwnd), id) }.unwrap_or_default()
+    fn open(config: &Config) -> SettingsWindow {
+        let overview = Overview {
+            status: "Ready".into(),
+            ..Overview::default()
+        };
+        SettingsWindow::open(config, ModelPreset::Standard, &overview).unwrap()
     }
 
-    fn click(window: &SettingsWindow, id: i32) {
-        send(item(window, id), BM_CLICK, 0, 0);
+    fn id_of(name: &str) -> i32 {
+        read(|model| {
+            let found = model
+                .layout
+                .controls
+                .iter()
+                .find(|placed| placed.item.name == name);
+            found.map(|placed| placed.id)
+        })
+        .flatten()
+        .unwrap_or_else(|| panic!("no control named {name}"))
     }
 
-    fn name(window: &SettingsWindow, id: i32) -> String {
-        let mut buffer = [0u16; 128];
-        let length = unsafe { GetWindowTextW(item(window, id), &mut buffer) };
-        String::from_utf16_lossy(&buffer[..length as usize])
+    fn control(window: &SettingsWindow, name: &str) -> HWND {
+        unsafe { GetDlgItem(Some(window.hwnd), id_of(name)) }.unwrap_or_default()
     }
 
-    fn shown(window: &SettingsWindow, id: i32) -> bool {
-        let style = unsafe { GetWindowLongPtrW(item(window, id), GWL_STYLE) } as u32;
-        style & WS_VISIBLE.0 != 0
+    fn click(window: &SettingsWindow, name: &str) {
+        send(control(window, name), BM_CLICK, 0, 0);
     }
 
-    fn frame_width(window: &SettingsWindow) -> i32 {
-        let mut frame = RECT::default();
-        unsafe {
-            let _ = GetWindowRect(window.hwnd, &mut frame);
-        }
-        ui::width(frame)
+    fn checked(window: &SettingsWindow, name: &str) -> bool {
+        send(control(window, name), BM_GETCHECK, 0, 0) == BST_CHECKED.0 as isize
     }
 
     fn with_apps(apps: &[&str]) -> Config {
@@ -228,221 +186,105 @@ mod tests {
     }
 
     #[test]
-    fn controls_reflect_the_config_and_emit_matching_settings() {
-        {
-            let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
-            let window = SettingsWindow::open(
-                &config,
-                ModelPreset::Standard,
-                true,
-                "Ready",
-                &StatsView::default(),
-            )
-            .unwrap();
-            assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, on");
-            assert_eq!(name(&window, ID_START), "Start with Windows, on");
-            assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
-            assert_eq!(name(&window, ID_FEWER), "Fewer");
-            assert_eq!(
-                name(&window, ID_REMOVE_FIRST + 1),
-                "Remove \u{540d}\u{524d}"
-            );
-            assert!(shown(&window, ID_REMOVE_FIRST + 1));
-            assert!(!shown(&window, ID_REMOVE_FIRST + 2));
-            take_events();
-
-            click(&window, ID_ENABLED);
-            click(&window, ID_MORE);
-            click(&window, ID_START);
-            click(&window, ID_OPEN_DATA);
-            click(&window, ID_DELETE_DATA);
-            assert_eq!(
-                take_events(),
-                [
-                    UiEvent::Apply(Setting::Enabled(false)),
-                    UiEvent::Apply(Setting::Suggestions(Suggestions::More)),
-                    UiEvent::StartWithWindows(false),
-                    UiEvent::OpenDataFolder,
-                    UiEvent::DeleteData,
-                ]
-            );
-            assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
-            assert_eq!(name(&window, ID_MORE), "More, selected");
-            assert_eq!(name(&window, ID_NORMAL), "Normal");
-        }
-        {
-            let config = Config {
-                ghost_opacity: 90,
-                ..Config::default()
-            };
-            let window = SettingsWindow::open(
-                &config,
-                ModelPreset::Standard,
-                false,
-                "Ready",
-                &StatsView::default(),
-            )
-            .unwrap();
-            assert_eq!(name(&window, ID_NORMAL_LENGTH), "Normal, selected");
-            assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
-            take_events();
-
-            click(&window, ID_LONG);
-            click(&window, ID_SHORT);
-            click(&window, ID_OPACITY_UP);
-            click(&window, ID_OPACITY_UP);
-            click(&window, ID_OPACITY_DOWN);
-            assert_eq!(
-                take_events(),
-                [
-                    UiEvent::Apply(Setting::Length(Length::Long)),
-                    UiEvent::Apply(Setting::Length(Length::Short)),
-                    UiEvent::Apply(Setting::GhostOpacity(100)),
-                    UiEvent::Apply(Setting::GhostOpacity(90)),
-                ]
-            );
-            assert_eq!(name(&window, ID_SHORT), "Short, selected");
-            assert_eq!(name(&window, ID_NORMAL), "Normal, selected");
-            assert_eq!(read(|model| model.snapshot.opacity), Some(90));
-        }
-    }
-
-    #[test]
-    fn reset_stats_asks_the_host_and_refresh_follows_the_config_and_stats() {
-        {
-            let window = SettingsWindow::open(
-                &Config::default(),
-                ModelPreset::Standard,
-                false,
-                "Ready",
-                &StatsView::default(),
-            )
-            .unwrap();
-            assert_eq!(name(&window, ID_RESET_STATS), "Reset stats");
-            take_events();
-            click(&window, ID_RESET_STATS);
-            assert_eq!(take_events(), [UiEvent::ResetStats]);
-            let stats = StatsView {
-                today: Counts {
-                    shown: 3,
-                    ..Counts::default()
-                },
-                total: Counts {
-                    shown: 12,
-                    ..Counts::default()
-                },
-            };
-            window.refresh(&Config::default(), false, "Ready", &stats);
-            let shown = read(|model| (model.snapshot.today.shown, model.snapshot.total.shown));
-            assert_eq!(shown, Some((3, 12)));
-        }
-        {
-            let mut config = with_apps(&["Slack"]);
-            let window = SettingsWindow::open(
-                &config,
-                ModelPreset::Standard,
-                false,
-                "Ready",
-                &StatsView::default(),
-            )
-            .unwrap();
-            assert!(shown(&window, ID_REMOVE_FIRST));
-            config.blocked_apps.clear();
-            config.enabled = false;
-            config.min_mean_logprob = -1.234;
-            window.refresh(&config, true, "Turned off", &StatsView::default());
-            assert!(!shown(&window, ID_REMOVE_FIRST));
-            assert_eq!(name(&window, ID_ENABLED), "Suggest as I type, off");
-            assert_eq!(name(&window, ID_START), "Start with Windows, on");
-            for (id, choice, label) in segments() {
-                let selected = matches!(
-                    choice,
-                    Choice::Length(Length::Normal) | Choice::Model(ModelPreset::Standard)
-                );
-                let expected = if selected {
-                    format!("{label}, selected")
-                } else {
-                    label.to_string()
-                };
-                assert_eq!(name(&window, *id), expected, "{choice:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn remove_unblocks_that_exact_name_and_unused_slots_do_nothing() {
-        let config = with_apps(&["Slack", "\u{540d}\u{524d}"]);
-        let window = SettingsWindow::open(
-            &config,
-            ModelPreset::Standard,
-            false,
-            "Ready",
-            &StatsView::default(),
-        )
-        .unwrap();
+    fn home_controls_reflect_the_config_and_emit_matching_events() {
+        let window = open(&Config::default());
+        assert!(checked(&window, "Suggest as I type"));
         take_events();
-        click(&window, ID_REMOVE_FIRST + 2);
+        click(&window, "Suggest as I type");
+        click(&window, "Pause for 15 min");
+        assert!(!checked(&window, "Suggest as I type"));
+        click(&window, "Change shortcuts");
+        assert_eq!(
+            take_events(),
+            [
+                UiEvent::Apply(Setting::Enabled(false)),
+                UiEvent::Command(TrayCommand::Pause(PauseSpan::Minutes(15))),
+            ]
+        );
+        assert_eq!(read(|model| model.page), Some(Page::Shortcuts));
+    }
+
+    #[test]
+    fn choices_select_one_segment_and_apply_their_setting() {
+        let window = open(&Config::default());
+        window.show_page(Page::General);
+        take_events();
+        click(&window, "Fewer");
+        click(&window, "Short");
+        click(&window, "Only when I ask");
+        assert_eq!(
+            take_events(),
+            [
+                UiEvent::Apply(Setting::Suggestions(Suggestions::Fewer)),
+                UiEvent::Apply(Setting::Length(Length::Short)),
+                UiEvent::Apply(Setting::TriggerMode(pith_core::TriggerMode::Manual)),
+            ]
+        );
+        assert!(checked(&window, "Fewer"));
+        assert!(checked(&window, "Short"));
+        assert!(checked(&window, "Only when I ask"));
+        assert!(!checked(&window, "As I type"));
+    }
+
+    #[test]
+    fn a_recorded_key_rebinds_and_a_taken_key_explains_itself() {
+        let window = open(&Config::default());
+        window.show_page(Page::Shortcuts);
+        take_events();
+        click(&window, "Keep the suggestion: Tab");
+        assert_eq!(
+            read(|model| model.recording),
+            Some(Some((KeyAction::AcceptAll, 0)))
+        );
+        send(window.hwnd, WM_RECORDED, 0, VK_F9.0 as isize);
+        assert_eq!(
+            take_events(),
+            [UiEvent::Apply(Setting::Bind(
+                KeyAction::AcceptAll,
+                0,
+                Some(Chord::parse("F9").unwrap())
+            ))]
+        );
+        click(&window, "Keep one word: Shift+Tab");
+        send(window.hwnd, WM_RECORDED, 0, VK_F9.0 as isize);
         assert_eq!(take_events(), []);
-        click(&window, ID_REMOVE_FIRST + 1);
+        let notice = read(|model| model.key_notice.clone()).flatten();
+        assert!(notice.is_some_and(|text| text.ends_with('.')));
+    }
+
+    #[test]
+    fn an_app_rule_is_removed_by_its_own_button() {
+        let window = open(&with_apps(&["Slack", "\u{540d}\u{524d}"]));
+        window.show_page(Page::Apps);
+        take_events();
+        click(&window, "Turn Pith on in \u{540d}\u{524d}");
         assert_eq!(
             take_events(),
             [UiEvent::Apply(Setting::Unblock("\u{540d}\u{524d}".into()))]
         );
-    }
-
-    fn screen_point(window: &SettingsWindow, x: i32, y: i32) -> isize {
-        let mut point = POINT { x, y };
-        unsafe {
-            let _ = ClientToScreen(window.hwnd, &mut point);
-        }
-        ((point.y as u16 as isize) << 16) | point.x as u16 as isize
+        assert!(read(|model| model.config.blocked_apps == ["Slack"]).unwrap());
     }
 
     #[test]
-    fn the_wheel_scrolls_the_app_list_under_the_cursor_and_the_page_elsewhere() {
-        let config = with_apps(&["a", "b", "c", "d", "e"]);
-        let window = SettingsWindow::open(
-            &config,
-            ModelPreset::Standard,
-            false,
-            "Ready",
-            &StatsView::default(),
-        )
-        .unwrap();
-        let wheel = |delta: i16| (delta as u16 as usize) << 16;
-        let list = read(|model| build(model).app_list).unwrap();
-        let over_list = screen_point(
-            &window,
-            (list.left + list.right) / 2,
-            (list.top + list.bottom) / 2,
-        );
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), over_list);
-        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove b");
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(-360), over_list);
-        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove c");
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(360), over_list);
-        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove a");
-
-        let overflows = read(|model| model.page_room).unwrap() > 0;
-        let elsewhere = screen_point(&window, 1, 1);
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(-120), elsewhere);
-        assert_eq!(read(|model| model.page_offset).unwrap() > 0, overflows);
-        assert_eq!(name(&window, ID_REMOVE_FIRST), "Remove a");
-        send(window.hwnd, WM_MOUSEWHEEL, wheel(1200), elsewhere);
-        assert_eq!(read(|model| model.page_offset), Some(0));
+    fn refresh_follows_the_config_and_the_overview() {
+        let window = open(&Config::default());
+        take_events();
+        let mut overview = Overview::default();
+        overview.stats.today.shown = 3;
+        let config = Config {
+            enabled: false,
+            ..Config::default()
+        };
+        window.refresh(&config, &overview);
+        assert!(!checked(&window, "Suggest as I type"));
+        assert_eq!(read(|model| model.overview.stats.today.shown), Some(3));
+        assert_eq!(take_events(), []);
     }
 
     #[test]
     fn closing_reports_once_and_drop_is_safe_after_close() {
         for (message, wparam) in [(WM_CLOSE, 0), (WM_COMMAND, IDCANCEL.0 as usize)] {
-            let window = SettingsWindow::open(
-                &Config::default(),
-                ModelPreset::Standard,
-                false,
-                "Ready",
-                &StatsView::default(),
-            )
-            .unwrap();
+            let window = open(&Config::default());
             take_events();
             send(window.hwnd, message, wparam, 0);
             assert!(!window.is_open(), "{message}");
@@ -454,36 +296,33 @@ mod tests {
 
     #[test]
     fn a_dpi_change_rescales_the_window() {
-        let window = SettingsWindow::open(
-            &with_apps(&["Slack"]),
-            ModelPreset::Standard,
-            false,
-            "Ready",
-            &StatsView::default(),
-        )
-        .unwrap();
-        let before = frame_width(&window);
-        let suggested = RECT::default();
+        let window = open(&Config::default());
+        let mut before = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(window.hwnd, &mut before);
+        }
+        let suggested = RECT {
+            right: ui::width(before) * 2,
+            bottom: ui::height(before) * 2,
+            ..before
+        };
         send(
             window.hwnd,
             WM_DPICHANGED,
             192 | (192 << 16),
             &suggested as *const RECT as isize,
         );
-        let largest_allowed = unsafe { GetSystemMetrics(SM_CXMAXTRACK) };
-        assert!(frame_width(&window) > (before * 3 / 2).min(largest_allowed - 1));
+        assert_eq!(read(|model| model.scale.0), Some(192));
+        let mut after = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(window.hwnd, &mut after);
+        }
+        assert!(ui::width(after) > ui::width(before));
     }
 
     #[test]
-    fn an_immersive_color_change_retheme_the_window() {
-        let window = SettingsWindow::open(
-            &Config::default(),
-            ModelPreset::Standard,
-            false,
-            "Ready",
-            &StatsView::default(),
-        )
-        .unwrap();
+    fn an_immersive_color_change_rethemes_the_window() {
+        let window = open(&Config::default());
         for dark in [true, false] {
             force_dark_theme(Some(dark));
             send(
@@ -492,85 +331,62 @@ mod tests {
                 0,
                 w!("ImmersiveColorSet").as_ptr() as isize,
             );
-            let theme = read(|model| model.theme).unwrap();
-            assert_eq!(theme, Theme::detect());
+            assert_eq!(read(|model| model.theme), Some(Theme::detect()));
         }
         force_dark_theme(None);
     }
 
     #[test]
-    fn a_rival_line_appears_only_when_set_and_only_the_system_feature_has_an_action() {
-        let window = SettingsWindow::open(
-            &Config::default(),
-            ModelPreset::Standard,
-            false,
-            "Ready",
-            &StatsView::default(),
-        )
-        .unwrap();
-        assert!(!shown(&window, ID_RIVAL_OPEN));
-        let plain_height = read(|model| build(model).client.bottom).unwrap();
-        take_events();
-
+    fn a_rival_row_appears_only_when_set() {
+        let window = open(&Config::default());
+        let rows = || read(|model| model.layout.controls.len()).unwrap();
+        let plain = rows();
         window.set_rival(Some(Rival::TextSuggestions));
-        assert!(shown(&window, ID_RIVAL_OPEN));
-        assert_eq!(name(&window, ID_RIVAL_OPEN), "Open Windows typing settings");
-        click(&window, ID_RIVAL_OPEN);
+        assert_eq!(rows(), plain + 1);
+        click(&window, "Review");
         assert_eq!(take_events(), [UiEvent::OpenTypingSettings]);
-
         window.set_rival(Some(Rival::App("Lightkey")));
-        assert!(!shown(&window, ID_RIVAL_OPEN));
-
-        window.refresh(&Config::default(), false, "Ready", &StatsView::default());
-        assert_eq!(
-            read(|model| model.rival.clone()).flatten(),
-            Some(Rival::App("Lightkey"))
-        );
-
+        assert_eq!(rows(), plain);
         window.set_rival(None);
-        assert!(!shown(&window, ID_RIVAL_OPEN));
-        let after = read(|model| build(model).client.bottom).unwrap();
-        assert_eq!(after, plain_height);
+        assert_eq!(rows(), plain);
     }
 
     #[test]
-    fn every_control_fits_inside_the_window_without_overlapping() {
+    fn every_control_fits_inside_the_pane_without_overlapping() {
         let config = with_apps(&["a", "b", "c", "d"]);
-        for dpi in [96, 120, 144, 192] {
-            let model = model::Model::new(
-                &config,
-                ModelPreset::Standard,
-                false,
-                "Ready",
-                &StatsView::default(),
-                (Theme::detect(), false, Scale(dpi)),
-            );
-            let layout = build(&model);
-            let visible: Vec<_> = layout
-                .controls
-                .iter()
-                .filter(|placed| placed.visible)
-                .collect();
-            assert_eq!(
-                visible.len(),
-                3 + FREQUENCY.len() + LENGTH.len() + 2 + MODELS.len() + MAX_APP_ROWS + 2 + 1
-            );
-            for (index, placed) in visible.iter().enumerate() {
-                let bounds = placed.bounds;
-                assert!(
-                    bounds.left >= 0 && bounds.right <= layout.client.right,
-                    "{dpi}"
+        for page in Page::ALL {
+            let window = open(&config);
+            window.show_page(page);
+            for dpi in [96, 144, 192] {
+                send(
+                    window.hwnd,
+                    WM_DPICHANGED,
+                    dpi | (dpi << 16),
+                    &RECT {
+                        right: 1600,
+                        bottom: 1200,
+                        ..Default::default()
+                    } as *const RECT as isize,
                 );
-                assert!(
-                    bounds.top >= 0 && bounds.bottom <= layout.client.bottom,
-                    "{dpi}"
-                );
-                for other in &visible[index + 1..] {
-                    let apart = bounds.right <= other.bounds.left
-                        || other.bounds.right <= bounds.left
-                        || bounds.bottom <= other.bounds.top
-                        || other.bounds.bottom <= bounds.top;
-                    assert!(apart, "{} and {} overlap at {dpi}", placed.id, other.id);
+                let (controls, client) =
+                    read(|model| (model.layout.controls.clone(), model.viewport)).unwrap();
+                for (index, placed) in controls.iter().enumerate() {
+                    let bounds = placed.bounds;
+                    assert!(
+                        bounds.left >= 0 && bounds.right <= client.0,
+                        "{page:?} {dpi}"
+                    );
+                    for other in &controls[index + 1..] {
+                        let apart = bounds.right <= other.bounds.left
+                            || other.bounds.right <= bounds.left
+                            || bounds.bottom <= other.bounds.top
+                            || other.bounds.bottom <= bounds.top;
+                        assert!(
+                            apart,
+                            "{} and {} overlap on {page:?} at {dpi}",
+                            placed.id, other.id
+                        );
+                    }
                 }
             }
         }

@@ -1,193 +1,142 @@
+use pith_core::{HISTORY_DAYS, blend, ink, next_word_alpha};
 use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 
-use super::layout::{
-    Block, DATA_ROWS, FIGURE_COLUMN, GENERAL_ROWS, Layout, OPACITY_TITLE, RIVAL_OPEN_NAME, Row,
-    RowText, STATS_RESET, TITLE,
-};
+use super::layout::{Block, Face, Layout, Placed, PlacedRow, Sample, Voice};
 use super::model::Model;
-use super::{
-    ID_DELETE_DATA, ID_ENABLED, ID_OPACITY_DOWN, ID_OPACITY_UP, ID_OPEN_DATA, ID_REMOVE_FIRST,
-    ID_RESET_STATS, ID_RIVAL_OPEN, ID_START, ID_TYPO, MAX_APP_ROWS, segments,
-};
 use crate::ui::{
-    self, Align, CARD_RADIUS, Canvas, Look, Role, STROKE, Text, Tone, height, measure, paint_mark,
-    rect, width,
+    self, Align, CARD_RADIUS, Canvas, Look, Rgb, Role, STROKE, Text, height, inset, key_labels,
+    keycaps, measure, paint_backdrop, paint_mark, rect, width,
 };
 
-const MINUS: &str = "\u{2212}";
-const PLUS: &str = "+";
+const BADGE_RADIUS: i32 = 10;
+const CARET_WIDTH: i32 = 1;
+const TILE_TEXT_INSET: i32 = 12;
+const BAR_GAP: i32 = 4;
+const BAR_MIN: i32 = 2;
+const BAR_RADIUS: i32 = 2;
+const STRIP_GAP: i32 = 8;
 
-fn on_off(on: bool) -> &'static str {
-    if on { "On" } else { "Off" }
-}
-
-fn remove_slot(id: i32) -> Option<usize> {
-    let slot = usize::try_from(id - ID_REMOVE_FIRST).ok()?;
-    (slot < MAX_APP_ROWS).then_some(slot)
-}
-
-fn look(model: &Model, id: i32) -> Option<Look<'static>> {
-    let toggle = |on| Look::Toggle {
-        on,
-        label: on_off(on),
-    };
-    let button = |tone, label| Look::Button { tone, label };
-    match id {
-        ID_ENABLED => Some(toggle(model.snapshot.enabled)),
-        ID_TYPO => Some(toggle(model.snapshot.typo_fix)),
-        ID_START => Some(toggle(model.snapshot.start_with_windows)),
-        ID_OPEN_DATA => Some(button(Tone::Standard, "Open")),
-        ID_DELETE_DATA => Some(button(Tone::Danger, "Delete")),
-        ID_RESET_STATS => Some(button(Tone::Danger, "Reset")),
-        ID_RIVAL_OPEN => Some(button(Tone::Standard, "Review")),
-        ID_OPACITY_DOWN => Some(button(Tone::Standard, MINUS)),
-        ID_OPACITY_UP => Some(button(Tone::Standard, PLUS)),
-        _ => segments()
-            .find(|(segment, ..)| *segment == id)
-            .map(|(_, choice, label)| {
-                let selected = model.snapshot.selected(*choice);
-                Look::Segment {
-                    selected,
-                    label: choice.caption(label, selected),
-                }
-            })
-            .or_else(|| remove_slot(id).map(|_| button(Tone::Standard, "Remove"))),
+fn voice_color(model: &Model, voice: Voice) -> Rgb {
+    let palette = &model.theme.palette;
+    match voice {
+        Voice::Quiet => palette.text_secondary,
+        Voice::Alert => palette.danger,
     }
 }
 
-pub fn name(model: &Model, id: i32) -> String {
-    let state = |title: &str, on| format!("{title}, {}", on_off(on).to_lowercase());
-    match id {
-        ID_ENABLED => state(GENERAL_ROWS[0].0, model.snapshot.enabled),
-        ID_TYPO => state(GENERAL_ROWS[2].0, model.snapshot.typo_fix),
-        ID_START => state(GENERAL_ROWS[3].0, model.snapshot.start_with_windows),
-        ID_OPEN_DATA => DATA_ROWS[0].0.to_string(),
-        ID_DELETE_DATA => DATA_ROWS[1].0.to_string(),
-        ID_RESET_STATS => STATS_RESET.0.to_string(),
-        ID_RIVAL_OPEN => RIVAL_OPEN_NAME.to_string(),
-        ID_OPACITY_DOWN => format!("Lower {}", OPACITY_TITLE.to_lowercase()),
-        ID_OPACITY_UP => format!("Raise {}", OPACITY_TITLE.to_lowercase()),
-        _ => segments()
-            .find(|(segment, ..)| *segment == id)
-            .map(|(_, choice, label)| {
-                if model.snapshot.selected(*choice) {
-                    format!("{label}, selected")
-                } else {
-                    label.to_string()
-                }
-            })
-            .or_else(|| {
-                let rule = model.visible_apps().get(remove_slot(id)?)?;
-                Some(format!("Remove {}", rule.name()))
-            })
-            .unwrap_or_default(),
-    }
-}
-
-pub fn draw_item(item: &DRAWITEMSTRUCT, model: &Model) {
-    if let Some(look) = look(model, item.CtlID as i32) {
-        ui::draw(item, &model.surface(), look);
-    }
-}
-
-fn figure_columns(bounds: RECT, column: i32) -> (RECT, RECT) {
-    let total = RECT {
-        left: bounds.right - column,
-        ..bounds
-    };
-    let today = RECT {
-        left: total.left - column,
-        right: total.left,
-        ..bounds
-    };
-    (today, total)
-}
-
-fn paint_row(canvas: &Canvas, model: &Model, row: &Row, divided: bool) {
+fn paint_sample(canvas: &Canvas, model: &Model, area: RECT, sample: &Sample) {
     let palette = &model.theme.palette;
     let scale = model.scale;
-    if divided {
+    let plain = Text::new(Role::Body, palette.text);
+    let typed_width = measure(scale, &sample.typed, plain, 0).0;
+    canvas.text(area, &sample.typed, plain);
+    let ghost = ink(Some(palette.text), palette.card, sample.opacity);
+    let lead = sample.ghost.len() - sample.ghost.trim_start().len();
+    let end = sample.ghost[lead..]
+        .find(char::is_whitespace)
+        .map_or(sample.ghost.len(), |index| lead + index);
+    let (first, rest) = sample.ghost.split_at(end);
+    let first_alpha = u32::from(next_word_alpha(ghost.alpha));
+    let mut left = area.left + typed_width;
+    let line = scale.px(Role::Body.line());
+    let caret = rect(
+        left,
+        area.top + (height(area) - line) / 2,
+        scale.px(CARET_WIDTH),
+        line,
+    );
+    canvas.fill_round(caret, 0, palette.text);
+    for (text, alpha) in [(first, first_alpha), (rest, u32::from(ghost.alpha))] {
+        let style = Text::new(Role::Body, blend(ghost.color, palette.card, alpha));
+        let run = RECT { left, ..area };
+        canvas.text(run, text, style);
+        left += measure(scale, text, style, 0).0;
+    }
+}
+
+fn paint_row(canvas: &Canvas, model: &Model, row: &PlacedRow) {
+    let palette = &model.theme.palette;
+    let scale = model.scale;
+    if row.divided {
         let line = rect(
-            row.bounds.left,
+            row.bounds.left + scale.px(super::layout::ROW_PAD_X),
             row.bounds.top,
-            width(row.bounds),
+            width(row.bounds) - scale.px(super::layout::ROW_PAD_X),
             scale.px(STROKE),
         );
         canvas.fill_round(line, 0, palette.card_stroke);
     }
-    let bounds = row.text_bounds;
-    match &row.text {
-        RowText::Title(title) => {
-            canvas.text(bounds, title, Text::new(Role::Body, palette.text));
-        }
-        RowText::Note(note) => {
-            let style = Text::new(Role::Caption, palette.text_secondary).wrapping();
-            let (_, note_height) = measure(scale, note, style, width(bounds));
-            let top = bounds.top + (height(bounds) - note_height) / 2;
-            let centered = RECT {
-                top,
-                bottom: top + note_height,
-                ..bounds
-            };
-            canvas.text(centered, note, style);
-        }
-        RowText::Heading(today, total) => {
-            let style = Text::new(Role::Caption, palette.text_secondary).aligned(Align::End);
-            let (today_bounds, total_bounds) = figure_columns(bounds, scale.px(FIGURE_COLUMN));
-            canvas.text(today_bounds, today, style);
-            canvas.text(total_bounds, total, style);
-        }
-        RowText::Figures(title, today, total) => {
-            let style = Text::new(Role::Body, palette.text).aligned(Align::End);
-            let (today_bounds, total_bounds) = figure_columns(bounds, scale.px(FIGURE_COLUMN));
-            let title_bounds = RECT {
-                right: today_bounds.left,
-                ..bounds
-            };
-            canvas.text(title_bounds, title, Text::new(Role::Body, palette.text));
-            canvas.text(today_bounds, today, style);
-            canvas.text(total_bounds, total, style);
-        }
-        RowText::Pair(title, caption) => {
-            let title_line = scale.px(Role::Body.line());
-            let caption_line = scale.px(Role::Caption.line());
-            let top = bounds.top + (height(bounds) - title_line - caption_line) / 2;
-            let title_bounds = RECT {
-                top,
-                bottom: top + title_line,
-                ..bounds
-            };
-            let caption_bounds = RECT {
-                top: title_bounds.bottom,
-                bottom: title_bounds.bottom + caption_line,
-                ..bounds
-            };
-            canvas.text(title_bounds, title, Text::new(Role::Body, palette.text));
-            canvas.text(
-                caption_bounds,
-                caption,
-                Text::new(Role::Caption, palette.text_secondary),
-            );
-        }
+    if let Some((bounds, title)) = &row.title {
+        canvas.text(*bounds, title, Text::new(Role::Body, palette.text));
+    }
+    if let Some((bounds, caption, voice)) = &row.caption {
+        let style = Text::new(Role::Caption, voice_color(model, *voice)).wrapping();
+        canvas.text(*bounds, caption, style);
+    }
+    if let Some((bounds, badge)) = &row.badge {
+        canvas.card(
+            *bounds,
+            scale.px(BADGE_RADIUS),
+            palette.control,
+            palette.control_stroke,
+        );
+        let style = Text::new(Role::Caption, palette.text_secondary).aligned(Align::Center);
+        canvas.text(*bounds, badge, style);
+    }
+    for group in &row.keys {
+        keycaps(
+            canvas,
+            (scale, palette),
+            group.origin,
+            key_labels(&group.chord),
+        );
+    }
+    for bounds in &row.separators {
+        let style = Text::new(Role::Caption, palette.text_secondary).aligned(Align::Center);
+        canvas.text(*bounds, super::layout::SEPARATOR, style);
+    }
+    if let Some((bounds, value)) = &row.value {
+        let style = Text::new(Role::Caption, palette.text).aligned(Align::End);
+        canvas.text(*bounds, value, style);
+    }
+    if let Some((area, sample)) = &row.sample {
+        paint_sample(canvas, model, *area, sample);
     }
 }
 
 fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
     let palette = &model.theme.palette;
-    if let Some((bounds, label)) = block.label {
-        canvas.text(bounds, label, Text::new(Role::BodyStrong, palette.text));
-    }
     let radius = model.scale.px(CARD_RADIUS);
-    canvas.card(block.card, radius, palette.card, palette.card_stroke);
-    for (index, row) in block.rows.iter().enumerate() {
-        paint_row(canvas, model, row, index > 0);
+    match block {
+        Block::Heading(bounds, text) => {
+            canvas.text(*bounds, text, Text::new(Role::BodyStrong, palette.text));
+        }
+        Block::Note(bounds, text, voice) => {
+            let style = Text::new(Role::Caption, voice_color(model, *voice)).wrapping();
+            canvas.text(*bounds, text, style);
+        }
+        Block::Panel(bounds) => canvas.card(*bounds, radius, palette.card, palette.card_stroke),
+        Block::Card(bounds, rows) => {
+            canvas.card(*bounds, radius, palette.card, palette.card_stroke);
+            for row in rows {
+                paint_row(canvas, model, row);
+            }
+        }
     }
 }
 
-pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
+fn paint_sidebar(canvas: &Canvas, model: &Model, layout: &Layout) {
     let palette = &model.theme.palette;
-    canvas.clear(model.page());
+    let scale = model.scale;
+    canvas.fill_round(layout.sidebar, 0, model.theme.sidebar());
+    let edge = rect(
+        layout.sidebar.right - scale.px(STROKE),
+        0,
+        scale.px(STROKE),
+        height(layout.sidebar),
+    );
+    canvas.fill_round(edge, 0, palette.card_stroke);
     paint_mark(
         canvas,
         (layout.mark.left, layout.mark.top),
@@ -195,21 +144,122 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
         palette.accent.base,
         palette.mark_ghost,
     );
-    canvas.text(layout.title, TITLE, Text::new(Role::Subtitle, palette.text));
     canvas.text(
-        layout.status,
-        &model.snapshot.status,
+        layout.brand,
+        "Pith",
+        Text::new(Role::BodyStrong, palette.text),
+    );
+    let (bounds, version) = &layout.version;
+    canvas.text(
+        *bounds,
+        version,
         Text::new(Role::Caption, palette.text_secondary),
     );
+}
+
+pub fn paint_page(canvas: &Canvas, model: &Model) {
+    let palette = &model.theme.palette;
+    let layout = &model.layout;
+    canvas.clear(model.page_fill());
+    let (bounds, title) = &layout.title;
+    canvas.text(*bounds, title, Text::new(Role::Subtitle, palette.text));
     for block in &layout.blocks {
         paint_block(canvas, model, block);
     }
-    canvas.text(
-        layout.footer,
-        &model.snapshot.footer,
-        Text::new(Role::Caption, palette.text_secondary),
-    );
-    if let Some(thumb) = layout.scroll_thumb {
+    paint_sidebar(canvas, model, layout);
+    if let Some(thumb) = layout.thumb {
         canvas.fill_round(thumb, width(thumb) / 2, palette.strong_stroke);
     }
+}
+
+fn paint_tile(canvas: &Canvas, model: &Model, local: RECT, (value, caption): (&str, &str)) {
+    let palette = &model.theme.palette;
+    let scale = model.scale;
+    let area = inset(local, scale.px(TILE_TEXT_INSET));
+    let number_line = scale.px(Role::Title.line());
+    let caption_line = scale.px(Role::Caption.line());
+    let top = area.top + (height(area) - number_line - caption_line) / 2;
+    let number = rect(area.left, top, width(area), number_line);
+    canvas.text(number, value, Text::new(Role::Title, palette.text));
+    let label = rect(area.left, number.bottom, width(area), caption_line);
+    canvas.text(
+        label,
+        caption,
+        Text::new(Role::Caption, palette.text_secondary),
+    );
+}
+
+fn paint_strip(canvas: &Canvas, model: &Model, local: RECT, caption: &str, days: &[u64]) {
+    let palette = &model.theme.palette;
+    let scale = model.scale;
+    let area = inset(local, scale.px(TILE_TEXT_INSET));
+    let line = scale.px(Role::Caption.line());
+    let quiet = Text::new(Role::Caption, palette.text_secondary);
+    canvas.text(rect(area.left, area.top, width(area), line), caption, quiet);
+    let axis = rect(area.left, area.bottom - line, width(area), line);
+    canvas.text(axis, "14 days ago", quiet);
+    canvas.text(axis, "Today", quiet.aligned(Align::End));
+    let bars = RECT {
+        top: area.top + line + scale.px(STRIP_GAP),
+        bottom: axis.top - scale.px(STRIP_GAP / 2),
+        ..area
+    };
+    let gap = scale.px(BAR_GAP);
+    let each = (width(bars) - gap * (HISTORY_DAYS as i32 - 1)) / HISTORY_DAYS as i32;
+    let peak = days.iter().copied().max().unwrap_or(0).max(1);
+    for (index, words) in days.iter().enumerate() {
+        let tall = (height(bars) as u64 * words / peak) as i32;
+        let bar_height = tall.max(scale.px(BAR_MIN));
+        let left = bars.left + index as i32 * (each + gap);
+        let bar = rect(left, bars.bottom - bar_height, each, bar_height);
+        let today = index + 1 == days.len();
+        let color = match (today, *words) {
+            (true, _) => palette.accent.base,
+            (false, 0) => palette.track,
+            (false, _) => palette.strong_stroke,
+        };
+        canvas.fill_round(bar, scale.px(BAR_RADIUS), color);
+    }
+}
+
+fn look(placed: &Placed) -> Option<Look<'_>> {
+    let item = &placed.item;
+    let label = item.label.as_str();
+    match &item.face {
+        Face::Toggle => Some(Look::Toggle { on: item.checked }),
+        Face::Segment(seam) => Some(Look::Segment {
+            selected: item.checked,
+            label,
+            seam: *seam,
+        }),
+        Face::Button(tone) => Some(Look::Button { tone: *tone, label }),
+        Face::Nav { .. } => Some(Look::Nav {
+            selected: item.checked,
+            label,
+        }),
+        Face::Chip(state) => Some(Look::Chip {
+            state: *state,
+            label,
+        }),
+        Face::Slider { value, low, high } => Some(Look::Slider {
+            fraction: (value - low) as f32 / (high - low).max(1) as f32,
+        }),
+        Face::Tile(_) | Face::Strip(_) => None,
+    }
+}
+
+pub fn draw_item(item: &DRAWITEMSTRUCT, model: &Model) {
+    let Some(placed) = model.layout.control(item.CtlID as i32) else {
+        return;
+    };
+    let surface = model.surface(placed.backdrop);
+    if let Some(look) = look(placed) {
+        ui::draw(item, &surface, look);
+        return;
+    }
+    paint_backdrop(item, &surface, |canvas, local| match &placed.item.face {
+        Face::Tile(value) => paint_tile(canvas, model, local, (value, &placed.item.label)),
+        Face::Strip(days) => paint_strip(canvas, model, local, &placed.item.label, days),
+        _ => {}
+    });
 }

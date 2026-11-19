@@ -11,7 +11,7 @@ use crate::foreground::Foreground;
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::registry;
 use crate::rival;
-use crate::settings::{SettingsWindow, StatsView};
+use crate::settings::{Overview, SettingsWindow, StatsView};
 use crate::tray::{ForegroundApp, Tray, TrayCommand, TrayView};
 use crate::update::Update;
 use crate::util::local_time;
@@ -112,7 +112,7 @@ impl Presenter {
         }
     }
 
-    pub fn finish_onboarding(&mut self) {
+    pub fn finish_onboarding(&mut self, prefs: &Preferences) {
         let Some(onboarding) = &mut self.onboarding else {
             return;
         };
@@ -123,6 +123,7 @@ impl Presenter {
         if let Some(tray) = &self.tray {
             tray.balloon("Pith", "Pith is running in the tray");
         }
+        self.open_settings(prefs);
     }
 
     pub fn handles_dialog(&self, message: &MSG) -> bool {
@@ -153,12 +154,7 @@ impl Presenter {
 
     pub fn refresh_settings(&self, prefs: &Preferences) {
         if let Some(window) = self.settings.as_ref().filter(|window| window.is_open()) {
-            window.refresh(
-                prefs.saved(),
-                registry::start_with_windows(),
-                &self.status_line(prefs),
-                &self.stats_view(),
-            );
+            window.refresh(prefs.saved(), &self.overview(prefs));
         }
     }
 
@@ -170,10 +166,7 @@ impl Presenter {
             taskbar: self.appearance.taskbar,
             icon_px: self.appearance.icon_px,
             pause: prefs.shown_pause(),
-            foreground: self.foreground.app().map(|name| ForegroundApp {
-                name: name.to_string(),
-                access: prefs.saved().access(name),
-            }),
+            foreground: self.foreground_view(prefs),
             update: self.update.clone(),
         });
     }
@@ -189,11 +182,31 @@ impl Presenter {
         .line()
     }
 
+    fn foreground_view(&self, prefs: &Preferences) -> Option<ForegroundApp> {
+        self.foreground.app().map(|name| ForegroundApp {
+            name: name.to_string(),
+            access: prefs.saved().access(name),
+            switchable: prefs.saved().switch_app(name).is_some(),
+        })
+    }
+
     fn stats_view(&self) -> StatsView {
         let stats = self.ledger.stats();
+        let day = today();
         StatsView {
-            today: stats.today(today()),
+            today: stats.today(day),
             total: stats.total(),
+            days: stats.recent_words(day),
+        }
+    }
+
+    fn overview(&self, prefs: &Preferences) -> Overview {
+        Overview {
+            status: self.status_line(prefs),
+            stats: self.stats_view(),
+            pause: prefs.shown_pause(),
+            app: self.foreground_view(prefs),
+            start_with_windows: registry::start_with_windows(),
         }
     }
 
@@ -219,13 +232,7 @@ impl Presenter {
             window.set_rival(rival::detect());
             return;
         }
-        match SettingsWindow::open(
-            prefs.saved(),
-            prefs.recommended(),
-            registry::start_with_windows(),
-            &self.status_line(prefs),
-            &self.stats_view(),
-        ) {
+        match SettingsWindow::open(prefs.saved(), prefs.recommended(), &self.overview(prefs)) {
             Ok(window) => {
                 window.show();
                 window.set_rival(rival::detect());

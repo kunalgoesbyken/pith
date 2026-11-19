@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use pith_core::{Access, Pause, PauseSpan, Reach};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::{
     NIF_INFO, NIIF_INFO, NIM_MODIFY, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
@@ -27,20 +27,22 @@ fn menu_text(text: &str) -> String {
     shown.replace('&', "&&")
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrayCommand {
     Pause(PauseSpan),
     Resume,
     ChangeApp,
     Update,
-    Settings,
+    Open,
     Quit,
     ResumeApp(String),
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForegroundApp {
     pub name: String,
     pub access: Access,
+    pub switchable: bool,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -60,10 +62,17 @@ impl TrayView {
             Some(ForegroundApp {
                 name,
                 access: Access::Off,
+                switchable: true,
+            }) => format!("Turn on in {name}"),
+            Some(ForegroundApp {
+                name,
+                access: Access::Off,
+                ..
             }) => format!("Turned off in {name}"),
             Some(ForegroundApp {
                 name,
                 access: Access::OffByDefault,
+                ..
             }) => format!("Allow Pith in {name}"),
             Some(ForegroundApp { name, .. }) => format!("Turn off in {name}"),
             None => "Turn off in this app".to_string(),
@@ -71,7 +80,7 @@ impl TrayView {
     }
 
     fn can_change_app(&self) -> bool {
-        matches!(&self.foreground, Some(app) if app.access != Access::Off)
+        matches!(&self.foreground, Some(app) if app.switchable)
     }
 
     fn resumable(&self) -> bool {
@@ -111,7 +120,7 @@ pub struct Tray {
     resume: MenuItem,
     app: MenuItem,
     update: MenuItem,
-    settings: MenuItem,
+    open: MenuItem,
     quit: MenuItem,
     resting_tooltip: String,
     shown: RefCell<Option<TrayView>>,
@@ -141,8 +150,10 @@ impl Tray {
         let resume = MenuItem::new("Resume", false, None);
         let app = MenuItem::new(TrayView::default().app_label(), false, None);
         let update = MenuItem::new(Update::default().label(), true, None);
-        let settings = MenuItem::new("Settings\u{2026}", true, None);
+        let open = MenuItem::new("Open Pith", true, None);
         let quit = MenuItem::new("Quit", true, None);
+        menu.append(&open).ok()?;
+        menu.append(&PredefinedMenuItem::separator()).ok()?;
         menu.append(&status).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
         for (item, _) in &pauses {
@@ -153,11 +164,11 @@ impl Tray {
         menu.append(&app).ok()?;
         menu.append(&update).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
-        menu.append(&settings).ok()?;
         menu.append(&quit).ok()?;
         let resting_tooltip = tooltip(reach);
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
+            .with_menu_on_left_click(false)
             .with_tooltip(&resting_tooltip)
             .with_icon(glyph(active, appearance.taskbar, appearance.icon_px)?)
             .build()
@@ -171,7 +182,7 @@ impl Tray {
             resume,
             app,
             update,
-            settings,
+            open,
             quit,
             resting_tooltip,
             shown: RefCell::new(None),
@@ -244,7 +255,25 @@ impl Tray {
         }
     }
 
+    fn clicked(&self) -> bool {
+        let mut left_clicked = false;
+        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+            left_clicked |= matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            );
+        }
+        left_clicked
+    }
+
     pub fn poll(&self) -> Option<TrayCommand> {
+        if self.clicked() {
+            return Some(TrayCommand::Open);
+        }
         let event = MenuEvent::receiver().try_recv().ok()?;
         if let Some((_, app)) = self
             .resumes
@@ -262,8 +291,8 @@ impl Tray {
             Some(TrayCommand::ChangeApp)
         } else if event.id == *self.update.id() {
             Some(TrayCommand::Update)
-        } else if event.id == *self.settings.id() {
-            Some(TrayCommand::Settings)
+        } else if event.id == *self.open.id() {
+            Some(TrayCommand::Open)
         } else if event.id == *self.quit.id() {
             Some(TrayCommand::Quit)
         } else {
@@ -290,6 +319,7 @@ mod tests {
             view.foreground = Some(ForegroundApp {
                 name: "Slack".into(),
                 access,
+                switchable: access != Access::Off,
             });
             assert_eq!(view.app_label(), label);
             assert_eq!(view.can_change_app(), armed);

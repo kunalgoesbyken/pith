@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use pith_core::{Config, Event, Model, ModelPreset, Pause, PauseSpan, Pauses, Setting, log};
@@ -37,12 +37,12 @@ impl Preferences {
         &self.saved
     }
 
-    pub fn recommended(&self) -> ModelPreset {
-        self.recommended
+    pub fn config_path(&self) -> Option<&Path> {
+        self.config_path.as_deref()
     }
 
-    pub fn preset(&self) -> ModelPreset {
-        self.saved.preset(self.recommended)
+    pub fn recommended(&self) -> ModelPreset {
+        self.recommended
     }
 
     pub fn paused(&self) -> bool {
@@ -103,7 +103,7 @@ impl App {
     }
 
     pub(super) fn change(&mut self, setting: Setting) {
-        let preset = self.prefs.preset();
+        let before = self.prefs.saved().clone();
         self.prefs.apply(&setting);
         if let Setting::GhostOpacity(_) = setting {
             self.overlay.set_opacity(self.prefs.saved().ghost_opacity);
@@ -111,7 +111,7 @@ impl App {
             return;
         }
         self.sync();
-        if self.prefs.preset() != preset {
+        if !before.same_backend(self.prefs.saved(), self.prefs.recommended()) {
             self.reload_model();
         }
     }

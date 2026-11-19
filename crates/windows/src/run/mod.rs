@@ -24,6 +24,7 @@ use crate::overlay::Overlay;
 use crate::power;
 use crate::reader::{Reader, Source};
 use crate::spell::Speller;
+use crate::tray::TrayCommand;
 
 use effects::Effects;
 pub use inbox::{Inbound, Inbox};
@@ -54,6 +55,7 @@ pub struct Options {
     pub data_dir: Option<PathBuf>,
     pub notice: Option<String>,
     pub recommended: ModelPreset,
+    pub open_home: bool,
 }
 
 struct App {
@@ -141,6 +143,9 @@ impl App {
             Signal::Power => self.power_changed(),
             Signal::Appearance => self.appearance_changed(),
             Signal::Hotkey(id) => self.hotkey_pressed(id),
+            Signal::Reveal => {
+                self.command(TrayCommand::Open);
+            }
         }
         false
     }
@@ -170,7 +175,7 @@ impl App {
                 return true;
             }
         }
-        self.presenter.finish_onboarding();
+        self.presenter.finish_onboarding(&self.prefs);
         self.tray_commands()
     }
 
@@ -231,7 +236,11 @@ pub fn run(
             None,
         );
     }
+    let open_home = options.open_home;
     let mut app = App::new(control, config, reader, worker, (inbox, inbound), options)?;
+    if open_home {
+        app.command(TrayCommand::Open);
+    }
     app.pump();
     app.shutdown();
     Ok(())

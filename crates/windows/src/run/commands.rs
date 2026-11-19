@@ -1,4 +1,4 @@
-use pith_core::{Access, Event, Setting, log};
+use pith_core::{Event, log};
 use pith_infer::UpdateCheck;
 
 use super::App;
@@ -28,6 +28,16 @@ impl App {
                     if confirmed.is_some() {
                         self.erasing = confirmed;
                         return true;
+                    }
+                }
+                UiEvent::Command(command) => {
+                    if self.command(command) {
+                        return true;
+                    }
+                }
+                UiEvent::OpenConfigFile => {
+                    if let Some(path) = self.prefs.config_path() {
+                        open_path(path);
                     }
                 }
                 UiEvent::StartWithWindows(enabled) => {
@@ -60,7 +70,7 @@ impl App {
             TrayCommand::ResumeApp(app) => self.dispatch(Event::Resume(app)),
             TrayCommand::ChangeApp => self.change_foreground_app(),
             TrayCommand::Update => self.update_clicked(),
-            TrayCommand::Settings => self.presenter.open_settings(&self.prefs),
+            TrayCommand::Open => self.presenter.open_settings(&self.prefs),
             TrayCommand::Quit => return true,
         }
         false
@@ -80,10 +90,8 @@ impl App {
         let Some(app) = self.presenter.foreground_app() else {
             return;
         };
-        match self.prefs.saved().access(&app) {
-            Access::On | Access::OptedIn => self.change(Setting::Block(app)),
-            Access::OffByDefault => self.change(Setting::Allow(app)),
-            Access::Off => {}
+        if let Some(setting) = self.prefs.saved().switch_app(&app) {
+            self.change(setting);
         }
     }
 }
