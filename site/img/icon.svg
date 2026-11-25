@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Pith">
+  <rect width="256" height="256" rx="56.32" fill="#1C1814"/>
+  <g stroke-width="28" stroke-linecap="round">
+    <line x1="55" y1="60" x2="55" y2="196" stroke="#F5A04A"/>
+    <line x1="105" y1="128" x2="157" y2="128" stroke="#DAD2C6"/>
+    <circle cx="201" cy="128" r="14" fill="#8C867D" stroke="none"/>
+  </g>
+</svg>
