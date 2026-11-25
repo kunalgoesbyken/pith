@@ -96,7 +96,7 @@ impl Palette {
             control_hover: Scheme::LIGHT.card,
             control_pressed: Rgb(0xE4D9CA),
             control_stroke: Scheme::LIGHT.stroke,
-            strong_stroke: Rgb(0x9A9085),
+            strong_stroke: Rgb(0x857B70),
             track: Scheme::LIGHT.stroke,
             accent: Accent::LIGHT,
             mark_caret: Scheme::LIGHT.accent,
