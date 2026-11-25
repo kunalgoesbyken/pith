@@ -17,16 +17,13 @@ mod pause;
 mod placement;
 mod policy;
 mod preferences;
-mod preset;
 mod prompt;
 mod replacing;
 mod scale;
 mod scene;
-mod setting;
 mod shading;
 mod stats;
 mod status;
-mod stored;
 mod style;
 mod suffix;
 mod text;
@@ -34,13 +31,18 @@ mod tray;
 mod types;
 mod typo;
 
+pub use apps::hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use apps::{Access, inserts_by_paste, same_app};
 pub use budget::estimate_tokens;
 pub use chord::{Chord, Key};
 pub use color::{CHANNEL_MAX, Rgb, argb};
-pub use config::{
-    Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, Reach, TriggerMode, app_name,
+pub use config::preset::{Hardware, ModelPreset};
+pub use config::reach::Reach;
+pub use config::setting::{
+    AppChoice, Backend, IDLE_UNLOAD_CHOICES, Length, Setting, Suggestions, clamp_opacity,
+    thread_choices,
 };
+pub use config::{Config, Keymap, MAX_GHOST_OPACITY, MIN_GHOST_OPACITY, TriggerMode, app_name};
 pub use emphasis::Emphasis;
 pub use engine::{Action, Engine, Event};
 pub use field::{AFTER_CHARS, FieldParts, Surrounding, is_redacted};
@@ -48,7 +50,6 @@ pub use ghost::{
     Flow, Ink, Line, blend, fits, flow_bounds, ink, is_rtl, layout, lines_that_fit,
     median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
 };
-pub use apps::hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
 pub use log::{init_log, log};
 pub use mark::{
@@ -59,17 +60,12 @@ pub use pause::{Pause, PauseSpan, Pauses, clock_after};
 pub use placement::{Placement, anchor_pill, place};
 pub use policy::{SkipReason, check, check_forced};
 pub use preferences::Preferences;
-pub use preset::{Hardware, ModelPreset};
 pub use prompt::{CompletionRequest, build, suggestion};
 pub use replacing::SelectOutcome;
 pub use scale::{BASE_DPI, Scale};
 pub use scene::{
     Form, KEYCAP_FONT_PX, KeycapLabel, PILL_ELEVATION, PILL_FONT_PX, Placed, Point, Size, Surface,
     fit_cuts, inline_anchor, inline_font_px, keycap_label_origin,
-};
-pub use setting::{
-    AppChoice, Backend, IDLE_UNLOAD_CHOICES, Length, Setting, Suggestions, clamp_opacity,
-    thread_choices,
 };
 pub use shading::{Pill, PillStyle, Scheme, Shading};
 pub use stats::{Counts, Day, HISTORY_DAYS, Ledger, Stats};

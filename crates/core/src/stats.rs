@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::stored::{set_aside, write_atomically};
+use crate::config::stored::{set_aside, write_atomically};
 
 const CHARS_PER_WORD: u64 = 5;
 const SECONDS_PER_MINUTE: u64 = 60;

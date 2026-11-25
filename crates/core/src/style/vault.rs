@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::memory::{Sample, StyleMemory};
 use crate::Config;
-use crate::stored::{aside_path, set_aside, write_private};
+use crate::config::stored::{aside_path, set_aside, write_private};
 
 pub trait Vault: Send {
     fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String>;
