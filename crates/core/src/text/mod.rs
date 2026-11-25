@@ -1,3 +1,6 @@
+pub(crate) mod suffix;
+pub(crate) mod typo;
+
 use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) fn is_word_like(segment: &str) -> bool {

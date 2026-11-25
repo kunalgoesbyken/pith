@@ -23,11 +23,9 @@ mod shading;
 mod stats;
 mod status;
 mod style;
-mod suffix;
 mod text;
 mod tray;
 mod types;
-mod typo;
 
 pub use apps::hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use apps::{Access, inserts_by_paste, same_app};
@@ -71,7 +69,8 @@ pub use status::{Model, Status, skip_label};
 pub use style::{
     PlainVault, Primer, STYLE_TOKENS, Sample, Sentence, StyleMemory, StyleStore, Vault,
 };
-pub use suffix::{After, Suffix};
+pub use text::suffix::{After, Suffix};
+pub use text::typo::{Correction, Label, Spelling};
 pub use text::{
     LINE_BREAKS, SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words,
     next_word, sentence_end, split_partial, tail_chars,
@@ -80,7 +79,6 @@ pub use tray::{
     ForegroundApp, QUIT_LABEL, RESUME_LABEL, TrayCommand, TrayView, auto_paused_label, menu_line,
 };
 pub use types::{Completion, Drawn, FieldSnapshot, Rect, StopReason, TextStyle, average_logprob};
-pub use typo::{Correction, Label, Spelling};
 
 pub trait Completer {
     fn complete(

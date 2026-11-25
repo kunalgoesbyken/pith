@@ -8,8 +8,8 @@ use icu_properties::{
 use serde::{Serialize, Serializer};
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::is_word_like;
 use crate::LINE_BREAKS;
-use crate::text::is_word_like;
 
 pub(crate) const CATEGORIES: CodePointMapDataBorrowed<'static, GeneralCategory> =
     CodePointMapData::new();

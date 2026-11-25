@@ -3,7 +3,7 @@ use serde::Serialize;
 use crate::Rgb;
 use crate::nearby::Nearby;
 use crate::placement::Placement;
-use crate::suffix::After;
+use crate::text::suffix::After;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Rect {

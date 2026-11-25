@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::budget::{clip_head, clip_tail, estimate_tokens};
 use crate::policy::is_prose;
-use crate::suffix::is_ignorable;
+use crate::text::suffix::is_ignorable;
 
 pub struct WalkLimits {
     pub deadline: Duration,

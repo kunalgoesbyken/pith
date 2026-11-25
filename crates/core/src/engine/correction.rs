@@ -3,7 +3,7 @@ use std::time::Instant;
 use super::{Action, Engine, Phase};
 use crate::field::FieldKey;
 use crate::replacing::{Replacing, SelectOutcome};
-use crate::typo::Finished;
+use crate::text::typo::Finished;
 use crate::{Correction, FieldSnapshot, Spelling, TriggerMode, check};
 
 const MAX_SPELL_WAIT_MS: u64 = 1_000;
