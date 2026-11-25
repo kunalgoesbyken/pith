@@ -4,13 +4,15 @@ use std::time::Duration;
 use pith_core::{Action, Correction};
 use pith_windows::KeyAction;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::Controls::EM_UNDO;
+use windows::Win32::UI::Controls::{EM_SETSEL, EM_UNDO};
 
-use super::common::{screenshot, window_rect};
-use super::{
-    EM_SETSEL, Field, Rig, THROUGH_CLIPBOARD, get_text, is_hide, is_request, is_show, requests,
-    select_range, send, send_text, tail, text_length,
-};
+use crate::common::{screenshot, window_rect};
+use crate::harness::actions::{is_hide, is_request, is_show, requests};
+use crate::harness::edit::{get_text, select_range, send, send_text, text_length};
+use crate::harness::insert::THROUGH_CLIPBOARD;
+use crate::harness::rig::Rig;
+use crate::harness::text::tail;
+use crate::harness::window::Field;
 
 const KEY_GAP_MS: u64 = 25;
 const SNAPSHOT_GAP: Duration = Duration::from_millis(70);
@@ -49,7 +51,7 @@ fn wait_for_offer(rig: &Rig) -> Option<Correction> {
     }
 }
 
-pub fn offer_and_apply(rig: &mut Rig) {
+pub(crate) fn offer_and_apply(rig: &mut Rig) {
     let field = rig.a;
     for (mode, through_clipboard) in [("selection insert", false), ("clipboard paste", true)] {
         THROUGH_CLIPBOARD.store(through_clipboard, Ordering::SeqCst);
@@ -125,7 +127,7 @@ pub fn offer_and_apply(rig: &mut Rig) {
     );
 }
 
-pub fn dismiss_and_decline(rig: &mut Rig) {
+pub(crate) fn dismiss_and_decline(rig: &mut Rig) {
     let field = rig.a;
     finish_word(rig, field, "I think teh");
     let offer = wait_for_offer(rig);
@@ -169,7 +171,7 @@ pub fn dismiss_and_decline(rig: &mut Rig) {
     );
 }
 
-pub fn stale_accept(rig: &mut Rig) {
+pub(crate) fn stale_accept(rig: &mut Rig) {
     let field = rig.a;
     finish_word(rig, field, "I think occured");
     rig.check(
@@ -201,7 +203,7 @@ pub fn stale_accept(rig: &mut Rig) {
     );
 }
 
-pub fn typed_past(rig: &mut Rig) {
+pub(crate) fn typed_past(rig: &mut Rig) {
     let field = rig.a;
     finish_word(rig, field, "I think seperate");
     rig.check(
@@ -229,7 +231,7 @@ pub fn typed_past(rig: &mut Rig) {
     );
 }
 
-pub fn fix_ending_like_the_typo(rig: &mut Rig) {
+pub(crate) fn fix_ending_like_the_typo(rig: &mut Rig) {
     let field = rig.a;
     finish_word(rig, field, "I want it ecause");
     let offer = wait_for_offer(rig);
@@ -270,7 +272,7 @@ const SKIPPED: [(&str, &str); 12] = [
     ),
 ];
 
-pub fn skips(rig: &mut Rig) {
+pub(crate) fn skips(rig: &mut Rig) {
     let field = rig.a;
     for (name, text) in SKIPPED {
         rig.drain();
