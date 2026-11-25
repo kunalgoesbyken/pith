@@ -12,7 +12,7 @@ use super::pages;
 use crate::ui::{Rgb, Role, Scale, rect};
 
 pub use builder::{SEPARATOR, Sheet, Start};
-pub use grid::{BADGE_RADIUS, BAR_RADIUS, DEFAULT_CLIENT, MIN_CLIENT};
+pub use grid::{DEFAULT_CLIENT, MIN_CLIENT};
 pub use item::{Class, Face, Item};
 pub use row::{PlacedRow, PlacedSample, Row, Sample, Voice};
 

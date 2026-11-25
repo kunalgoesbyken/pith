@@ -85,11 +85,8 @@ pub fn relayout(window: HWND) {
 
 fn retheme(window: HWND) {
     let theme = Theme::detect();
-    let mica = ui::apply_chrome(window, &theme);
-    update(|model| {
-        model.theme = theme;
-        model.mica = mica;
-    });
+    ui::apply_chrome(window, &theme);
+    update(|model| model.theme = theme);
     relayout(window);
 }
 
@@ -418,13 +415,13 @@ pub fn create(
         )?
     };
     let theme = Theme::detect();
-    let mica = ui::apply_chrome(window, &theme);
+    ui::apply_chrome(window, &theme);
     let scale = Scale(unsafe { GetDpiForWindow(window) }.max(BASE_DPI));
     let viewport = (scale.px(DEFAULT_CLIENT.0), scale.px(DEFAULT_CLIENT.1));
     model::install(Model::new(
         (config, recommended),
         overview,
-        (theme, mica, scale),
+        (theme, scale),
         viewport,
     ));
     place(window, scale);

@@ -154,11 +154,8 @@ fn style_practice(window: HWND, model: &Model) {
 
 fn retheme(window: HWND) {
     let theme = Theme::detect();
-    let mica = ui::apply_chrome(window, &theme);
-    update(|model| {
-        model.theme = theme;
-        model.mica = mica;
-    });
+    ui::apply_chrome(window, &theme);
+    update(|model| model.theme = theme);
     read(|model| style_practice(window, model));
     unsafe {
         let _ = RedrawWindow(Some(window), None, None, RDW_INVALIDATE | RDW_ALLCHILDREN);
@@ -291,11 +288,10 @@ pub fn create(promise: String) -> windows::core::Result<Controls> {
             None,
         )?;
         let theme = Theme::detect();
-        let mica = ui::apply_chrome(window, &theme);
+        ui::apply_chrome(window, &theme);
         let scale = Scale(GetDpiForWindow(window).max(BASE_DPI));
         let model = Model {
             theme,
-            mica,
             scale,
             step: Step::Preparing,
             promise,

@@ -10,9 +10,7 @@ use windows::core::{PCWSTR, w};
 
 use super::canvas::{Align, Canvas, Text, measure, paint};
 use super::hover;
-use super::metrics::{
-    CONTROL_RADIUS, FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, origin, width,
-};
+use super::metrics::{FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, origin, width};
 use super::skin;
 use super::theme::{Palette, Rgb, Theme};
 use super::widgets;
@@ -190,22 +188,16 @@ fn draw_button(
 ) {
     let margin = surface.scale.px(FOCUS_MARGIN);
     let shape = inset(bounds, margin);
-    let radius = surface.scale.px(CONTROL_RADIUS);
     let look = appearance(&surface.theme, tone, state);
-    canvas.fill_round(shape, radius, look.fill);
+    canvas.fill(shape, look.fill);
     if let Some(stroke) = look.stroke {
-        canvas.stroke_round(shape, radius, stroke, surface.scale.px(STROKE));
+        canvas.stroke(shape, stroke, surface.scale.px(STROKE));
     }
     let style = Text::new(Role::Body, look.text).aligned(Align::Center);
     canvas.text(shape, label, style);
     if state.focused {
         let ring = surface.scale.px(FOCUS_RING);
-        canvas.stroke_round(
-            bounds,
-            radius + margin,
-            surface.theme.palette.accent.base,
-            ring,
-        );
+        canvas.stroke(bounds, surface.theme.palette.accent.base, ring);
     }
 }
 
@@ -213,7 +205,7 @@ pub fn draw(item: &DRAWITEMSTRUCT, surface: &Surface, look: Look) {
     let state = Interaction::of(item);
     let local = origin(item.rcItem);
     paint(item.hDC, item.rcItem, surface.scale, |canvas| {
-        canvas.clear(Some(surface.backdrop));
+        canvas.clear(surface.backdrop);
         match look {
             Look::Toggle { on } => widgets::draw_toggle(canvas, surface, local, on, state),
             Look::Segment {
@@ -240,7 +232,7 @@ pub fn draw(item: &DRAWITEMSTRUCT, surface: &Surface, look: Look) {
 pub fn paint_backdrop(item: &DRAWITEMSTRUCT, surface: &Surface, draw: impl FnOnce(&Canvas, RECT)) {
     let local = origin(item.rcItem);
     paint(item.hDC, item.rcItem, surface.scale, |canvas| {
-        canvas.clear(Some(surface.backdrop));
+        canvas.clear(surface.backdrop);
         draw(canvas, local);
     });
 }

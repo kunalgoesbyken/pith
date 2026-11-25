@@ -23,7 +23,7 @@ pub use font::gdi_font;
 pub use hover::attach as track_hover;
 pub use keycap::{KEYCAP_HEIGHT, key_labels, keycaps, keycaps_width};
 pub use mark::{app_icon, mark_width, paint_mark};
-pub use metrics::{BASE_DPI, CARD_RADIUS, Role, STROKE, Scale, height, inset, rect, width};
+pub use metrics::{BASE_DPI, Role, STROKE, Scale, height, inset, rect, width};
 pub use opaque::make_opaque;
 pub use skin::request_draw;
 pub use slot::Slot;

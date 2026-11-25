@@ -9,7 +9,6 @@ use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
 #[derive(Debug)]
 pub struct Model {
     pub theme: Theme,
-    pub mica: bool,
     pub scale: Scale,
     pub viewport: (i32, i32),
     pub config: Config,
@@ -58,12 +57,11 @@ impl Model {
     pub fn new(
         (config, recommended): (&Config, ModelPreset),
         overview: &Overview,
-        (theme, mica, scale): (Theme, bool, Scale),
+        (theme, scale): (Theme, Scale),
         viewport: (i32, i32),
     ) -> Self {
         Self {
             theme,
-            mica,
             scale,
             viewport,
             config: config.clone(),
@@ -125,10 +123,6 @@ impl Model {
             scale: self.scale,
             backdrop,
         }
-    }
-
-    pub fn page_fill(&self) -> Option<Rgb> {
-        (!self.mica).then_some(self.theme.palette.page)
     }
 
     pub fn absorb(&mut self, event: &UiEvent) {

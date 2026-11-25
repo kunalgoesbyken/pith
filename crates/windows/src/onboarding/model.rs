@@ -1,10 +1,9 @@
 use super::step::{Event, Step};
-use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
+use crate::ui::{Scale, Slot, Surface, Theme};
 
 #[derive(Debug)]
 pub struct Model {
     pub theme: Theme,
-    pub mica: bool,
     pub scale: Scale,
     pub step: Step,
     pub promise: String,
@@ -35,10 +34,6 @@ impl Model {
         let was_practice = self.step.practice_enabled();
         self.step = std::mem::replace(&mut self.step, Step::Preparing).next(event);
         self.step.practice_enabled() && !was_practice
-    }
-
-    pub fn page(&self) -> Option<Rgb> {
-        (!self.mica).then_some(self.theme.palette.page)
     }
 
     pub fn card_surface(&self) -> Surface {

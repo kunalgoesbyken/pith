@@ -15,7 +15,6 @@ windows-numerics.workspace = true
 [dependencies.windows]
 workspace = true
 features = [
-  "Wdk_System_SystemServices",
   "Win32_Foundation",
   "Win32_Graphics_Direct2D",
   "Win32_Graphics_Direct2D_Common",

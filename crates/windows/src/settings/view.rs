@@ -3,14 +3,13 @@ use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 
 use super::layout::{
-    BADGE_RADIUS, BAR_RADIUS, Block, Face, Layout, Placed, PlacedRow, PlacedSample, SEPARATOR,
-    Voice, strip_rects, tile_rects,
+    Block, Face, Layout, Placed, PlacedRow, PlacedSample, SEPARATOR, Voice, strip_rects, tile_rects,
 };
 use super::model::Model;
 use crate::text::format::number;
 use crate::ui::{
-    self, Align, CARD_RADIUS, Canvas, Look, Rgb, Role, STROKE, Text, height, key_labels, keycaps,
-    measure, paint_backdrop, paint_mark, rect, width,
+    self, Align, Canvas, Look, Rgb, Role, STROKE, Text, height, key_labels, keycaps, measure,
+    paint_backdrop, paint_mark, rect,
 };
 
 fn voice_color(model: &Model, voice: Voice) -> Rgb {
@@ -30,7 +29,7 @@ fn paint_sample(canvas: &Canvas, model: &Model, placed: &PlacedSample) {
         &sample.typed,
         Text::new(Role::Body, palette.text),
     );
-    canvas.fill_round(placed.caret, 0, palette.text);
+    canvas.fill(placed.caret, palette.text);
     let ghost = ink(Some(palette.text), palette.card, sample.opacity);
     let (first, rest) = sample.ghost.split_at(next_word(&sample.ghost).len());
     let first_alpha = u32::from(next_word_alpha(ghost.alpha));
@@ -50,7 +49,7 @@ fn paint_row(canvas: &Canvas, model: &Model, row: &PlacedRow) {
     let palette = &model.theme.palette;
     let scale = model.scale;
     if let Some(line) = row.divider {
-        canvas.fill_round(line, 0, palette.card_stroke);
+        canvas.fill(line, palette.card_stroke);
     }
     if let Some((bounds, title)) = &row.title {
         canvas.text(*bounds, title, Text::new(Role::Body, palette.text));
@@ -60,12 +59,7 @@ fn paint_row(canvas: &Canvas, model: &Model, row: &PlacedRow) {
         canvas.text(*bounds, caption, style);
     }
     if let Some((bounds, badge)) = &row.badge {
-        canvas.card(
-            *bounds,
-            scale.px(BADGE_RADIUS),
-            palette.control,
-            palette.control_stroke,
-        );
+        canvas.card(*bounds, palette.control, palette.control_stroke);
         let style = Text::new(Role::Caption, palette.text_secondary).aligned(Align::Center);
         canvas.text(*bounds, badge, style);
     }
@@ -92,7 +86,6 @@ fn paint_row(canvas: &Canvas, model: &Model, row: &PlacedRow) {
 
 fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
     let palette = &model.theme.palette;
-    let radius = model.scale.px(CARD_RADIUS);
     match block {
         Block::Heading(bounds, text) => {
             canvas.text(*bounds, text, Text::new(Role::BodyStrong, palette.text));
@@ -101,9 +94,9 @@ fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
             let style = Text::new(Role::Caption, voice_color(model, *voice)).wrapping();
             canvas.text(*bounds, text, style);
         }
-        Block::Panel(bounds) => canvas.card(*bounds, radius, palette.card, palette.card_stroke),
+        Block::Panel(bounds) => canvas.card(*bounds, palette.card, palette.card_stroke),
         Block::Card(bounds, rows) => {
-            canvas.card(*bounds, radius, palette.card, palette.card_stroke);
+            canvas.card(*bounds, palette.card, palette.card_stroke);
             for row in rows {
                 paint_row(canvas, model, row);
             }
@@ -114,19 +107,19 @@ fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
 fn paint_sidebar(canvas: &Canvas, model: &Model, layout: &Layout) {
     let palette = &model.theme.palette;
     let scale = model.scale;
-    canvas.fill_round(layout.sidebar, 0, model.theme.sidebar());
+    canvas.fill(layout.sidebar, model.theme.sidebar());
     let edge = rect(
         layout.sidebar.right - scale.px(STROKE),
         0,
         scale.px(STROKE),
         height(layout.sidebar),
     );
-    canvas.fill_round(edge, 0, palette.card_stroke);
+    canvas.fill(edge, palette.card_stroke);
     paint_mark(
         canvas,
         (layout.mark.left, layout.mark.top),
         height(layout.mark),
-        palette.accent.base,
+        palette.mark_caret,
         palette.mark_ghost,
     );
     canvas.text(
@@ -145,7 +138,7 @@ fn paint_sidebar(canvas: &Canvas, model: &Model, layout: &Layout) {
 pub fn paint_page(canvas: &Canvas, model: &Model) {
     let palette = &model.theme.palette;
     let layout = &model.layout;
-    canvas.clear(model.page_fill());
+    canvas.clear(model.theme.palette.page);
     let (bounds, title) = &layout.title;
     canvas.text(*bounds, title, Text::new(Role::Subtitle, palette.text));
     for block in &layout.blocks {
@@ -153,7 +146,7 @@ pub fn paint_page(canvas: &Canvas, model: &Model) {
     }
     paint_sidebar(canvas, model, layout);
     if let Some(thumb) = layout.thumb {
-        canvas.fill_round(thumb, width(thumb) / 2, palette.strong_stroke);
+        canvas.fill(thumb, palette.strong_stroke);
     }
 }
 
@@ -190,7 +183,7 @@ fn paint_strip(
             (false, 0) => palette.track,
             (false, _) => palette.strong_stroke,
         };
-        canvas.fill_round(*bar, scale.px(BAR_RADIUS), color);
+        canvas.fill(*bar, color);
     }
 }
 
