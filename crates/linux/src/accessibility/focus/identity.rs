@@ -1,7 +1,7 @@
 use atspi::{AtspiError, ObjectRefOwned};
 use zbus::Connection;
 
-use crate::process::{owner_pid, process_name};
+use super::process::{owner_pid, process_name};
 
 pub(crate) struct Identity {
     pub(crate) pid: u32,

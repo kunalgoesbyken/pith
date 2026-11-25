@@ -1,3 +1,9 @@
+mod caret;
+mod nearby;
+mod style;
+mod text;
+mod window;
+
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use atspi::proxy::accessible::ObjectRefExt;
@@ -10,11 +16,10 @@ use pith_core::{
 };
 use zbus::Connection;
 
-use crate::focus::Focus;
-use crate::nearby;
-use crate::reading::Reading;
-use crate::text::without_astral_fillers;
-use crate::{caret, style, window};
+use super::focus::Focus;
+use super::reading::Reading;
+
+use text::without_astral_fillers;
 
 const TEAR_RETRIES: usize = 2;
 

@@ -3,31 +3,18 @@
 mod accessibility;
 mod autostart;
 mod bounded;
-mod caret;
 mod clock;
 mod current;
 mod error;
-mod field;
-mod focus;
 mod hardware;
 mod held;
-mod identity;
-mod insert;
-mod nearby;
 mod notice;
 mod open;
 mod overlay;
-mod process;
-mod reader;
-mod reading;
 mod run;
 mod session;
-mod settle;
 mod single;
-mod style;
-mod text;
 mod tray;
-mod window;
 mod x11;
 
 pub use accessibility::Consent;
@@ -42,9 +29,7 @@ pub use held::Held;
 #[cfg(feature = "e2e")]
 pub use overlay::Overlay;
 #[cfg(feature = "e2e")]
-pub use reader::{Reader, Report};
-#[cfg(feature = "e2e")]
-pub use reading::Reading;
+pub use accessibility::{Reader, Reading, Report};
 #[cfg(feature = "e2e")]
 pub use session::Quit;
 #[cfg(feature = "e2e")]

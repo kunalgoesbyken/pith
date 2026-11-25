@@ -21,13 +21,12 @@ use pith_infer::Worker;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
-use crate::accessibility::Consent;
+use crate::accessibility::{Consent, Reader};
 use crate::autostart::Autostart;
 use crate::current::Current;
 use crate::error::ReaderError;
 use crate::held::Held;
 use crate::overlay::Overlay;
-use crate::reader::Reader;
 use crate::session::Quit;
 use crate::tray::Tray;
 use crate::x11::{Clipboard, Desktop, Display, DisplayError, Grabs, listen};

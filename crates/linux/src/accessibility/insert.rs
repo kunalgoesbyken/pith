@@ -6,9 +6,9 @@ use atspi::proxy::proxy_ext::ProxyExt;
 use atspi::proxy::text::TextProxy;
 use zbus::Connection;
 
+use super::field::field_id;
+use super::focus::Focus;
 use crate::error::{InsertError, Inserted, Target};
-use crate::field::field_id;
-use crate::focus::Focus;
 
 const LANDING_WAIT: Duration = Duration::from_millis(200);
 const LANDING_POLL: Duration = Duration::from_millis(20);

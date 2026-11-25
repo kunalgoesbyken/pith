@@ -13,16 +13,16 @@ use futures_lite::{Stream, StreamExt};
 use pith_core::{Config, log};
 use zbus::Connection;
 
-use crate::accessibility::{Consent, Lease};
+use super::consent::{Consent, Lease};
+use super::field::read;
+use super::focus::{Effect, Focus, Tracker};
+use super::insert::insert;
+use super::reading::Reading;
+use super::settle::Settling;
 use crate::bounded::{Bounded, STARTUP_DEADLINE, bounded, stop_requested, within};
 use crate::error::{InsertError, Inserted, ReaderError, Target};
-use crate::field::read;
-use crate::focus::{Effect, Focus, Tracker};
 use crate::held::Held;
-use crate::insert::insert;
-use crate::reading::Reading;
 use crate::session::Quit;
-use crate::settle::Settling;
 use crate::x11::Desktop;
 
 const READ_ATTEMPTS: usize = 3;

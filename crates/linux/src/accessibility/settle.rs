@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::reading::Reading;
+use super::reading::Reading;
 
 const SETTLE_RETRIES: usize = 6;
 const SETTLE_DELAY: Duration = Duration::from_millis(60);

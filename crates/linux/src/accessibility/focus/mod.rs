@@ -1,3 +1,6 @@
+mod identity;
+mod process;
+
 use async_channel::Receiver;
 use atspi::events::{Event, ObjectEvents};
 use atspi::proxy::accessible::ObjectRefExt;
@@ -6,7 +9,8 @@ use pith_core::NearbyCache;
 use zbus::Connection;
 
 use crate::bounded::{Bounded, bounded};
-use crate::identity::Identity;
+
+use identity::Identity;
 
 pub(crate) struct Focus {
     pub(crate) target: ObjectRefOwned,

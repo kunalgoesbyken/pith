@@ -6,10 +6,9 @@ use pith_infer::Stage;
 use super::App;
 use super::RunError;
 use super::keyboard::HOLD_LIMIT;
+use crate::accessibility::{Reading, Report};
 use crate::error::{InsertError, Inserted, ReaderError, Target};
 use crate::notice::notify;
-use crate::reader::Report;
-use crate::reading::Reading;
 use crate::tray::Tray;
 use crate::x11::{DisplayError, Stroke};
 
