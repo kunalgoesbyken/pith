@@ -1,3 +1,6 @@
+mod render;
+mod typeset;
+
 use std::sync::Arc;
 
 use pith_core::{
@@ -5,9 +8,10 @@ use pith_core::{
     Surface, TextStyle, fit_cuts, inline_font_px, is_rtl, log,
 };
 
-use crate::render::{Subject, render};
-use crate::typeset::{Font, Typesetter};
 use crate::x11::{Canvas, Desktop, Display, DisplayError, Monitor};
+
+use render::{Subject, render};
+use typeset::{Font, Typesetter};
 
 struct Shot<'a> {
     label: &'a Label,

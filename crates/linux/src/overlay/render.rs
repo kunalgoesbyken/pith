@@ -1,6 +1,6 @@
 use pith_core::{Emphasis, Placed, Rgb, Shading, argb};
 
-use crate::typeset::{Font, Mask, Typesetter};
+use super::typeset::{Font, Mask, Typesetter};
 
 const OPAQUE: u32 = 255;
 

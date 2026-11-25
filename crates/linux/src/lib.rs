@@ -20,7 +20,6 @@ mod overlay;
 mod process;
 mod reader;
 mod reading;
-mod render;
 mod run;
 mod session;
 mod settle;
@@ -28,7 +27,6 @@ mod single;
 mod style;
 mod text;
 mod tray;
-mod typeset;
 mod window;
 mod x11;
 
