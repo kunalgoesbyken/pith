@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_io::Timer;
 use futures_lite::future::block_on;
-use pith_core::TrayCommand;
+use pith_core::{TrayCommand, log};
 use zbus::Connection;
 use zbus::connection::Builder;
 
@@ -27,7 +27,7 @@ impl Remote {
 }
 
 pub struct Instance {
-    _connection: Connection,
+    _connection: Option<Connection>,
 }
 
 async fn reveal() -> zbus::Result<()> {
@@ -38,30 +38,37 @@ async fn reveal() -> zbus::Result<()> {
     Ok(())
 }
 
-async fn serve(inbox: Inbox) -> zbus::Result<Instance> {
-    let connection = Builder::session()?
+async fn serve(inbox: Inbox) -> zbus::Result<Connection> {
+    Builder::session()?
         .name(NAME)?
         .allow_name_replacements(false)
         .replace_existing_names(false)
         .serve_at(PATH, Remote { inbox })?
         .build()
-        .await?;
-    Ok(Instance {
-        _connection: connection,
-    })
+        .await
 }
 
 async fn claim(inbox: Inbox) -> zbus::Result<Option<Instance>> {
     for _ in 0..ATTEMPTS {
-        match serve(inbox.clone()).await {
-            Ok(instance) => return Ok(Some(instance)),
-            Err(zbus::Error::NameTaken) => {}
-            Err(error) => return Err(error),
-        }
-        if let Some(Ok(())) = within(DEADLINE, reveal()).await {
-            return Ok(None);
-        }
-        Timer::after(RETRY_DELAY).await;
+        let connection = match serve(inbox.clone()).await {
+            Ok(connection) => Some(connection),
+            Err(zbus::Error::NameTaken) => {
+                if let Some(Ok(())) = within(DEADLINE, reveal()).await {
+                    return Ok(None);
+                }
+                Timer::after(RETRY_DELAY).await;
+                continue;
+            }
+            Err(error) => {
+                log(&format!(
+                    "single instance not checked, running alone: {error}"
+                ));
+                None
+            }
+        };
+        return Ok(Some(Instance {
+            _connection: connection,
+        }));
     }
     Err(zbus::Error::NameTaken)
 }

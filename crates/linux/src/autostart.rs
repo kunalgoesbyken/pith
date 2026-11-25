@@ -2,7 +2,9 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use directories::BaseDirs;
+use pith_core::log;
 
+const HEADER: &str = "[Desktop Entry]";
 const DIRECTORY: &str = "autostart";
 const FILE: &str = "pith.desktop";
 const EXEC: &str = "Exec";
@@ -12,6 +14,7 @@ const GNOME_ENABLED: &str = "X-GNOME-Autostart-enabled";
 #[derive(Clone)]
 pub struct Autostart {
     path: PathBuf,
+    executable: String,
     command: String,
 }
 
@@ -40,6 +43,30 @@ fn command_line(executable: &str, arguments: &[&str]) -> String {
         .join(" ")
 }
 
+fn unquoted(text: &str) -> Option<(String, &str)> {
+    let mut characters = text.strip_prefix('"')?.char_indices();
+    let mut value = String::new();
+    while let Some((end, character)) = characters.next() {
+        match character {
+            '"' => return Some((value, &text[end + 2..])),
+            '%' => {
+                characters.next()?;
+                value.push('%');
+            }
+            '\\' => {
+                characters.next()?;
+                let (_, escaped) = characters.next()?;
+                if escaped == '\\' {
+                    characters.next()?;
+                }
+                value.push(escaped);
+            }
+            other => value.push(other),
+        }
+    }
+    None
+}
+
 fn value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     line.strip_prefix(key)?
         .trim_start()
@@ -47,8 +74,21 @@ fn value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
         .map(str::trim)
 }
 
+fn group(entry: &str) -> impl Iterator<Item = (usize, &str)> {
+    entry
+        .lines()
+        .enumerate()
+        .skip_while(|(_, line)| line.trim() != HEADER)
+        .skip(1)
+        .take_while(|(_, line)| !line.trim_start().starts_with('['))
+}
+
+fn exec_line(entry: &str) -> Option<(usize, &str)> {
+    group(entry).find_map(|(index, line)| Some((index, value(line, EXEC)?)))
+}
+
 fn field<'a>(entry: &'a str, key: &str) -> Option<&'a str> {
-    entry.lines().find_map(|line| value(line, key))
+    group(entry).find_map(|(_, line)| value(line, key))
 }
 
 fn disabled(entry: &str) -> bool {
@@ -67,14 +107,19 @@ impl Autostart {
     pub fn new(arguments: &[&str]) -> Option<Self> {
         let path = BaseDirs::new()?.config_dir().join(DIRECTORY).join(FILE);
         let executable = std::env::current_exe().ok()?;
+        let Some(executable) = executable.to_str() else {
+            log("start at login is off: the path of this program is not valid text");
+            return None;
+        };
         Some(Self {
             path,
-            command: command_line(executable.to_str()?, arguments),
+            executable: executable.to_string(),
+            command: command_line(executable, arguments),
         })
     }
 
-    pub fn enabled(&self) -> bool {
-        matches!(read(&self.path), Ok(Some(entry)) if !disabled(&entry))
+    pub fn enabled(&self) -> io::Result<bool> {
+        Ok(read(&self.path)?.is_some_and(|entry| !disabled(&entry)))
     }
 
     pub fn set(&self, enabled: bool) -> io::Result<()> {
@@ -94,20 +139,18 @@ impl Autostart {
         let Some(entry) = read(&self.path)? else {
             return Ok(());
         };
-        if field(&entry, EXEC) == Some(self.command.as_str()) {
+        let Some((index, exec)) = exec_line(&entry) else {
+            return Ok(());
+        };
+        let Some((previous, arguments)) = unquoted(exec) else {
+            return Ok(());
+        };
+        let previous = Path::new(&previous);
+        if !previous.is_absolute() || previous.exists() {
             return Ok(());
         }
-        let exec = format!("{EXEC}={}", self.command);
-        let lines: Vec<&str> = entry
-            .lines()
-            .map(|line| {
-                if value(line, EXEC).is_some() {
-                    exec.as_str()
-                } else {
-                    line
-                }
-            })
-            .collect();
+        let mut lines: Vec<String> = entry.lines().map(str::to_string).collect();
+        lines[index] = format!("{EXEC}={}{arguments}", quoted(&self.executable));
         std::fs::write(&self.path, lines.join("\n") + "\n")
     }
 

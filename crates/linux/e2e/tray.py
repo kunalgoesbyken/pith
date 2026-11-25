@@ -28,12 +28,34 @@ MENU_PATH = "/MenuBar"
 MENU_INTERFACE = "com.canonical.dbusmenu"
 STARTED_SECONDS = 60.0
 STATE_SECONDS = 20.0
+NO_TRAY_SECONDS = 60.0
 EXIT_SECONDS = 20.0
 POLL_TIMEOUT_MS = 5000
 CONFIG_FILE = "config.toml"
 AUTOSTART_FILE = "autostart/pith.desktop"
 PAUSE_LABEL = "Pause for 15 min"
 SETTINGS_FLAG = "--settings"
+BUS_VARIABLE = "DBUS_SESSION_BUS_ADDRESS"
+NO_BUS = "unix:path=/nonexistent/bus"
+WRAPPED_ENTRY = b"""[Desktop Entry]
+Type=Application
+Name=Pith
+Exec=env PITH_E2E=1 "/gone/pith" --my-flag
+X-GNOME-Autostart-enabled=true
+
+[Desktop Action Extra]
+Exec="/gone/pith" --extra
+"""
+STALE_ENTRY = b"""[Desktop Entry]
+Type=Application
+Name=Pith
+Exec="/gone/with space/pith" "--allow-accessibility" "--keep-me"
+Comment=keep me
+
+[Desktop Action Extra]
+Exec="/gone/pith" --extra
+"""
+UNREADABLE_ENTRY = b"[Desktop Entry]\nExec=\xff\xfe\n"
 
 WATCHER_XML = """
 <node>
@@ -227,14 +249,21 @@ class Desktop:
 
 
 class Pith:
-    def __init__(self, binary, workdir):
+    def __init__(self, binary, workdir, files, environment):
         self.binary = binary
         self.configs = workdir / "config"
         self.data = workdir / "data"
         self.model = workdir / "model.gguf"
         self.model.write_text("not a model")
+        for name, content in files.items():
+            path = self.configs / name
+            path.parent.mkdir(parents=True)
+            path.write_bytes(content)
         self.environment = dict(
-            os.environ, XDG_CONFIG_HOME=str(self.configs), XDG_DATA_HOME=str(self.data)
+            os.environ,
+            XDG_CONFIG_HOME=str(self.configs),
+            XDG_DATA_HOME=str(self.data),
+            **environment,
         )
         self.output = workdir / "pith.out"
         self.stderr = self.output.open("w")
@@ -278,11 +307,11 @@ class Pith:
 
 
 @contextlib.contextmanager
-def session(binary, desktop, tray):
+def session(binary, desktop, tray, files=None, environment=None):
     desktop.notices = []
     watcher = desktop.watch() if tray else None
     with tempfile.TemporaryDirectory(prefix="pith-tray-") as directory:
-        pith = Pith(binary, pathlib.Path(directory))
+        pith = Pith(binary, pathlib.Path(directory), files or {}, environment or {})
         try:
             if not wait_for(lambda: "pith starting" in pith.log, STARTED_SECONDS):
                 raise RuntimeError(f"pith did not start: {pith.log}")
@@ -393,7 +422,7 @@ def without_tray(binary, desktop):
         record("pith runs without a watcher", wait_for(lambda: "no tray icon" in pith.log, STATE_SECONDS) is True, pith.log)
         record(
             "a notice explains the missing tray",
-            wait_for(lambda: any("without a tray icon" in body for _, body in desktop.notices), STATE_SECONDS) is True,
+            wait_for(lambda: any("without a tray icon" in body for _, body in desktop.notices), NO_TRAY_SECONDS) is True,
             desktop.notices,
         )
         before = len(desktop.notices)
@@ -413,6 +442,89 @@ def without_tray(binary, desktop):
     return rows
 
 
+def late_tray(binary, desktop):
+    rows = []
+
+    def record(scenario, ok, detail):
+        rows.append((GROUP, scenario, ok, str(detail)))
+
+    with session(binary, desktop, False) as pith:
+        wait_for(lambda: "no tray icon" in pith.log, STATE_SECONDS)
+        watcher = desktop.watch()
+        try:
+            ready = wait_for(lambda: "tray icon ready" in pith.log, STATE_SECONDS)
+            welcomed = wait_for(lambda: any("system tray" in body for _, body in desktop.notices), STATE_SECONDS)
+        finally:
+            watcher.stop()
+        record("the item appears when the tray host starts late", ready is True, pith.log)
+        record(
+            "the first notice waits for the tray and does not say it is missing",
+            welcomed is True and not any("without a tray icon" in body for _, body in desktop.notices),
+            desktop.notices,
+        )
+    return rows
+
+
+def autostart_entries(binary, desktop):
+    rows = []
+
+    def record(scenario, ok, detail):
+        rows.append((GROUP, scenario, ok, str(detail)))
+
+    with session(binary, desktop, False, files={AUTOSTART_FILE: WRAPPED_ENTRY}) as pith:
+        record("an Exec line the user edited is left alone", (pith.configs / AUTOSTART_FILE).read_bytes() == WRAPPED_ENTRY, pith.log)
+    with session(binary, desktop, False, files={AUTOSTART_FILE: STALE_ENTRY}) as pith:
+        lines = (pith.configs / AUTOSTART_FILE).read_text().splitlines()
+        record(
+            "a stale program path is repaired and nothing else changes",
+            lines == [
+                "[Desktop Entry]",
+                "Type=Application",
+                "Name=Pith",
+                f'Exec="{os.path.realpath(pith.binary)}" "--allow-accessibility" "--keep-me"',
+                "Comment=keep me",
+                "",
+                "[Desktop Action Extra]",
+                'Exec="/gone/pith" --extra',
+            ],
+            lines,
+        )
+    with session(binary, desktop, True, files={AUTOSTART_FILE: UNREADABLE_ENTRY}) as pith:
+        name = wait_for(lambda: desktop.items[0] if desktop.items else None, STATE_SECONDS)
+        if name is None:
+            record("the item registers with the watcher", False, desktop.items)
+            return rows
+        desktop.click(name, "Start at login")
+        refused = wait_for(lambda: "start at login not changed" in pith.log, STATE_SECONDS)
+        record(
+            "an autostart file that cannot be read is not overwritten",
+            refused is True and (pith.configs / AUTOSTART_FILE).read_bytes() == UNREADABLE_ENTRY,
+            pith.log,
+        )
+    return rows
+
+
+def without_bus(binary, desktop):
+    rows = []
+
+    def record(scenario, ok, detail):
+        rows.append((GROUP, scenario, ok, str(detail)))
+
+    with session(binary, desktop, False, environment={BUS_VARIABLE: NO_BUS}) as pith:
+        try:
+            code = pith.process.wait(EXIT_SECONDS)
+        except subprocess.TimeoutExpired:
+            code = None
+        output = pith.output.read_text()
+        record(
+            "without a session bus the single instance check is skipped, not fatal",
+            "single instance not checked" in pith.log and "single instance:" not in output,
+            f"{pith.log} {output!r}",
+        )
+        record("without a session bus pith stops on the missing accessibility bus", code not in (None, 0), f"exit code {code}, {output!r}")
+    return rows
+
+
 def main():
     inject.require_ci()
     parser = argparse.ArgumentParser()
@@ -421,7 +533,13 @@ def main():
     options = parser.parse_args()
     desktop = Desktop()
     try:
-        rows = without_tray(options.pith, desktop) + with_tray(options.pith, desktop)
+        rows = (
+            without_tray(options.pith, desktop)
+            + late_tray(options.pith, desktop)
+            + with_tray(options.pith, desktop)
+            + autostart_entries(options.pith, desktop)
+            + without_bus(options.pith, desktop)
+        )
     finally:
         desktop.stop()
     harness.report(rows)
