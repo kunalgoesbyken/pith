@@ -3,7 +3,7 @@ use std::path::Path;
 use super::stored::{patch, read, write_atomically};
 use super::{MAX_GHOST_OPACITY, MIN_GHOST_OPACITY};
 use crate::apps::{Access, editor, same_app};
-use crate::keybind::ensure_bindable;
+use crate::input::keybind::ensure_bindable;
 use crate::{Chord, Config, KeyAction, ModelPreset, TriggerMode, app_name};
 
 pub const IDLE_UNLOAD_CHOICES: [u64; 4] = [60, 300, 900, 0];

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::apps::hosts::is_unlisted_id;
 use crate::apps::{Access, Surface, allowable_among, same_app, surface};
-use crate::chord::{Chord, Key};
+use crate::input::chord::{Chord, Key};
 use preset::ModelPreset;
 use reach::{Reach, is_private_remote};
 use stored::{read, write_atomically};

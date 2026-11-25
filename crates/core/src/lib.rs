@@ -1,6 +1,5 @@
 mod apps;
 mod budget;
-mod chord;
 mod color;
 mod config;
 mod emphasis;
@@ -8,8 +7,7 @@ mod engine;
 mod field;
 mod ghost;
 mod ignore;
-mod keybind;
-mod keys;
+mod input;
 mod log;
 mod mark;
 mod nearby;
@@ -34,7 +32,6 @@ mod typo;
 pub use apps::hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use apps::{Access, inserts_by_paste, same_app};
 pub use budget::estimate_tokens;
-pub use chord::{Chord, Key};
 pub use color::{CHANNEL_MAX, Rgb, argb};
 pub use config::preset::{Hardware, ModelPreset};
 pub use config::reach::Reach;
@@ -50,7 +47,8 @@ pub use ghost::{
     Flow, Ink, Line, blend, fits, flow_bounds, ink, is_rtl, layout, lines_that_fit,
     median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
 };
-pub use keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
+pub use input::chord::{Chord, Key};
+pub use input::keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
 pub use log::{init_log, log};
 pub use mark::{
     Block, Look, MARK_HEIGHT, MARK_WIDTH, PAUSED_GREY, TRAIL, TRAY_FILL, render_mark, trail_colors,
