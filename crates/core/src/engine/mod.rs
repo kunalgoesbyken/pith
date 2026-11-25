@@ -4,6 +4,8 @@ mod completion;
 mod correction;
 mod dismissal;
 mod events;
+mod ignore;
+mod replacing;
 mod show;
 #[cfg(test)]
 mod tests;
@@ -13,15 +15,16 @@ mod typing;
 use std::sync::Arc;
 
 use crate::context::field::FieldKey;
-use crate::ignore::IgnoreTracker;
-use crate::replacing::Replacing;
-use crate::stats::Counts;
+use crate::session::stats::Counts;
 use crate::style::Harvest;
 use crate::text::typo::{Declined, Finished};
 use crate::{Config, FieldSnapshot, StyleMemory};
 use correction::Offer;
 use dismissal::Dismissal;
 pub use events::{Action, Event};
+use ignore::IgnoreTracker;
+use replacing::Replacing;
+pub use replacing::SelectOutcome;
 use show::Shown;
 
 enum Phase {

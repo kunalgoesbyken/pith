@@ -2,18 +2,12 @@ mod apps;
 mod config;
 mod context;
 mod engine;
-mod ignore;
 mod input;
 mod log;
-mod pause;
-mod preferences;
 mod render;
-mod replacing;
-mod stats;
-mod status;
+mod session;
 mod style;
 mod text;
-mod tray;
 mod types;
 
 pub use apps::hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
@@ -30,12 +24,10 @@ pub use context::field::{AFTER_CHARS, FieldParts, Surrounding, is_redacted};
 pub use context::nearby::{CueKind, Nearby, NearbyCache, RawCue, WALK, WalkLimits};
 pub use context::policy::{SkipReason, check, check_forced};
 pub use context::prompt::{CompletionRequest, build, suggestion};
-pub use engine::{Action, Engine, Event};
+pub use engine::{Action, Engine, Event, SelectOutcome};
 pub use input::chord::{Chord, Key};
 pub use input::keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
 pub use log::{init_log, log};
-pub use pause::{Pause, PauseSpan, Pauses, clock_after};
-pub use preferences::Preferences;
 pub use render::color::{CHANNEL_MAX, Rgb, argb};
 pub use render::emphasis::Emphasis;
 pub use render::ink::{Ink, blend, ink, median_by_luminance, next_word_alpha, opacity_alpha};
@@ -52,9 +44,13 @@ pub use render::scene::{
     fit_cuts, inline_anchor, inline_font_px, keycap_label_origin,
 };
 pub use render::shading::{Pill, PillStyle, Scheme, Shading};
-pub use replacing::SelectOutcome;
-pub use stats::{Counts, Day, HISTORY_DAYS, Ledger, Stats};
-pub use status::{Model, Status, skip_label};
+pub use session::pause::{Pause, PauseSpan, Pauses, clock_after};
+pub use session::preferences::Preferences;
+pub use session::stats::{Counts, Day, HISTORY_DAYS, Ledger, Stats};
+pub use session::status::{Model, Status, skip_label};
+pub use session::tray::{
+    ForegroundApp, QUIT_LABEL, RESUME_LABEL, TrayCommand, TrayView, auto_paused_label, menu_line,
+};
 pub use style::{
     PlainVault, Primer, STYLE_TOKENS, Sample, Sentence, StyleMemory, StyleStore, Vault,
 };
@@ -63,9 +59,6 @@ pub use text::typo::{Correction, Label, Spelling};
 pub use text::{
     LINE_BREAKS, SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words,
     next_word, sentence_end, split_partial, tail_chars,
-};
-pub use tray::{
-    ForegroundApp, QUIT_LABEL, RESUME_LABEL, TrayCommand, TrayView, auto_paused_label, menu_line,
 };
 pub use types::{Completion, Drawn, FieldSnapshot, Rect, StopReason, TextStyle, average_logprob};
 
