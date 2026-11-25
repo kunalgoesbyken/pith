@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::Rgb;
 use crate::context::nearby::Nearby;
-use crate::placement::Placement;
+use crate::render::placement::Placement;
 use crate::text::suffix::After;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]

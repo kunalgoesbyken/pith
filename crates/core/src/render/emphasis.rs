@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::scene::{Placed, Point};
+use super::scene::{Placed, Point};
 use crate::{Line, strong_span};
 
 pub struct Emphasis(Vec<Option<(i32, i32)>>);

@@ -1,5 +1,5 @@
-use crate::ghost::{best_plain, ink, next_word_alpha};
-use crate::scene::{KEYCAP_RADIUS, PILL_EDGE, PILL_RADIUS, PILL_WRAPPED_RADIUS, Placed};
+use super::ink::{best_plain, ink, next_word_alpha};
+use super::scene::{KEYCAP_RADIUS, PILL_EDGE, PILL_RADIUS, PILL_WRAPPED_RADIUS, Placed};
 use crate::{CHANNEL_MAX, Ink, Rect, Rgb, Scale, argb};
 
 const FULL: f32 = CHANNEL_MAX as f32;
