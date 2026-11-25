@@ -40,7 +40,7 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn parse(args: &[String], extras: &[Extra]) -> Result<Self, String> {
+    pub fn parse(args: &[String], extras: &[&[Extra]]) -> Result<Self, String> {
         let mut cli = Self {
             model: None,
             threads: None,
@@ -61,7 +61,12 @@ impl Cli {
                         .parse()
                         .map_err(|_| format!("{THREADS_FLAG} takes a number"))?,
                 );
-            } else if let Some(extra) = extras.iter().find(|extra| extra.name == arg) {
+            } else if let Some(extra) = extras
+                .iter()
+                .copied()
+                .flatten()
+                .find(|extra| extra.name == arg)
+            {
                 let given = if extra.takes_value {
                     Some(value(extra.name)?)
                 } else {

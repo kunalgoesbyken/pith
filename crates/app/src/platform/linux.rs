@@ -5,9 +5,23 @@ use pith_linux::{
     Autostart, Consent, Inbound, Inbox, Options, Start, hardware, on_wayland, run, single_instance,
 };
 
-use crate::hooks::{self, ALLOW_ACCESSIBILITY, OPEN_SETTINGS};
-use crate::setup::{Cli, Paths, WorkerMessage, directories, load_config, recommend, spawn_worker};
+use crate::hooks;
+use crate::setup::{
+    Cli, Extra, Paths, WorkerMessage, directories, load_config, recommend, spawn_worker,
+};
 
+const ALLOW_ACCESSIBILITY: &str = "--allow-accessibility";
+const OPEN_SETTINGS: &str = "--settings";
+const FLAGS: &[Extra] = &[
+    Extra {
+        name: ALLOW_ACCESSIBILITY,
+        takes_value: false,
+    },
+    Extra {
+        name: OPEN_SETTINGS,
+        takes_value: false,
+    },
+];
 const ONBOARDED_MARKER: &str = "onboarded";
 const WAYLAND_MESSAGE: &str =
     "Pith needs an X11 session and this is a Wayland session. See the Linux section of the README.";
@@ -32,7 +46,7 @@ fn start() -> Result<(), String> {
     let paths = Paths::of(&dirs);
     init_log(&paths.log);
     let args: Vec<String> = std::env::args().collect();
-    let cli = Cli::parse(&args, hooks::FLAGS)?;
+    let cli = Cli::parse(&args, &[FLAGS, hooks::FLAGS])?;
     let (config, notice) = load_config(&paths.config, &cli)?;
     let (inbox, receiver) = Inbox::channel();
     let Some(_instance) =

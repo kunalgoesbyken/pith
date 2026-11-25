@@ -22,7 +22,7 @@ fn start() -> Result<(), String> {
         name: BACKGROUND_FLAG,
         takes_value: false,
     };
-    let cli = Cli::parse(&args, &[background])?;
+    let cli = Cli::parse(&args, &[&[background]])?;
     let (config, config_error) = load_config(&paths.config, &cli)?;
     if !single_instance(SINGLE_INSTANCE_NAME) {
         log("another instance is running, asking it to show its window");
