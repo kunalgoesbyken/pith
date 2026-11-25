@@ -1,14 +1,12 @@
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use crate::{
-    Config, ForegroundApp, Model, ModelPreset, Pause, PauseSpan, Pauses, Setting, SkipReason,
-    Status, log,
+    Config, ForegroundApp, Model, ModelPreset, Pause, Pauses, Setting, SkipReason, Status, log,
 };
 
 pub struct Preferences {
     saved: Config,
-    pauses: Pauses,
+    pub pauses: Pauses,
     config_path: Option<PathBuf>,
     recommended: ModelPreset,
     spelling: bool,
@@ -44,10 +42,6 @@ impl Preferences {
 
     pub fn paused(&self) -> bool {
         self.pauses.active(&self.saved)
-    }
-
-    pub fn pause_runs_out(&self) -> bool {
-        self.pauses.runs_out()
     }
 
     pub fn enabled(&self) -> bool {
@@ -98,22 +92,6 @@ impl Preferences {
         if let Err(error) = setting.persist(path) {
             log(&format!("settings not saved: {error}"));
         }
-    }
-
-    pub fn start_pause(&mut self, span: PauseSpan, clock: (u32, u32), now: SystemTime) {
-        self.pauses.start(span, clock, now);
-    }
-
-    pub fn resume(&mut self) -> bool {
-        self.pauses.resume()
-    }
-
-    pub fn expire_pause(&mut self, now: SystemTime) -> bool {
-        self.pauses.expire(now)
-    }
-
-    pub fn set_battery_saver(&mut self, on: bool) -> bool {
-        self.pauses.set_battery_saver(on)
     }
 
     pub fn release_model(&mut self) -> bool {

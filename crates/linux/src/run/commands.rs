@@ -35,22 +35,31 @@ impl App {
     }
 
     pub(super) fn expire_pause(&mut self) {
-        if self.prefs.expire_pause(SystemTime::now()) {
+        if self.prefs.pauses.expire(SystemTime::now()) {
             self.sync();
         } else {
             self.watch_pause();
         }
     }
 
-    fn welcome(&self, marker: &Path) {
-        let text = if self.shell.has_tray() {
-            WELCOME
-        } else {
-            WELCOME_WITHOUT_TRAY
-        };
-        notify(text.to_string());
+    fn welcome(&mut self, marker: &Path) {
+        self.shell.welcome_due = true;
+        if self.shell.has_tray() {
+            self.tray_settled(true);
+        }
         if let Err(error) = std::fs::write(marker, "") {
             log(&format!("welcome marker not written: {error}"));
+        }
+    }
+
+    pub(super) fn tray_settled(&mut self, present: bool) {
+        if std::mem::take(&mut self.shell.welcome_due) {
+            let text = if present {
+                WELCOME
+            } else {
+                WELCOME_WITHOUT_TRAY
+            };
+            notify(text.to_string());
         }
     }
 
@@ -69,12 +78,12 @@ impl App {
             log("pause not started: the local time is unavailable");
             return;
         };
-        self.prefs.start_pause(span, clock, SystemTime::now());
+        self.prefs.pauses.start(span, clock, SystemTime::now());
         self.sync();
     }
 
     fn resume(&mut self) {
-        if self.prefs.resume() {
+        if self.prefs.pauses.resume() {
             self.sync();
         }
     }
@@ -88,6 +97,7 @@ impl App {
             return;
         };
         self.prefs.apply(&setting);
+        self.forget_blocked_style();
         self.sync();
     }
 
@@ -103,7 +113,7 @@ impl App {
     }
 
     fn watch_pause(&mut self) {
-        if self.prefs.pause_runs_out() {
+        if self.prefs.pauses.runs_out() {
             self.timers.start_pause_check(PAUSE_CHECK);
         }
     }

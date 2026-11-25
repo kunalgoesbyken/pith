@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
 use pith_core::{
-    Access, Config, Counts, ModelPreset, Pause, Placement, Reach, Rect, Rgb, Setting, TextStyle,
-    is_rtl,
+    Access, Config, Counts, ForegroundApp, ModelPreset, Pause, Placement, Reach, Rect, Rgb,
+    Setting, TextStyle, is_rtl,
 };
 use pith_windows::{
-    ForegroundApp, Onboarding, OnboardingEvent, Overview, Page, Picture, Rival, Sample,
-    SettingsWindow, StatsView, force_dark_theme, preview,
+    Onboarding, OnboardingEvent, Overview, Page, Picture, Rival, Sample, SettingsWindow, StatsView,
+    force_dark_theme, preview,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;

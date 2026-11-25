@@ -13,14 +13,15 @@ mod window;
 
 use std::cell::RefCell;
 
-use pith_core::{Config, Counts, HISTORY_DAYS, ModelPreset, Pause, Setting};
+use pith_core::{
+    Config, Counts, ForegroundApp, HISTORY_DAYS, ModelPreset, Pause, Setting, TrayCommand,
+};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, IsIconic, IsWindow, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
 };
 
 use crate::rival::Rival;
-use pith_core::{ForegroundApp, TrayCommand};
 
 pub use page::Page;
 

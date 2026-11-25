@@ -26,6 +26,15 @@ impl App {
         self.share_style();
     }
 
+    pub(super) fn forget_blocked_style(&mut self) {
+        let Some(store) = &mut self.style else { return };
+        match store.forget_blocked(self.prefs.saved()) {
+            Ok(true) => self.share_style(),
+            Ok(false) => {}
+            Err(error) => log(&format!("style not saved: {error}")),
+        }
+    }
+
     pub(super) fn share_style(&mut self) {
         let Some(store) = &self.style else { return };
         let memory = Arc::new(store.memory().clone());

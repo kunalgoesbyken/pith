@@ -140,7 +140,7 @@ impl App {
     pub(super) fn dispatch(&mut self, event: Event) {
         let actions = self.engine.handle(event);
         self.apply(actions);
-        self.shell.set_skip(self.engine.skip());
+        self.shell.skip = self.engine.skip();
         self.refresh();
     }
 
@@ -186,7 +186,7 @@ impl App {
                 Action::Insert(text) => self.insert(text),
                 Action::AutoPaused(apps) => {
                     log(&format!("auto-paused in {apps:?}"));
-                    self.shell.set_auto_paused(apps);
+                    self.shell.auto_paused = apps;
                 }
                 Action::ArmKeys => self.keyboard.keys.arm(),
                 Action::DisarmKeys => self.keyboard.keys.disarm(),

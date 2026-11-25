@@ -1,4 +1,4 @@
-use pith_core::{Event, log};
+use pith_core::{Event, TrayCommand, log};
 use pith_infer::UpdateCheck;
 
 use super::App;
@@ -8,7 +8,6 @@ use crate::settings::{UiEvent, take_events};
 use crate::tray::TrayEvent;
 use crate::update::Update;
 use crate::util::{open_path, open_target};
-use pith_core::TrayCommand;
 
 impl App {
     pub(super) fn ui_events(&mut self) -> bool {

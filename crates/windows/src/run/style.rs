@@ -39,17 +39,14 @@ impl Style {
             .collect()
     }
 
-    fn len(&self) -> usize {
-        self.0
-            .as_ref()
-            .map_or(0, |store| store.memory().entries().len())
-    }
-
-    fn edit(&mut self, change: impl FnOnce(&mut StyleStore) -> Result<(), String>) {
-        let Some(store) = &mut self.0 else { return };
-        if let Err(error) = change(store) {
+    fn edit<T: Default>(&mut self, change: impl FnOnce(&mut StyleStore) -> Result<T, String>) -> T {
+        let Some(store) = &mut self.0 else {
+            return T::default();
+        };
+        change(store).unwrap_or_else(|error| {
             log(&format!("style not saved: {error}"));
-        }
+            T::default()
+        })
     }
 }
 
@@ -65,10 +62,10 @@ impl App {
     }
 
     pub(super) fn forget_blocked_style(&mut self) {
-        let before = self.style.len();
-        let config = self.prefs.saved().clone();
-        self.style.edit(|store| store.forget_blocked(&config));
-        if self.style.len() != before {
+        if self
+            .style
+            .edit(|store| store.forget_blocked(self.prefs.saved()))
+        {
             self.style_changed();
         }
     }

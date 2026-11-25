@@ -8,10 +8,11 @@ pub(super) struct Shell {
     shown: Option<Shown>,
     model: Model,
     reported: Option<String>,
-    skip: Option<SkipReason>,
+    pub(super) skip: Option<SkipReason>,
     notice: Option<String>,
     app: Option<String>,
-    auto_paused: Vec<String>,
+    pub(super) auto_paused: Vec<String>,
+    pub(super) welcome_due: bool,
 }
 
 impl Shell {
@@ -25,6 +26,7 @@ impl Shell {
             notice,
             app: None,
             auto_paused: Vec::new(),
+            welcome_due: false,
         }
     }
 
@@ -55,18 +57,10 @@ impl Shell {
         fresh
     }
 
-    pub(super) fn set_skip(&mut self, skip: Option<SkipReason>) {
-        self.skip = skip;
-    }
-
     pub(super) fn set_app(&mut self, app: &str) {
         if self.app.as_deref() != Some(app) {
             self.app = Some(app.to_string());
         }
-    }
-
-    pub(super) fn set_auto_paused(&mut self, apps: Vec<String>) {
-        self.auto_paused = apps;
     }
 
     pub(super) fn status_line(&self, prefs: &Preferences) -> String {

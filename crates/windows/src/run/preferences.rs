@@ -7,7 +7,9 @@ use crate::power::Power;
 use crate::util::local_time;
 
 pub(super) fn read_power(prefs: &mut Preferences) -> bool {
-    prefs.set_battery_saver(Power::read() == Power::BatterySaver)
+    prefs
+        .pauses
+        .set_battery_saver(Power::read() == Power::BatterySaver)
 }
 
 impl App {
@@ -49,18 +51,18 @@ impl App {
     pub(super) fn pause(&mut self, span: PauseSpan) {
         let now = local_time();
         let clock = (u32::from(now.wHour), u32::from(now.wMinute));
-        self.prefs.start_pause(span, clock, SystemTime::now());
+        self.prefs.pauses.start(span, clock, SystemTime::now());
         self.sync();
     }
 
     pub(super) fn resume(&mut self) {
-        if self.prefs.resume() {
+        if self.prefs.pauses.resume() {
             self.sync();
         }
     }
 
     pub(super) fn expire_pause(&mut self) {
-        if self.prefs.expire_pause(SystemTime::now()) {
+        if self.prefs.pauses.expire(SystemTime::now()) {
             self.sync();
         }
     }

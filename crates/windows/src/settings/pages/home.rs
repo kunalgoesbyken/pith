@@ -1,4 +1,7 @@
-use pith_core::{Access, Counts, HISTORY_DAYS, KeyAction, Pause, PauseSpan, Setting};
+use pith_core::{
+    Access, Counts, ForegroundApp, HISTORY_DAYS, KeyAction, Pause, PauseSpan, RESUME_LABEL,
+    Setting, TrayCommand,
+};
 
 use super::super::action::Action;
 use super::super::layout::{Item, Row, Sheet, Voice};
@@ -11,7 +14,6 @@ use crate::format::{duration, number};
 use crate::reach;
 use crate::rival::Rival;
 use crate::ui::Tone;
-use pith_core::{ForegroundApp, TrayCommand};
 
 fn command(command: TrayCommand) -> Action {
     Action::Emit(UiEvent::Command(command))
@@ -65,7 +67,7 @@ fn pause_row(model: &Model) -> Row {
                 _ => "Suggestions start again when the pause ends.",
             })
             .control(Item::button(
-                "Resume",
+                RESUME_LABEL,
                 Tone::Accent,
                 command(TrayCommand::Resume),
             )),

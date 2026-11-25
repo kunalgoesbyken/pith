@@ -87,7 +87,9 @@ pub use text::{
     LINE_BREAKS, SentenceEnd, clean_completion, continue_window, ends_spaced_word, exceeds_words,
     next_word, sentence_end, split_partial, tail_chars,
 };
-pub use tray::{ForegroundApp, TrayCommand, TrayView, auto_paused_label, menu_line};
+pub use tray::{
+    ForegroundApp, QUIT_LABEL, RESUME_LABEL, TrayCommand, TrayView, auto_paused_label, menu_line,
+};
 pub use types::{Completion, Drawn, FieldSnapshot, Rect, StopReason, TextStyle, average_logprob};
 pub use typo::{Correction, Label, Spelling};
 

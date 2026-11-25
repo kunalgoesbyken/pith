@@ -9,7 +9,7 @@ mod style;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 
-use pith_core::{Action, Config, Engine, ModelPreset, Preferences};
+use pith_core::{Action, Config, Engine, ModelPreset, Preferences, TrayCommand};
 use pith_infer::Worker;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::HiDpi::{
@@ -25,12 +25,10 @@ use crate::overlay::Overlay;
 use crate::power;
 use crate::reader::{Reader, Source};
 use crate::spell::Speller;
-use pith_core::TrayCommand;
 
 use effects::Effects;
 pub use inbox::{Inbound, Inbox};
 use keyboard::Keyboard;
-
 use presenter::Presenter;
 use style::Style;
 

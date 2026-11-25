@@ -1,7 +1,8 @@
 use std::path::Path;
 
+use pith_core::{Look, render_mark};
 use pith_windows::Taskbar;
-use pith_windows::brand::{self, Look};
+use pith_windows::brand;
 
 mod common;
 
@@ -24,7 +25,7 @@ const ICO_DEPTH: u16 = 32;
 fn ico(look: &Look) -> Vec<u8> {
     let images: Vec<(u32, Vec<u8>)> = ICON_SIZES
         .iter()
-        .map(|&size| (size, png(size, size, &brand::render(size, look))))
+        .map(|&size| (size, png(size, size, &render_mark(size, look))))
         .collect();
     let mut out = vec![0, 0, 1, 0];
     out.extend((images.len() as u16).to_le_bytes());
@@ -64,7 +65,7 @@ fn sheet(name: &str, rows: &[([u8; 4], Look)], sizes: &[u32]) {
     let mut canvas = vec![0u8; (width * height * 4) as usize];
     for (row, (background, look)) in rows.iter().enumerate() {
         for (column, &size) in sizes.iter().enumerate() {
-            let rgba = brand::render(size, look);
+            let rgba = render_mark(size, look);
             for y in 0..cell {
                 for x in 0..cell {
                     let (sx, sy) = (x / zoom(size), y / zoom(size));

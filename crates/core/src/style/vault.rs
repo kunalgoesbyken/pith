@@ -75,8 +75,10 @@ impl StyleStore {
         self.update(|memory| memory.forget(app, text))
     }
 
-    pub fn forget_blocked(&mut self, config: &Config) -> Result<(), String> {
-        self.update(|memory| memory.forget_blocked(config))
+    pub fn forget_blocked(&mut self, config: &Config) -> Result<bool, String> {
+        let before = self.memory.entries().len();
+        self.update(|memory| memory.forget_blocked(config))?;
+        Ok(self.memory.entries().len() != before)
     }
 
     pub fn erase(&mut self) -> Result<(), String> {

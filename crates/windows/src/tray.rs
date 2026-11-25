@@ -1,6 +1,9 @@
 use std::cell::RefCell;
 
-use pith_core::{PauseSpan, Reach, TrayCommand, TrayView, auto_paused_label, menu_line};
+use pith_core::{
+    PauseSpan, QUIT_LABEL, RESUME_LABEL, Reach, TrayCommand, TrayView, auto_paused_label,
+    menu_line, render_mark,
+};
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::Foundation::HWND;
@@ -78,7 +81,7 @@ fn tooltip_for<'a>(view: &TrayView, resting: &'a str) -> &'a str {
 
 fn glyph(active: bool, taskbar: Taskbar, size: u32) -> Option<Icon> {
     let look = brand::tray(taskbar, active);
-    Icon::from_rgba(brand::render(size, &look), size, size).ok()
+    Icon::from_rgba(render_mark(size, &look), size, size).ok()
 }
 
 impl Tray {
@@ -89,11 +92,11 @@ impl Tray {
             .into_iter()
             .map(|span| (MenuItem::new(span.label(), true, None), span))
             .collect();
-        let resume = MenuItem::new("Resume", false, None);
+        let resume = MenuItem::new(RESUME_LABEL, false, None);
         let app = MenuItem::new(TrayView::default().app_label(), false, None);
         let update = MenuItem::new(Update::default().label(), true, None);
         let open = MenuItem::new("Open Pith", true, None);
-        let quit = MenuItem::new("Quit", true, None);
+        let quit = MenuItem::new(QUIT_LABEL, true, None);
         menu.append(&open).ok()?;
         menu.append(&PredefinedMenuItem::separator()).ok()?;
         menu.append(&status).ok()?;

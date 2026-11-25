@@ -1,5 +1,4 @@
-pub use pith_core::{Look, render_mark as render};
-use pith_core::{MARK_WIDTH, PAUSED_GREY, Rgb, Scheme, TRAY_FILL, trail_colors};
+use pith_core::{Look, MARK_WIDTH, PAUSED_GREY, Rgb, Scheme, TRAY_FILL, trail_colors};
 
 use crate::ui::{INK, Taskbar};
 

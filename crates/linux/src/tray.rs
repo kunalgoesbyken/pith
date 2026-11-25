@@ -4,8 +4,8 @@ use ksni::blocking::{Handle, TrayMethods};
 use ksni::menu::{CheckmarkItem, StandardItem};
 use ksni::{Icon, MenuItem, ToolTip};
 use pith_core::{
-    Look, PAUSED_GREY, PauseSpan, Scheme, TRAY_FILL, TrayCommand, TrayView, auto_paused_label, log,
-    menu_line, render_mark,
+    Look, PAUSED_GREY, PauseSpan, QUIT_LABEL, RESUME_LABEL, Scheme, TRAY_FILL, TrayCommand,
+    TrayView, auto_paused_label, log, menu_line, render_mark,
 };
 
 use crate::autostart::Autostart;
@@ -85,7 +85,10 @@ impl Menu {
         let Some(autostart) = &self.autostart else {
             return;
         };
-        if let Err(error) = autostart.set(!autostart.enabled()) {
+        if let Err(error) = autostart
+            .enabled()
+            .and_then(|enabled| autostart.set(!enabled))
+        {
             log(&format!("start at login not changed: {error}"));
         }
     }
@@ -95,7 +98,7 @@ impl Menu {
         Some(
             CheckmarkItem {
                 label: "Start at login".to_string(),
-                checked: autostart.enabled(),
+                checked: autostart.enabled().unwrap_or(false),
                 activate: Box::new(Self::toggle_autostart),
                 ..Default::default()
             }
@@ -164,7 +167,7 @@ impl ksni::Tray for Menu {
             PauseSpan::CHOICES.map(|span| command(span.label(), true, TrayCommand::Pause(span))),
         );
         items.push(command(
-            "Resume".to_string(),
+            RESUME_LABEL.to_string(),
             view.resumable(),
             TrayCommand::Resume,
         ));
@@ -176,7 +179,7 @@ impl ksni::Tray for Menu {
         ));
         items.extend(self.start_at_login());
         items.push(MenuItem::Separator);
-        items.push(command("Quit".to_string(), true, TrayCommand::Quit));
+        items.push(command(QUIT_LABEL.to_string(), true, TrayCommand::Quit));
         items
     }
 }
@@ -202,6 +205,7 @@ fn retry(inbox: Inbox, autostart: Option<Autostart>) {
                 return;
             }
         }
+        inbox.post(Inbound::NoTray);
     });
 }
 

@@ -2,6 +2,9 @@ use crate::{Access, Pause, PauseSpan, Setting};
 
 const MENU_TEXT_CHARS: usize = 100;
 
+pub const RESUME_LABEL: &str = "Resume";
+pub const QUIT_LABEL: &str = "Quit";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrayCommand {
     Pause(PauseSpan),

@@ -1,6 +1,8 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pith_core::{Completion, Event, FieldSnapshot, Model, SelectOutcome, Spelling, log};
+use pith_core::{
+    Completion, Event, FieldSnapshot, Model, SelectOutcome, Spelling, TrayCommand, log,
+};
 use pith_infer::{Stage, UpdateCheck, check_for_update};
 use windows::Win32::Foundation::HWND;
 
@@ -9,7 +11,6 @@ use crate::control::Waker;
 use crate::onboarding::Event as OnboardingEvent;
 use crate::settings::UiEvent;
 use crate::update::Update;
-use pith_core::TrayCommand;
 
 pub enum Inbound {
     Snapshot(Option<FieldSnapshot>, Option<u64>),

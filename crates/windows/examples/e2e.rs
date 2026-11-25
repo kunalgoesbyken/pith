@@ -7,12 +7,12 @@ use std::time::{Duration, Instant};
 use pith_core::{
     Action, Completion, CompletionRequest, Config, FieldSnapshot, Keymap, ModelPreset,
     PILL_ELEVATION, PauseSpan, Placement, Primer, Reach, Sample, Scale, Setting, SkipReason,
-    StyleStore, Suffix, WALK, build, check, sentence_end,
+    StyleStore, Suffix, TrayCommand, WALK, build, check, sentence_end,
 };
 use pith_infer::{Backend, Worker};
 use pith_windows::{
     DpapiVault, Inbound, Inbox, InsertMode, KeyAction, Onboarding, OnboardingEvent, OnboardingStep,
-    Options, Outcome, Reader, Source, Start, TrayCommand, Trigger, UiEvent, paste, run,
+    Options, Outcome, Reader, Source, Start, Trigger, UiEvent, paste, run,
 };
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;

@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
-use pith_core::{Config, ModelPreset};
+use pith_core::{Config, ModelPreset, TrayCommand};
 use pith_infer::{Worker, resolve_backend};
-use pith_windows::{Inbound, Inbox, InsertMode, Options, Reader, Source, Start, TrayCommand, run};
+use pith_windows::{Inbound, Inbox, InsertMode, Options, Reader, Source, Start, run};
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };

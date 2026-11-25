@@ -20,6 +20,7 @@ pub enum Inbound {
     Preparing(Stage),
     Command(TrayCommand),
     Tray(Tray),
+    NoTray,
     Key(Stroke),
     Failed(DisplayError),
     Unpasted,
@@ -60,6 +61,7 @@ impl App {
             Inbound::Preparing(stage) => self.model_preparing(stage),
             Inbound::Command(command) => return self.command(command),
             Inbound::Tray(tray) => self.tray_ready(tray),
+            Inbound::NoTray => self.tray_settled(false),
             Inbound::Key(stroke) => self.key_down(stroke),
         }
         Flow::Continue
@@ -101,6 +103,7 @@ impl App {
         log("tray icon ready");
         self.shell.set_tray(tray);
         self.refresh();
+        self.tray_settled(true);
     }
 
     fn model_ready(&mut self, status: Result<String, String>) {
