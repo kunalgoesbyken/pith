@@ -2,12 +2,12 @@ use pith_core::{Event, TrayCommand, log};
 use pith_infer::UpdateCheck;
 
 use super::App;
-use crate::registry;
-use crate::rival;
 use crate::settings::{UiEvent, take_events};
+use crate::system::registry;
+use crate::system::rival;
+use crate::system::update::Update;
+use crate::system::util::{open_path, open_target};
 use crate::tray::TrayEvent;
-use crate::update::Update;
-use crate::util::{open_path, open_target};
 
 impl App {
     pub(super) fn ui_events(&mut self) -> bool {

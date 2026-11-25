@@ -22,7 +22,7 @@ use window::Layered;
 pub use preview::{Picture, Sample, preview};
 pub use window::OVERLAY_CLASS;
 
-use crate::appearance::Appearance;
+use crate::system::appearance::Appearance;
 
 pub struct Overlay {
     window: Layered,

@@ -10,8 +10,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
-use crate::appearance::is_appearance_change;
 use crate::messages::WM_WAKE;
+use crate::system::appearance::is_appearance_change;
 
 const REVEAL_ATTEMPTS: u32 = 50;
 const REVEAL_RETRY: Duration = Duration::from_millis(100);

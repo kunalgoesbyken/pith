@@ -23,7 +23,9 @@ use crate::caret::{
 };
 use crate::language::input_language;
 use crate::nearby;
-use crate::util::{is_elevated, process_name, rect_of, window_pid, window_title, work_areas};
+use crate::system::util::{
+    is_elevated, process_name, rect_of, window_pid, window_title, work_areas,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Source {

@@ -10,8 +10,8 @@ use windows::core::PCWSTR;
 use super::layout::{Class, Face, PAGE_ID, Placed};
 use super::model::{Live, read, update};
 use super::{recorder, slider};
+use crate::system::util::wide;
 use crate::ui::{Parent, height, width};
-use crate::util::wide;
 
 const CHECKED: usize = 1;
 const UNCHECKED: usize = 0;

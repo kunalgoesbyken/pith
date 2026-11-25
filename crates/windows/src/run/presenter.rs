@@ -7,15 +7,15 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
 use super::{App, Options, Start};
-use crate::appearance::Appearance;
 use crate::foreground::Foreground;
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
-use crate::registry;
-use crate::rival;
 use crate::settings::{Overview, SettingsWindow, StatsView, StyleLine};
+use crate::system::appearance::Appearance;
+use crate::system::registry;
+use crate::system::rival;
+use crate::system::update::Update;
+use crate::system::util::local_time;
 use crate::tray::{Tray, TrayEvent, TrayFace};
-use crate::update::Update;
-use crate::util::local_time;
 
 const STATS_FILE: &str = "stats.toml";
 const STATS_FLUSH: Duration = Duration::from_secs(60);

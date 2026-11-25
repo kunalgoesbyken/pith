@@ -12,7 +12,7 @@ use super::shortcuts::describe;
 use super::{backend_name, switch};
 use crate::format::{duration, number};
 use crate::reach;
-use crate::rival::Rival;
+use crate::system::rival::Rival;
 use crate::ui::Tone;
 
 fn command(command: TrayCommand) -> Action {

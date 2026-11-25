@@ -21,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, IsIconic, IsWindow, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
 };
 
-use crate::rival::Rival;
+use crate::system::rival::Rival;
 
 pub use page::Page;
 

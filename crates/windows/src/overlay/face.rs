@@ -8,7 +8,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::core::PCWSTR;
 
 use super::screen::ScreenDc;
-use crate::util::wide;
+use crate::system::util::wide;
 
 pub const FALLBACK_FAMILY: &str = "Segoe UI";
 

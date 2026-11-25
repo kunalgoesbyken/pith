@@ -9,7 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{BOOL, PCWSTR};
 
-use crate::util::{process_name, wide, window_pid};
+use crate::system::util::{process_name, wide, window_pid};
 
 const NO_OTHER_APPS: &str = "No other apps are open";
 

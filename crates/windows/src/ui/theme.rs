@@ -14,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub use pith_core::Rgb;
 use pith_core::Scheme;
 
-use crate::registry::{apps_use_dark_theme, system_uses_dark_theme};
+use crate::system::registry::{apps_use_dark_theme, system_uses_dark_theme};
 
 const WHITE: Rgb = Rgb::WHITE;
 pub const INK: Rgb = Rgb(0x1C1814);

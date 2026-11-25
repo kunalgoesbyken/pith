@@ -1,7 +1,7 @@
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
 
-use crate::util::{process_name, window_pid};
+use crate::system::util::{process_name, window_pid};
 
 const SHELL_CLASSES: [&str; 5] = [
     "Shell_TrayWnd",

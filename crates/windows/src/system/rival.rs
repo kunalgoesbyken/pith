@@ -3,7 +3,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 
-use crate::registry;
+use crate::system::registry;
 
 pub const TYPING_SETTINGS_PAGE: &str = "ms-settings:typing";
 const INPUT_SETTINGS_KEY: &str = r"Software\Microsoft\Input\Settings";

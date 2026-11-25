@@ -4,7 +4,7 @@ use windows::Win32::Globalization::{
 };
 use windows::core::{PCWSTR, PWSTR};
 
-use crate::util::wide;
+use crate::system::util::wide;
 
 const SECONDS_PER_MINUTE: u64 = 60;
 const MINUTES_PER_HOUR: u64 = 60;
