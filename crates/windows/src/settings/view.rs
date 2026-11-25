@@ -7,7 +7,7 @@ use super::layout::{
     Voice, strip_rects, tile_rects,
 };
 use super::model::Model;
-use crate::format::number;
+use crate::text::format::number;
 use crate::ui::{
     self, Align, CARD_RADIUS, Canvas, Look, Rgb, Role, STROKE, Text, height, key_labels, keycaps,
     measure, paint_backdrop, paint_mark, rect, width,

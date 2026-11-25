@@ -20,7 +20,7 @@ use super::recorder::{Recorded, interpret};
 use super::slider::{self, TBM_GETPOS};
 use super::view::{draw_item, paint_page};
 use super::{Overview, UiEvent, emit, picker};
-use crate::messages::{WM_RECORDED, WM_RELAYOUT};
+use crate::control::messages::{WM_RECORDED, WM_RELAYOUT};
 use crate::ui::{self, BASE_DPI, Scale, Theme, height, rect, width};
 
 pub const WINDOW: WINDOW_STYLE =

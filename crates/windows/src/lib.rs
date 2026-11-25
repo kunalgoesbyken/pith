@@ -1,25 +1,21 @@
 #![cfg(windows)]
 
-pub mod brand;
-mod clipboard;
 mod control;
 mod field;
-mod format;
-mod keys;
-mod messages;
+mod input;
 mod onboarding;
 mod overlay;
-mod reach;
 mod run;
 mod settings;
 mod system;
+mod text;
 mod tray;
 mod ui;
 
-pub use clipboard::{Trigger, paste};
 pub use control::reveal_running_instance;
 pub use field::reader::{Reader, SnapshotCallback, Source};
-pub use keys::KeyAction;
+pub use input::clipboard::{Trigger, paste};
+pub use input::keys::KeyAction;
 pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
 };
@@ -35,5 +31,6 @@ pub use system::rival::Rival;
 pub use system::shortcut::ensure_start_menu_shortcut;
 pub use system::util::{hardware, open_path, single_instance};
 pub use system::vault::DpapiVault;
+pub use tray::brand;
 #[doc(hidden)]
 pub use ui::{Taskbar, force_dark_theme};

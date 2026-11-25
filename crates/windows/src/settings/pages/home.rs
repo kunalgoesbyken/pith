@@ -10,9 +10,9 @@ use super::super::page::Page;
 use super::super::{StatsView, UiEvent};
 use super::shortcuts::describe;
 use super::{backend_name, switch};
-use crate::format::{duration, number};
-use crate::reach;
 use crate::system::rival::Rival;
+use crate::text::format::{duration, number};
+use crate::text::reach;
 use crate::ui::Tone;
 
 fn command(command: TrayCommand) -> Action {

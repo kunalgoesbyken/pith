@@ -144,7 +144,7 @@ impl Drop for SettingsWindow {
 mod tests {
     use super::model::read;
     use super::*;
-    use crate::messages::WM_RECORDED;
+    use crate::control::messages::WM_RECORDED;
     use crate::ui::{self, Theme, force_dark_theme};
     use pith_core::{Chord, KeyAction, Length, PauseSpan, Suggestions};
     use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};

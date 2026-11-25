@@ -12,8 +12,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::action::Action;
 use super::model::read;
-use crate::keys::key_of;
-use crate::messages::WM_RECORDED;
+use crate::control::messages::WM_RECORDED;
+use crate::input::keys::key_of;
 
 const SUBCLASS_ID: usize = 0x5245_434F;
 const CONTROL: u32 = 1;
