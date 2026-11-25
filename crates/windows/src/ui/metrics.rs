@@ -2,8 +2,6 @@ use windows::Win32::Foundation::RECT;
 
 pub use pith_core::{BASE_DPI, Scale};
 
-pub const CARD_RADIUS: i32 = 8;
-pub const CONTROL_RADIUS: i32 = 4;
 pub const FOCUS_RING: i32 = 2;
 pub const FOCUS_GAP: i32 = 1;
 pub const STROKE: i32 = 1;
@@ -51,6 +49,10 @@ pub fn rect(left: i32, top: i32, width: i32, height: i32) -> RECT {
         right: left + width,
         bottom: top + height,
     }
+}
+
+pub fn square(center: (i32, i32), side: i32) -> RECT {
+    rect(center.0 - side / 2, center.1 - side / 2, side, side)
 }
 
 pub fn width(bounds: RECT) -> i32 {

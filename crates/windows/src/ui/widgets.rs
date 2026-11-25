@@ -7,7 +7,7 @@ use super::control::{
 };
 use super::keycap::{key_labels, keycaps, keycaps_width};
 use super::metrics::{
-    CONTROL_RADIUS, FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, rect, width,
+    FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, rect, square, width,
 };
 use super::theme::{Palette, Rgb};
 
@@ -21,13 +21,14 @@ const CHIP_PAD: i32 = 16;
 const TRACK_HEIGHT: i32 = 4;
 const THUMB: i32 = 20;
 const THUMB_CORE: i32 = 12;
+const THUMB_REST_SHRINK: i32 = 1;
 
 fn wash(palette: &Palette, state: Interaction, rest: Rgb) -> Rgb {
     pick(state, rest, palette.control_hover, palette.control_pressed)
 }
 
-fn focus_ring(canvas: &Canvas, scale: Scale, (bounds, radius): (RECT, i32), color: Rgb) {
-    canvas.stroke_round(bounds, radius, color, scale.px(FOCUS_RING));
+fn focus_ring(canvas: &Canvas, scale: Scale, bounds: RECT, color: Rgb) {
+    canvas.stroke(bounds, color, scale.px(FOCUS_RING));
 }
 
 pub fn draw_toggle(canvas: &Canvas, surface: &Surface, bounds: RECT, on: bool, state: Interaction) {
@@ -38,31 +39,26 @@ pub fn draw_toggle(canvas: &Canvas, surface: &Surface, bounds: RECT, on: bool, s
     let left = bounds.left + scale.px(FOCUS_MARGIN);
     let top = bounds.top + (height(bounds) - pill_height) / 2;
     let pill = rect(left, top, pill_width, pill_height);
-    let radius = pill_height / 2;
     let (knob_color, knob_x) = if on {
-        canvas.fill_round(pill, radius, accent_fill(palette, state));
+        canvas.fill(pill, accent_fill(palette, state));
         (
             palette.accent.on,
             pill.right - scale.px(KNOB_PAD + KNOB / 2),
         )
     } else {
         if state.hot || state.pressed {
-            canvas.fill_round(pill, radius, wash(palette, state, palette.card));
+            canvas.fill(pill, wash(palette, state, palette.card));
         }
-        canvas.stroke_round(pill, radius, palette.strong_stroke, scale.px(STROKE));
+        canvas.stroke(pill, palette.strong_stroke, scale.px(STROKE));
         (
             palette.text_secondary,
             pill.left + scale.px(KNOB_PAD + KNOB / 2),
         )
     };
-    canvas.disc(
-        (knob_x as f32, (top + pill_height / 2) as f32),
-        scale.size(KNOB as f32 / 2.0),
-        knob_color,
-    );
+    let knob = square((knob_x, top + pill_height / 2), scale.px(KNOB));
+    canvas.fill(knob, knob_color);
     if state.focused {
-        let margin = scale.px(FOCUS_MARGIN);
-        let halo = (inset(pill, -margin), radius + margin);
+        let halo = inset(pill, -scale.px(FOCUS_MARGIN));
         focus_ring(canvas, scale, halo, palette.accent.base);
     }
 }
@@ -76,8 +72,7 @@ pub fn draw_segment(
 ) {
     let scale = surface.scale;
     let palette = &surface.theme.palette;
-    let radius = scale.px(CONTROL_RADIUS);
-    let reach = 2 * radius;
+    let reach = scale.px(STROKE);
     let shape = RECT {
         left: bounds.left - if seam.joins_before() { reach } else { 0 },
         right: bounds.right + if seam.joins_after() { reach } else { 0 },
@@ -99,11 +94,11 @@ pub fn draw_segment(
         (fill, palette.control_stroke, text)
     };
     canvas.clipped(bounds, || {
-        canvas.fill_round(shape, radius, fill);
-        canvas.stroke_round(shape, radius, edge, scale.px(STROKE));
+        canvas.fill(shape, fill);
+        canvas.stroke(shape, edge, scale.px(STROKE));
         if seam.joins_before() && !selected {
             let divider = rect(bounds.left, bounds.top, scale.px(STROKE), height(bounds));
-            canvas.fill_round(divider, 0, palette.control_stroke);
+            canvas.fill(divider, palette.control_stroke);
         }
     });
     let style = Text::new(Role::Body, text).aligned(Align::Center);
@@ -115,7 +110,7 @@ pub fn draw_segment(
             palette.accent.base
         };
         let inner = inset(bounds, scale.px(FOCUS_RING));
-        focus_ring(canvas, scale, (inner, radius), color);
+        focus_ring(canvas, scale, inner, color);
     }
 }
 
@@ -128,19 +123,18 @@ pub fn draw_nav(
 ) {
     let scale = surface.scale;
     let palette = &surface.theme.palette;
-    let radius = scale.px(CONTROL_RADIUS);
     if selected {
-        canvas.card(bounds, radius, palette.card, palette.card_stroke);
+        canvas.card(bounds, palette.card, palette.card_stroke);
         let bar = rect(
             bounds.left + scale.px(STROKE),
             bounds.top + (height(bounds) - scale.px(NAV_BAR_HEIGHT)) / 2,
             scale.px(NAV_BAR_WIDTH),
             scale.px(NAV_BAR_HEIGHT),
         );
-        canvas.fill_round(bar, scale.px(NAV_BAR_WIDTH) / 2, palette.accent.base);
+        canvas.fill(bar, palette.accent.base);
     } else if state.hot || state.pressed {
         let wash = pith_core::blend(palette.card, surface.backdrop, NAV_HOVER_WASH);
-        canvas.fill_round(bounds, radius, wash);
+        canvas.fill(bounds, wash);
     }
     let role = if selected {
         Role::BodyStrong
@@ -154,7 +148,7 @@ pub fn draw_nav(
     };
     canvas.text(text_area, label, Text::new(role, palette.text));
     if state.focused {
-        focus_ring(canvas, scale, (bounds, radius), palette.accent.base);
+        focus_ring(canvas, scale, bounds, palette.accent.base);
     }
 }
 
@@ -177,14 +171,12 @@ pub fn draw_chip(
 ) {
     let scale = surface.scale;
     let palette = &surface.theme.palette;
-    let radius = scale.px(CONTROL_RADIUS);
-    let margin = scale.px(FOCUS_MARGIN);
-    let shape = inset(bounds, margin);
+    let shape = inset(bounds, scale.px(FOCUS_MARGIN));
     let rest = wash(palette, state, palette.card);
     match chip {
         ChipState::Keys => {
             if state.hot || state.pressed {
-                canvas.fill_round(inset(shape, -scale.px(FOCUS_GAP)), radius, rest);
+                canvas.fill(inset(shape, -scale.px(FOCUS_GAP)), rest);
             }
             let origin = (shape.left, shape.top);
             keycaps(canvas, (scale, palette), origin, key_labels(label));
@@ -200,19 +192,14 @@ pub fn draw_chip(
                     palette.text_secondary,
                 )
             };
-            canvas.fill_round(shape, radius, rest);
-            canvas.stroke_round(shape, radius, edge, thickness);
+            canvas.fill(shape, rest);
+            canvas.stroke(shape, edge, thickness);
             let style = Text::new(Role::Body, color).aligned(Align::Center);
             canvas.text(shape, label, style);
         }
     }
     if state.focused && chip != ChipState::Recording {
-        focus_ring(
-            canvas,
-            scale,
-            (bounds, radius + margin),
-            palette.accent.base,
-        );
+        focus_ring(canvas, scale, bounds, palette.accent.base);
     }
 }
 
@@ -248,35 +235,36 @@ pub fn draw_slider(
         top: middle - track_height / 2,
         bottom: middle - track_height / 2 + track_height,
     };
-    canvas.fill_round(track, track_height / 2, palette.track);
+    canvas.fill(track, palette.track);
     let center = (
-        track.left as f32 + fraction * width(track) as f32,
-        middle as f32,
+        track.left + (fraction * width(track) as f32).round() as i32,
+        middle,
     );
     let filled = RECT {
-        right: center.0.round() as i32,
+        right: center.0,
         ..track
     };
-    canvas.fill_round(filled, track_height / 2, palette.accent.base);
-    let outer = thumb_radius(scale) as f32;
-    canvas.disc(center, outer, palette.control_stroke);
-    canvas.disc(center, outer - scale.size(STROKE as f32), palette.card);
-    let core = scale.size(THUMB_CORE as f32 / 2.0);
+    canvas.fill(filled, palette.accent.base);
+    let outer = thumb_radius(scale);
+    canvas.fill(square(center, 2 * outer), palette.control_stroke);
+    canvas.fill(square(center, 2 * (outer - scale.px(STROKE))), palette.card);
+    let core = scale.px(THUMB_CORE) / 2;
     let shrink = if state.hot || state.pressed {
-        0.0
+        0
     } else {
-        scale.size(1.0)
+        scale.px(THUMB_REST_SHRINK)
     };
-    canvas.disc(center, core - shrink, accent_fill(palette, state));
+    canvas.fill(
+        square(center, 2 * (core - shrink)),
+        accent_fill(palette, state),
+    );
     if state.focused {
-        let ring = scale.px(FOCUS_RING);
-        let extent = (outer.ceil() as i32) + scale.px(FOCUS_GAP) + ring;
-        let halo = rect(
-            center.0.round() as i32 - extent,
-            center.1.round() as i32 - extent,
-            2 * extent,
-            2 * extent,
+        let extent = outer + scale.px(FOCUS_GAP) + scale.px(FOCUS_RING);
+        focus_ring(
+            canvas,
+            scale,
+            square(center, 2 * extent),
+            palette.accent.base,
         );
-        focus_ring(canvas, scale, (halo, extent), palette.accent.base);
     }
 }

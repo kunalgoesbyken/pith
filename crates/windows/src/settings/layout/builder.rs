@@ -1,16 +1,16 @@
 use windows::Win32::Foundation::RECT;
 
 use super::grid::{
-    BADGE_HEIGHT, BADGE_PAD, CARET_WIDTH, CONTROL_GAP, ITEM_GAP, MIN_TEXT_WIDTH, ROW_MIN,
-    ROW_MIN_CAPTION, ROW_PAD_X, ROW_PAD_Y, SAMPLE_HEIGHT, SECTION_BOTTOM, SECTION_TOP,
+    BADGE_HEIGHT, BADGE_PAD, CARET_WIDTH, CONTROL_GAP, ITEM_GAP, MIN_TEXT_WIDTH, PANEL_INSET,
+    ROW_MIN, ROW_MIN_CAPTION, ROW_PAD_X, ROW_PAD_Y, SAMPLE_HEIGHT, SECTION_BOTTOM, SECTION_TOP,
     STRIP_HEIGHT, TILE_GAP, TILE_HEIGHT, VALUE_WIDTH,
 };
 use super::item::{Face, Item};
 use super::row::{KeyGroup, PlacedRow, PlacedSample, Row, Sample, Voice};
 use super::{Block, Placed};
 use crate::ui::{
-    BUTTON_HEIGHT, CARD_RADIUS, FOCUS_MARGIN, KEYCAP_HEIGHT, Rgb, Role, SLIDER_WIDTH, STROKE,
-    Scale, TOGGLE_HEIGHT, Text, button_width, chip_width, height, inset, key_labels, keycaps_width,
+    BUTTON_HEIGHT, FOCUS_MARGIN, KEYCAP_HEIGHT, Rgb, Role, SLIDER_WIDTH, STROKE, Scale,
+    TOGGLE_HEIGHT, Text, button_width, chip_width, height, inset, key_labels, keycaps_width,
     measure, rect, segment_width, toggle_width, width,
 };
 
@@ -377,7 +377,7 @@ impl Sheet {
         let gap = self.px(TILE_GAP);
         let count = tiles.len().max(1) as i32;
         let each = (self.span - gap * (count - 1)) / count;
-        let corner = self.px(CARD_RADIUS) / 2;
+        let pad = self.px(PANEL_INSET);
         let tile_height = self.px(TILE_HEIGHT);
         for (index, tile) in tiles.into_iter().enumerate() {
             let bounds = rect(
@@ -387,7 +387,7 @@ impl Sheet {
                 tile_height,
             );
             self.blocks.push(Block::Panel(bounds));
-            self.place(tile, inset(bounds, corner));
+            self.place(tile, inset(bounds, pad));
         }
         self.y += tile_height;
     }
@@ -395,7 +395,7 @@ impl Sheet {
     pub fn strip(&mut self, strip: Item) {
         let bounds = rect(self.left, self.y, self.span, self.px(STRIP_HEIGHT));
         self.blocks.push(Block::Panel(bounds));
-        self.place(strip, inset(bounds, self.px(CARD_RADIUS) / 2));
+        self.place(strip, inset(bounds, self.px(PANEL_INSET)));
         self.y = bounds.bottom;
     }
 }

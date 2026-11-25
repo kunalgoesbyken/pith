@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -12,6 +13,7 @@ pub(crate) const OUT_DIR: &str = "target/ui-shots";
 const PARKED_X: i32 = -12000;
 const PARKED_Y: i32 = 100;
 const PRINT_RENDER_FULL_CONTENT: u32 = 2;
+const FRAME_BORDER: i32 = 1;
 
 pub(crate) fn pump() {
     let mut message = MSG::default();
@@ -32,6 +34,33 @@ fn composite(bgra: &mut [u8], fallback: [u8; 3]) {
         }
         pixel[3] = 255;
     }
+}
+
+fn visible_bounds(hwnd: HWND) -> RECT {
+    let mut bounds = RECT::default();
+    let read = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            (&mut bounds as *mut RECT).cast(),
+            size_of::<RECT>() as u32,
+        )
+    };
+    if read.is_ok() {
+        bounds
+    } else {
+        window_rect(hwnd)
+    }
+}
+
+fn crop(bgra: &[u8], width: i32, inner: RECT) -> Vec<u8> {
+    let stride = width as usize * 4;
+    let (left, right) = (inner.left as usize * 4, inner.right as usize * 4);
+    bgra.chunks_exact(stride)
+        .skip(inner.top as usize)
+        .take((inner.bottom - inner.top) as usize)
+        .flat_map(|row| row[left..right].iter().copied())
+        .collect()
 }
 
 pub(crate) fn save(name: &str, width: i32, height: i32, bgra: &[u8]) {
@@ -55,7 +84,20 @@ pub(crate) fn capture(hwnd: HWND, name: &str, fallback: [u8; 3]) {
         let _ = PrintWindow(hwnd, dc, PRINT_WINDOW_FLAGS(PRINT_RENDER_FULL_CONTENT));
         let pixels = std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize);
         composite(pixels, fallback);
-        save(name, width, height, pixels);
+        let frame = visible_bounds(hwnd);
+        let inner = RECT {
+            left: frame.left - rect.left + FRAME_BORDER,
+            top: frame.top - rect.top + FRAME_BORDER,
+            right: frame.right - rect.left - FRAME_BORDER,
+            bottom: frame.bottom - rect.top - FRAME_BORDER,
+        };
+        let visible = crop(pixels, width, inner);
+        save(
+            name,
+            inner.right - inner.left,
+            inner.bottom - inner.top,
+            &visible,
+        );
         SelectObject(dc, previous);
         let _ = DeleteObject(bitmap.into());
         let _ = DeleteDC(dc);

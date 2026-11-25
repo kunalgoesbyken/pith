@@ -5,11 +5,10 @@ use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_RENDER_TARGET_PROPERTIES,
-    D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT,
-    D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, D2D1CreateFactory, ID2D1DCRenderTarget, ID2D1Factory,
-    ID2D1SolidColorBrush,
+    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1_FEATURE_LEVEL_DEFAULT, D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT,
+    D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+    D2D1CreateFactory, ID2D1DCRenderTarget, ID2D1Factory, ID2D1SolidColorBrush,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
@@ -170,8 +169,8 @@ fn point(x: f32, y: f32) -> Vector2 {
 }
 
 impl Canvas {
-    pub fn clear(&self, color: Option<Rgb>) {
-        let color = color.map_or(TRANSPARENT, super::theme::d2d);
+    pub fn clear(&self, color: Rgb) {
+        let color = super::theme::d2d(color);
         unsafe { self.resources.target.Clear(Some(&color)) };
     }
 
@@ -180,16 +179,11 @@ impl Canvas {
         &self.brush
     }
 
-    pub fn fill_round(&self, bounds: RECT, radius: i32, color: Rgb) {
-        let shape = D2D1_ROUNDED_RECT {
-            rect: float_rect(bounds),
-            radiusX: radius as f32,
-            radiusY: radius as f32,
-        };
+    pub fn fill(&self, bounds: RECT, color: Rgb) {
         unsafe {
             self.resources
                 .target
-                .FillRoundedRectangle(&shape, self.paint_with(color));
+                .FillRectangle(&float_rect(bounds), self.paint_with(color));
         }
     }
 
@@ -211,21 +205,16 @@ impl Canvas {
         }
     }
 
-    pub fn stroke_round(&self, bounds: RECT, radius: i32, color: Rgb, thickness: i32) {
+    pub fn stroke(&self, bounds: RECT, color: Rgb, thickness: i32) {
         let half = thickness as f32 / 2.0;
         let mut rect = float_rect(bounds);
         rect.left += half;
         rect.top += half;
         rect.right -= half;
         rect.bottom -= half;
-        let shape = D2D1_ROUNDED_RECT {
-            rect,
-            radiusX: radius as f32 - half,
-            radiusY: radius as f32 - half,
-        };
         unsafe {
-            self.resources.target.DrawRoundedRectangle(
-                &shape,
+            self.resources.target.DrawRectangle(
+                &rect,
                 self.paint_with(color),
                 thickness as f32,
                 None,
@@ -233,22 +222,9 @@ impl Canvas {
         }
     }
 
-    pub fn card(&self, bounds: RECT, radius: i32, fill: Rgb, stroke: Rgb) {
-        self.fill_round(bounds, radius, fill);
-        self.stroke_round(bounds, radius, stroke, STROKE);
-    }
-
-    pub fn disc(&self, center: (f32, f32), radius: f32, color: Rgb) {
-        let shape = D2D1_ELLIPSE {
-            point: point(center.0, center.1),
-            radiusX: radius,
-            radiusY: radius,
-        };
-        unsafe {
-            self.resources
-                .target
-                .FillEllipse(&shape, self.paint_with(color));
-        }
+    pub fn card(&self, bounds: RECT, fill: Rgb, stroke: Rgb) {
+        self.fill(bounds, fill);
+        self.stroke(bounds, stroke, STROKE);
     }
 
     pub fn line(&self, from: (f32, f32), to: (f32, f32), thickness: f32, color: Rgb) {

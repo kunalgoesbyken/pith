@@ -6,8 +6,8 @@ use super::model::Model;
 use super::step::Glyph;
 use super::{DONE_ID, HINT_ID, KEYS_ID, PROGRESS_ID, STATUS_ID};
 use crate::ui::{
-    self, Align, CARD_RADIUS, Canvas, KEYCAP_HEIGHT, Look, Role, STROKE, Text, Tone, height,
-    keycaps, paint_backdrop, paint_mark, rect, width,
+    self, Align, Canvas, KEYCAP_HEIGHT, Look, Role, STROKE, Text, Tone, height, keycaps,
+    paint_backdrop, paint_mark, rect, width,
 };
 
 const KEY_CAPTION_GAP: i32 = 8;
@@ -16,19 +16,19 @@ const MARK: f32 = 0.22;
 
 fn glyph(canvas: &Canvas, model: &Model, bounds: RECT) {
     let palette = &model.theme.palette;
-    let radius = width(bounds) as f32 / 2.0;
+    let half = width(bounds) as f32 / 2.0;
     let center = (
-        bounds.left as f32 + radius,
+        bounds.left as f32 + half,
         bounds.top as f32 + height(bounds) as f32 / 2.0,
     );
     match model.step.glyph() {
         Glyph::Busy => {
             let ring = model.scale.px(RING);
-            canvas.stroke_round(bounds, width(bounds) / 2, palette.accent.base, ring);
+            canvas.stroke(bounds, palette.accent.base, ring);
         }
         Glyph::Ready => {
-            canvas.disc(center, radius, palette.success);
-            let unit = radius * 2.0 * MARK;
+            canvas.fill(bounds, palette.success);
+            let unit = half * 2.0 * MARK;
             let tick = [
                 (center.0 - unit, center.1),
                 (center.0 - unit * 0.3, center.1 + unit * 0.7),
@@ -39,7 +39,7 @@ fn glyph(canvas: &Canvas, model: &Model, bounds: RECT) {
             canvas.line(tick[1], tick[2], thickness, palette.card);
         }
         Glyph::Failed => {
-            canvas.disc(center, radius, palette.danger);
+            canvas.fill(bounds, palette.danger);
             let mark = Text::new(Role::BodyStrong, palette.card).aligned(Align::Center);
             canvas.text(bounds, "!", mark);
         }
@@ -49,13 +49,12 @@ fn glyph(canvas: &Canvas, model: &Model, bounds: RECT) {
 pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     let palette = &model.theme.palette;
     let scale = model.scale;
-    let radius = scale.px(CARD_RADIUS);
-    canvas.clear(model.page());
+    canvas.clear(palette.page);
     paint_mark(
         canvas,
         (layout.mark.left, layout.mark.top),
         height(layout.mark),
-        palette.accent.base,
+        palette.mark_caret,
         palette.mark_ghost,
     );
     canvas.text(layout.title, TITLE, Text::new(Role::Title, palette.text));
@@ -64,35 +63,25 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
         &model.promise,
         Text::new(Role::Body, palette.text_secondary).wrapping(),
     );
-    canvas.card(
-        layout.status_card,
-        radius,
-        palette.card,
-        palette.card_stroke,
-    );
+    canvas.card(layout.status_card, palette.card, palette.card_stroke);
     glyph(canvas, model, layout.glyph);
-    canvas.card(layout.keys_card, radius, palette.card, palette.card_stroke);
+    canvas.card(layout.keys_card, palette.card, palette.card_stroke);
     canvas.text(
         layout.note,
         KEYS_NOTE,
         Text::new(Role::Caption, palette.text_secondary),
     );
     if model.step.practice_enabled() {
-        canvas.card(
-            layout.practice_card,
-            radius,
-            palette.card,
-            palette.card_stroke,
-        );
+        canvas.card(layout.practice_card, palette.card, palette.card_stroke);
     }
-    canvas.fill_round(layout.footer, 0, palette.page);
+    canvas.fill(layout.footer, palette.page);
     let divider = rect(
         layout.footer.left,
         layout.footer.top,
         width(layout.footer),
         scale.px(STROKE),
     );
-    canvas.fill_round(divider, 0, palette.card_stroke);
+    canvas.fill(divider, palette.card_stroke);
 }
 
 fn paint_keys(canvas: &Canvas, model: &Model, bounds: RECT) {
@@ -121,15 +110,14 @@ fn paint_keys(canvas: &Canvas, model: &Model, bounds: RECT) {
 
 fn paint_progress(canvas: &Canvas, model: &Model, bounds: RECT) {
     let palette = &model.theme.palette;
-    let radius = height(bounds) / 2;
-    canvas.fill_round(bounds, radius, palette.track);
+    canvas.fill(bounds, palette.track);
     let permille = model.step.permille().unwrap_or(0) as i32;
     let filled = RECT {
         right: bounds.left + width(bounds) * permille / 1000,
         ..bounds
     };
     if width(filled) > 0 {
-        canvas.fill_round(filled, radius, palette.accent.base);
+        canvas.fill(filled, palette.accent.base);
     }
 }
 

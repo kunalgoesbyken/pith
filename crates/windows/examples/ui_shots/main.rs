@@ -1,3 +1,4 @@
+use pith_core::{Rgb, Scheme};
 use pith_windows::{OnboardingEvent, force_dark_theme};
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -22,10 +23,14 @@ const DPIS: [u32; 3] = [96, 144, 192];
 const APP_BACKDROPS: [[u8; 3]; 2] = [[0xFF; 3], [0x1E; 3]];
 const OVERLAY_DPIS: [u32; 3] = [96, 144, 192];
 
-const THEMES: [(&str, bool, [u8; 3], [u8; 3]); 2] = [
-    ("light", false, [0xF3, 0xF3, 0xF3], [0xFF, 0xFF, 0xFF]),
-    ("dark", true, [0x20, 0x20, 0x20], [0x2B, 0x2B, 0x2B]),
+const THEMES: [(&str, bool, Scheme); 2] = [
+    ("light", false, Scheme::LIGHT),
+    ("dark", true, Scheme::DARK),
 ];
+
+fn bytes(color: Rgb) -> [u8; 3] {
+    color.channels().map(|channel| channel as u8)
+}
 
 fn main() {
     unsafe {
@@ -37,7 +42,8 @@ fn main() {
     let failed = [OnboardingEvent::Failed(
         "the model could not be downloaded. Check your connection and start Pith again.".into(),
     )];
-    for (theme, dark, fallback, card) in THEMES {
+    for (theme, dark, scheme) in THEMES {
+        let (fallback, card) = (bytes(scheme.page), bytes(scheme.card));
         force_dark_theme(Some(dark));
         for dpi in DPIS {
             pages(&format!("{theme}-{dpi}"), dpi, fallback);

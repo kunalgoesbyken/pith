@@ -221,7 +221,6 @@ mod tests {
         for dpi in [96, 120, 144, 192] {
             let model = Model {
                 theme: Theme::detect(),
-                mica: false,
                 scale: Scale(dpi),
                 step: Step::Failed("a long failure message ".repeat(8)),
                 promise: reach::promise(&Reach::ThisPc),

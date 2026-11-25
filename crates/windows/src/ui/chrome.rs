@@ -1,30 +1,15 @@
-use windows::Wdk::System::SystemServices::RtlGetVersion;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Dwm::{
-    DWM_SYSTEMBACKDROP_TYPE, DWM_WINDOW_CORNER_PREFERENCE, DWMSBT_MAINWINDOW, DWMSBT_NONE,
-    DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE,
-    DWMWCP_ROUND, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
+    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_CAPTION_COLOR, DWMWA_COLOR_DEFAULT, DWMWA_TEXT_COLOR,
+    DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DwmSetWindowAttribute,
 };
-use windows::Win32::System::SystemInformation::OSVERSIONINFOW;
-use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::AdjustWindowRectExForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{WINDOW_EX_STYLE, WINDOW_STYLE};
 use windows::core::Result;
 
 use super::metrics::{height, width};
-use super::theme::Theme;
-
-const MICA_BUILD: u32 = 22621;
-const WHOLE_WINDOW: i32 = -1;
-
-fn build_number() -> u32 {
-    let mut info = OSVERSIONINFOW {
-        dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
-        ..Default::default()
-    };
-    let _ = unsafe { RtlGetVersion(&mut info) };
-    info.dwBuildNumber
-}
+use super::theme::{Theme, colorref};
 
 fn set_attribute<T>(
     hwnd: HWND,
@@ -41,19 +26,7 @@ fn set_attribute<T>(
     }
 }
 
-fn extend_frame(hwnd: HWND, by: i32) {
-    let margins = MARGINS {
-        cxLeftWidth: by,
-        cxRightWidth: by,
-        cyTopHeight: by,
-        cyBottomHeight: by,
-    };
-    unsafe {
-        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
-    }
-}
-
-pub fn apply(hwnd: HWND, theme: &Theme) -> bool {
+pub fn apply(hwnd: HWND, theme: &Theme) {
     let dark = i32::from(theme.is_dark());
     let _ = set_attribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark);
     let _ = set_attribute::<DWM_WINDOW_CORNER_PREFERENCE>(
@@ -61,21 +34,16 @@ pub fn apply(hwnd: HWND, theme: &Theme) -> bool {
         DWMWA_WINDOW_CORNER_PREFERENCE,
         &DWMWCP_ROUND,
     );
-    let mica = !theme.is_contrast()
-        && build_number() >= MICA_BUILD
-        && set_attribute::<DWM_SYSTEMBACKDROP_TYPE>(
-            hwnd,
-            DWMWA_SYSTEMBACKDROP_TYPE,
-            &DWMSBT_MAINWINDOW,
+    let (caption, text) = if theme.is_contrast() {
+        (DWMWA_COLOR_DEFAULT, DWMWA_COLOR_DEFAULT)
+    } else {
+        (
+            colorref(theme.palette.page).0,
+            colorref(theme.palette.text).0,
         )
-        .is_ok();
-    if mica {
-        extend_frame(hwnd, WHOLE_WINDOW);
-        return true;
-    }
-    let _ = set_attribute::<DWM_SYSTEMBACKDROP_TYPE>(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &DWMSBT_NONE);
-    extend_frame(hwnd, 0);
-    false
+    };
+    let _ = set_attribute(hwnd, DWMWA_CAPTION_COLOR, &caption);
+    let _ = set_attribute(hwnd, DWMWA_TEXT_COLOR, &text);
 }
 
 pub fn frame_size(client: RECT, style: WINDOW_STYLE, dpi: u32) -> (i32, i32) {

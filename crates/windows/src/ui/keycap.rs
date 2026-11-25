@@ -1,5 +1,5 @@
 use super::canvas::{Align, Canvas, Text, measure};
-use super::metrics::{CONTROL_RADIUS, Role, Scale, rect};
+use super::metrics::{Role, Scale, rect};
 use super::theme::{Palette, Rgb};
 
 pub const KEYCAP_HEIGHT: i32 = 28;
@@ -32,12 +32,7 @@ pub fn keycap(
     let style = Text::new(Role::Body, palette.text).aligned(Align::Center);
     let width = cap_width(scale, label);
     let bounds = rect(origin.0, origin.1, width, scale.px(KEYCAP_HEIGHT));
-    canvas.card(
-        bounds,
-        scale.px(CONTROL_RADIUS),
-        palette.control,
-        palette.control_stroke,
-    );
+    canvas.card(bounds, palette.control, palette.control_stroke);
     canvas.text(bounds, label, style);
     width
 }
