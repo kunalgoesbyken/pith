@@ -22,21 +22,21 @@ pub struct Scheme {
 
 impl Scheme {
     pub const LIGHT: Self = Self {
-        page: Rgb(0xF3F3F3),
-        card: Rgb::WHITE,
-        stroke: Rgb(0xE5E5E5),
+        page: Rgb(0xF9F3E8),
+        card: Rgb(0xF1E8DB),
+        stroke: Rgb(0xC5BCB1),
         accent: Rgb(0xCC4C08),
-        text: Rgb(0x1A1A1A),
-        text_secondary: Rgb(0x5D5D5D),
+        text: Rgb(0x130E0A),
+        text_secondary: Rgb(0x665F58),
     };
 
     pub const DARK: Self = Self {
-        page: Rgb(0x202020),
-        card: Rgb(0x2B2B2B),
-        stroke: Rgb(0x3A3A3A),
+        page: Rgb(0x130E0A),
+        card: Rgb(0x1D1713),
+        stroke: Rgb(0x423C37),
         accent: Rgb(0xF5A04A),
-        text: Rgb::WHITE,
-        text_secondary: Rgb(0xC5C5C5),
+        text: Rgb(0xF9F3E8),
+        text_secondary: Rgb(0xC3BDB4),
     };
 
     pub fn over(background: Rgb) -> Self {
