@@ -7,7 +7,7 @@ PublisherUrl: https://github.com/kunalgoesbyken
 PublisherSupportUrl: https://github.com/kunalgoesbyken/pith/issues
 PackageName: Pith
 PackageUrl: https://github.com/kunalgoesbyken/pith
-License: MIT
+License: GPL-3.0-only
 LicenseUrl: https://github.com/kunalgoesbyken/pith/blob/master/LICENSE
 ShortDescription: Local autocomplete for every text box on Windows.
 Description: Pith shows the rest of your sentence in grey at the caret while you type, using a small language model that runs on your CPU. No account, no telemetry, and no network use after the one-time model download.
