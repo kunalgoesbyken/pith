@@ -1,0 +1,86 @@
+---
+const steps = [
+  { title: 'Pause for a beat.', body: 'Pith reads the text before your caret. Nothing else.' },
+  { title: 'The grey appears.', body: 'At the caret, in the field’s own font, or in a small pill.', pill: true },
+  { title: 'Tab keeps it.', body: 'Ctrl+→ keeps one word. Esc hides it.' },
+];
+---
+
+<section class="how" id="how">
+  <div class="container how__grid">
+    <div class="how__stage-wrap">
+      <figure class="how__stage" data-stage data-step="2" aria-hidden="true">
+        <p class="how__app">Email reply</p>
+        <p class="how__text">Hi Sam, could you send me<span class="how__caret"></span><span class="how__ghost"> the final numbers before Thursday?</span></p>
+        <p class="how__keys"><kbd class="key how__tab">Tab</kbd><kbd class="key">Ctrl</kbd><kbd class="key">→</kbd><kbd class="key">Esc</kbd></p>
+      </figure>
+    </div>
+    <div class="how__steps">
+      <h2 class="how__title" data-reveal>Pause. Read the grey. Keep&nbsp;it.</h2>
+      <ol class="how__list">
+        {steps.map((step, i) => (
+          <li class="how__step" data-step-item={i + 1}>
+            <span class="how__num">{i + 1}</span>
+            <h3>{step.title}</h3>
+            <p>{step.body}</p>
+            {step.pill && <img class="how__pill" src="/img/pill.webp" width="508" height="49" alt="Pith's suggestion pill below a field, with a Tab hint" loading="lazy" />}
+          </li>
+        ))}
+      </ol>
+    </div>
+  </div>
+</section>
+
+<script>
+  const stage = document.querySelector<HTMLElement>('[data-stage]');
+  const items = [...document.querySelectorAll<HTMLElement>('[data-step-item]')];
+  if (stage && items.length) {
+    const pick = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const step = (entry.target as HTMLElement).dataset.stepItem!;
+          stage.dataset.step = step;
+          items.forEach((item) => item.classList.toggle('is-active', item.dataset.stepItem === step));
+        }
+      },
+      { rootMargin: '-45% 0px -45% 0px' },
+    );
+    items.forEach((item) => pick.observe(item));
+  }
+</script>
+
+<style>
+  .how { position: relative; z-index: var(--z-raised); margin-top: calc(var(--radius-band) * -1); padding-block: var(--section-gap); border-radius: var(--radius-band) var(--radius-band) 0 0; background: var(--color-paper); }
+  .how__grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: var(--space-3xl); }
+  .how__stage-wrap { position: relative; }
+  .how__stage { position: sticky; top: calc(50vh - 9rem); margin: 0; padding: var(--space-xl); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); box-shadow: var(--shadow-card); }
+  .how__app { color: var(--color-muted); font-size: var(--text-sm); font-weight: 500; }
+  .how__text { margin-block: var(--space-md) var(--space-xl); font-size: var(--text-xl); line-height: 1.5; }
+  .how__caret { display: inline-block; width: 2px; height: 1.15em; margin-inline: 1px; vertical-align: -0.18em; background: var(--color-caret); }
+  .how__ghost { color: var(--color-ghost); transition: color var(--dur-long) var(--ease-out), opacity var(--dur-long) var(--ease-out); }
+  .how__keys { display: flex; gap: var(--space-xs); }
+  [data-step="1"] .how__ghost { opacity: 0; }
+  [data-step="3"] .how__ghost { color: var(--color-ink); }
+  [data-step="3"] .how__tab { transform: translateY(2px); border-bottom-width: 1px; border-color: var(--color-caret); background: var(--color-paper-3); }
+  .how__title { margin-bottom: var(--space-2xl); font-size: var(--text-section); }
+  .how__list { display: grid; gap: var(--space-3xl); margin: 0; padding: 0 0 20vh; list-style: none; }
+  .how__step { display: grid; gap: var(--space-sm); padding-left: var(--space-lg); border-left: 2px solid var(--color-rule); transition: border-color var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out); }
+  .how__step h3 { font-size: var(--text-title); }
+  .how__step p { color: var(--color-ink-2); }
+  .how__num { color: var(--color-muted); font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .how__pill { width: min(100%, 360px); margin-top: var(--space-xs); border-radius: 10px; }
+  .js .how__step { opacity: 0.45; }
+  .js .how__step.is-active { opacity: 1; border-color: var(--color-caret); }
+  @media (prefers-reduced-motion: no-preference) {
+    [data-step="1"] .how__caret { animation: blink 1.06s steps(1) infinite; }
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (max-width: 60rem) {
+    .how__grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+    .how__stage-wrap { order: 1; }
+    .how__stage { position: static; }
+    .how__list { padding-bottom: 0; gap: var(--space-xl); }
+    .js .how__step { opacity: 1; }
+  }
+</style>

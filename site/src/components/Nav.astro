@@ -1,0 +1,40 @@
+---
+import Wordmark from './Wordmark.astro';
+import { links, nav } from '../data/site';
+---
+
+<header class="nav" data-nav>
+  <div class="nav__pill">
+    <a class="nav__home" href="#top" aria-label="Pith, back to the top"><Wordmark /></a>
+    <nav aria-label="Page">
+      <ul class="nav__links">
+        {nav.map((item) => <li><a href={item.href}>{item.label}</a></li>)}
+      </ul>
+    </nav>
+    <a class="btn nav__cta" href={links.download}>Download</a>
+  </div>
+</header>
+
+<script>
+  const nav = document.querySelector('[data-nav]');
+  if (nav) {
+    const update = () => nav.classList.toggle('is-scrolled', window.scrollY > 8);
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+  }
+</script>
+
+<style>
+  .nav { position: fixed; inset: var(--space-sm) 0 auto; z-index: var(--z-sticky-nav); display: flex; justify-content: center; padding-inline: var(--space-sm); pointer-events: none; }
+  .nav__pill { pointer-events: auto; display: flex; align-items: center; gap: var(--space-lg); width: min(100%, 960px); padding: 8px 8px 8px 24px; border: 1px solid var(--color-rule); border-radius: var(--radius-pill); background: color-mix(in oklab, var(--color-paper) 88%, transparent); backdrop-filter: blur(14px); transition: box-shadow var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out); }
+  .nav.is-scrolled .nav__pill { border-color: var(--color-rule-2); box-shadow: 0 12px 32px -18px var(--color-shadow); transform: translateY(-4px); }
+  .nav__home { display: block; padding: 4px 0; border-radius: var(--radius-key); text-decoration: none; }
+  .nav__home:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+  nav { margin-left: auto; }
+  .nav__links { display: flex; gap: var(--space-2xs); margin: 0; padding: 0; list-style: none; }
+  .nav__links a { display: block; padding: 8px 16px; border-radius: var(--radius-pill); color: var(--color-ink-2); font-size: var(--text-sm); font-weight: 500; text-decoration: none; transition: background-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
+  .nav__links a:hover { background: var(--color-paper-2); color: var(--color-ink); }
+  .nav__links a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 0; }
+  .nav__cta { min-height: 44px; }
+  @media (max-width: 52rem) { .nav__links { display: none; } }
+</style>

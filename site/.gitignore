@@ -1,1 +1,5 @@
 .vercel
+.hallmark
+node_modules
+dist
+.astro

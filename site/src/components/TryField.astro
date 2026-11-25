@@ -1,0 +1,197 @@
+---
+import { demo } from '../data/site';
+
+const first = demo[0];
+---
+
+<figure class="try" data-try data-samples={JSON.stringify(demo)}>
+  <p class="try__label">Try it here.</p>
+  <div class="try__field" tabindex="0" role="textbox" aria-multiline="true" aria-readonly="true" aria-describedby="try-keys" aria-label="Practice sentence with a suggestion">
+    <span data-typed>{first.typed}</span><span class="try__caret" aria-hidden="true"></span><span class="try__ghost" data-ghost>{first.ghost}</span>
+  </div>
+  <figcaption class="try__keys" id="try-keys">
+    <button class="try__act" type="button" data-act="all"><kbd class="key" data-key="all">Tab</kbd><span>keeps it</span></button>
+    <button class="try__act" type="button" data-act="word"><kbd class="key" data-key="word">Ctrl</kbd><kbd class="key" data-key="word">→</kbd><span>keeps one word</span></button>
+    <button class="try__act" type="button" data-act="hide"><kbd class="key" data-key="hide">Esc</kbd><span>hides it</span></button>
+  </figcaption>
+</figure>
+
+<script>
+  type Sample = { typed: string; ghost: string; lang?: string };
+
+  const root = document.querySelector<HTMLElement>('[data-try]');
+  if (root) {
+    const samples: Sample[] = JSON.parse(root.dataset.samples ?? '[]');
+    const field = root.querySelector<HTMLElement>('[role="textbox"]')!;
+    const typedEl = root.querySelector<HTMLElement>('[data-typed]')!;
+    const ghostEl = root.querySelector<HTMLElement>('[data-ghost]')!;
+    const live = document.createElement('p');
+    live.className = 'visually-hidden';
+    live.setAttribute('aria-live', 'polite');
+    root.append(live);
+
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const state = { index: 0, typed: samples[0].typed, ghost: samples[0].ghost, shown: true };
+    let timer = 0;
+    let auto = !still;
+
+    const wait = (ms: number) => new Promise<void>((done) => { timer = window.setTimeout(done, ms); });
+    const later = (ms: number, fn: () => void) => { clearTimeout(timer); timer = window.setTimeout(fn, ms); };
+
+    const render = (fresh = false) => {
+      typedEl.textContent = state.typed;
+      ghostEl.textContent = state.shown ? state.ghost : '';
+      ghostEl.classList.toggle('is-new', fresh);
+      field.lang = samples[state.index].lang ?? 'en';
+      live.textContent = fresh && state.ghost ? `Suggestion: ${state.ghost.trim()}` : '';
+    };
+
+    const press = (act: string) => {
+      root.querySelectorAll<HTMLElement>(`[data-key="${act}"]`).forEach((key) => {
+        key.classList.add('is-pressed');
+        window.setTimeout(() => key.classList.remove('is-pressed'), 180);
+      });
+    };
+
+    const load = (index: number) => {
+      state.index = index % samples.length;
+      state.typed = samples[state.index].typed;
+      state.ghost = samples[state.index].ghost;
+      state.shown = false;
+      render();
+      later(700, () => { state.shown = true; render(true); });
+    };
+
+    const keep = (part: 'all' | 'word') => {
+      if (!state.shown || !state.ghost) return false;
+      press(part);
+      const taken = part === 'word' ? state.ghost.match(/^\s*\S+/)![0] : state.ghost;
+      state.typed += taken;
+      state.ghost = state.ghost.slice(taken.length);
+      render();
+      if (!state.ghost) later(1400, () => load(state.index + 1));
+      return true;
+    };
+
+    const hide = () => {
+      if (!state.shown) return false;
+      press('hide');
+      state.shown = false;
+      render();
+      later(1800, () => load(state.index + 1));
+      return true;
+    };
+
+    const type = (char: string) => {
+      state.typed += char;
+      if (state.shown && state.ghost.startsWith(char)) {
+        state.ghost = state.ghost.slice(char.length);
+        render();
+        if (!state.ghost) later(1400, () => load(state.index + 1));
+        return;
+      }
+      state.ghost = '';
+      state.shown = false;
+      render();
+      later(1800, () => load(state.index + 1));
+    };
+
+    const takeOver = () => {
+      if (!auto) return;
+      auto = false;
+      clearTimeout(timer);
+      state.typed = samples[state.index].typed;
+      state.ghost = samples[state.index].ghost;
+      state.shown = true;
+      render(true);
+    };
+
+    const play = async () => {
+      for (let index = 0; auto; index++) {
+        const sample = samples[index % samples.length];
+        state.index = index % samples.length;
+        state.ghost = sample.ghost;
+        state.shown = false;
+        state.typed = '';
+        render();
+        for (const char of sample.typed) {
+          if (!auto) return;
+          state.typed += char;
+          render();
+          await wait(char === ' ' ? 70 : 28 + Math.random() * 38);
+        }
+        await wait(650);
+        if (!auto) return;
+        state.shown = true;
+        render(true);
+        await wait(1500);
+        if (!auto) return;
+        keep('all');
+        clearTimeout(timer);
+        await wait(2200);
+      }
+    };
+
+    field.addEventListener('focus', takeOver);
+    field.addEventListener('keydown', (event) => {
+      takeOver();
+      const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+      let handled = false;
+      if (event.key === 'Tab' && !event.shiftKey) handled = keep('all');
+      else if ((event.key === 'Tab' && event.shiftKey) || (event.key === 'ArrowRight' && event.ctrlKey)) handled = keep('word');
+      else if (event.key === 'Escape') handled = hide();
+      else if (event.key === 'Backspace') {
+        state.typed = state.typed.slice(0, -1);
+        state.shown = false;
+        render();
+        later(1800, () => load(state.index + 1));
+        handled = true;
+      } else if (event.key.length === 1 && plain) {
+        type(event.key);
+        handled = true;
+      }
+      if (handled) event.preventDefault();
+    });
+
+    root.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((button) => {
+      button.addEventListener('click', () => {
+        takeOver();
+        const act = button.dataset.act;
+        if (act === 'hide') hide();
+        else keep(act === 'word' ? 'word' : 'all');
+        field.focus({ preventScroll: true });
+      });
+    });
+
+    if (auto) {
+      const start = new IntersectionObserver(([entry]) => {
+        if (!entry.isIntersecting) return;
+        start.disconnect();
+        play();
+      });
+      start.observe(root);
+    }
+  }
+</script>
+
+<style>
+  .try { margin: 0; width: 100%; max-width: 780px; text-align: left; }
+  .try__label { margin-bottom: var(--space-sm); font-size: var(--text-sm); font-weight: 600; }
+    .try__field { min-height: 9.5rem; padding: var(--space-lg) var(--space-xl); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); box-shadow: var(--shadow-card); font-size: clamp(1.125rem, 0.8vw + 0.95rem, 1.5rem); line-height: 1.55; cursor: text; transition: border-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out); }
+  .try__field:hover { border-color: var(--color-rule-2); }
+  .try__field:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+  .try__caret { display: inline-block; width: 2px; height: 1.2em; margin-inline: 1px; vertical-align: -0.2em; background: var(--color-caret); }
+  .try__ghost { color: var(--color-ghost); }
+  .try__keys { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-lg); margin-top: var(--space-md); }
+  .try__act { display: inline-flex; align-items: center; gap: var(--space-xs); padding: 4px 12px 4px 4px; border: 0; border-radius: var(--radius-pill); background: none; color: var(--color-muted); font-size: var(--text-sm); cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
+  .try__act:hover { background: var(--color-paper-2); color: var(--color-ink); }
+  .try__act:active .key { transform: translateY(2px); border-bottom-width: 1px; }
+  .try__act:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+  @media (max-width: 40rem) { .try__field { padding: var(--space-md) var(--space-lg); } }
+  @media (prefers-reduced-motion: no-preference) {
+    .try__caret { animation: blink 1.06s steps(1) infinite; }
+    .try__ghost.is-new { animation: ghost-in var(--dur-long) var(--ease-out); }
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes ghost-in { from { opacity: 0; } }
+</style>

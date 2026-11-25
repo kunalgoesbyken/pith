@@ -1,0 +1,49 @@
+---
+import TryField from './TryField.astro';
+import { links } from '../data/site';
+
+const typed = 'The rest of your sentence,'.split(' ');
+const ghost = 'in grey.'.split(' ');
+---
+
+<section class="hero" id="top">
+  <div class="hero__inner container">
+    <h1 class="hero__head">{typed.map((word, i) => <span class="hero__word" style={`--i:${i}`}>{word}{i < typed.length - 1 ? ' ' : ''}</span>)}<span class="hero__caret" aria-hidden="true"></span>{ghost.map((word, i) => <span class="hero__word hero__word--ghost" style={`--i:${typed.length + i + 2}`}>{i === 0 ? ' ' : ''}{word}{i < ghost.length - 1 ? ' ' : ''}</span>)}</h1>
+    <p class="lead hero__lead">Local autocomplete for every text box. Runs on your CPU, no account.</p>
+    <div class="actions hero__actions">
+      <a class="btn" href={links.download}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M1 2.3 6.6 1.5v5.4H1zm6.4-.9L15 .3v6.6H7.4zM1 7.7h5.6v5.4L1 12.3zm6.4 0H15v6.6l-7.6-1.1z" /></svg>
+        Download for Windows
+      </a>
+      <a class="btn btn--quiet" href={links.latest}>Linux build</a>
+    </div>
+    <TryField />
+  </div>
+</section>
+
+<style>
+  .hero { padding: calc(var(--space-4xl) + var(--space-md)) 0 calc(var(--space-3xl) + var(--radius-band)); }
+  .hero__inner { display: grid; justify-items: center; text-align: center; }
+  .hero__head { max-width: 14ch; font-size: var(--text-display); }
+  .hero__word { display: inline-block; white-space: pre; }
+  .hero__word--ghost { color: var(--color-ghost); }
+  .hero__caret { display: inline-block; width: 0.06em; height: 0.78em; margin-left: 0.03em; vertical-align: -0.06em; border-radius: 2px; background: var(--color-caret); }
+  .hero__lead { margin-top: var(--space-lg); color: var(--color-ink-2); }
+  .hero__actions { justify-content: center; margin-block: var(--space-xl) var(--space-2xl); }
+  .hero__inner > :global(.try) { justify-self: center; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hero__word { animation: rise 900ms var(--ease-out) both; animation-delay: calc(120ms + var(--i) * 70ms); }
+    .hero__word--ghost { animation-name: ghost-rise; }
+    .hero__caret { animation: blink 1.06s steps(1) infinite; }
+    .hero__lead, .hero__actions { animation: rise 900ms var(--ease-out) both; animation-delay: 700ms; }
+    .hero__actions { animation-delay: 800ms; }
+    @supports (animation-timeline: view()) {
+      .hero__inner { animation: ease-back linear both; animation-timeline: view(); animation-range: exit 0% exit 80%; }
+    }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(0.45em); } }
+  @keyframes ghost-rise { from { opacity: 0; transform: translateX(-0.2em); } }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes ease-back { to { opacity: 0.35; transform: scale(0.94) translateY(6%); } }
+</style>
