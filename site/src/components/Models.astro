@@ -1,0 +1,51 @@
+---
+import { models } from '../data/site';
+---
+
+<section class="models" id="models">
+  <div class="container">
+    <div class="head head--centre" data-reveal>
+      <h2>Pith picks the model for you.</h2>
+      <p class="lead">From your memory and cores. Switch any time in Settings.</p>
+    </div>
+    <ul class="models__list">
+      {models.map((model, i) => (
+        <li class:list={['model', { 'model--pick': model.pick }]} data-reveal style={`--i:${i}`}>
+          <div class="model__top">
+            <h3>{model.name}</h3>
+            {model.pick && <span class="model__pick">{model.pick}</span>}
+          </div>
+          <p class="model__note">{model.note}</p>
+          <p class="model__saved"><b>{model.saved}</b><span>fewer keystrokes</span></p>
+          <dl class="model__facts">
+            <div><dt>Download</dt><dd>{model.download}</dd></div>
+            <div><dt>Memory, about</dt><dd>{model.memory}</dd></div>
+            <div><dt>Per keystroke</dt><dd>{model.keystroke}</dd></div>
+          </dl>
+        </li>
+      ))}
+    </ul>
+    <p class="caption models__caption">Median per keystroke on one 8-core PC.</p>
+  </div>
+</section>
+
+<style>
+  .models { position: relative; z-index: var(--z-raised); margin-top: calc(var(--radius-band) * -1); padding-block: var(--section-gap); border-radius: var(--radius-band) var(--radius-band) 0 0; background: var(--color-paper); }
+  .models__list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-columns); margin: 0; padding: 0; list-style: none; }
+  .model { display: grid; gap: var(--space-md); padding: var(--space-xl); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); transition: transform var(--dur-short) var(--ease-spring), box-shadow var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out); }
+  .model:hover { transform: translateY(-6px); border-color: var(--color-rule-2); box-shadow: var(--shadow-card); }
+  .model--pick { border-color: var(--color-ink); background: var(--color-paper); }
+  .model__top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+  .model h3 { font-size: var(--text-2xl); }
+  .model__pick { padding: 4px 12px; border-radius: var(--radius-pill); background: var(--color-butter); font-size: var(--text-xs); font-weight: 600; }
+  .model__note { color: var(--color-muted); }
+  .model__saved { display: flex; align-items: baseline; gap: var(--space-xs); margin-top: var(--space-sm); }
+  .model__saved b { font-family: var(--font-display); font-size: var(--text-display-s); font-weight: 400; line-height: 1; letter-spacing: -0.03em; }
+  .model__saved span { color: var(--color-ink-2); font-size: var(--text-sm); }
+  .model__facts { margin: 0; }
+  .model__facts div { display: flex; justify-content: space-between; gap: var(--space-md); padding-block: var(--space-sm); border-top: 1px solid var(--color-rule); font-size: var(--text-sm); }
+  .model__facts dt { color: var(--color-muted); }
+  .model__facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .models__caption { text-align: center; }
+  @media (max-width: 60rem) { .models__list { grid-template-columns: minmax(0, 1fr); max-width: 32rem; margin-inline: auto; } }
+</style>

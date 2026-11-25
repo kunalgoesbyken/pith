@@ -1,0 +1,70 @@
+---
+import { links, privacy } from '../data/site';
+
+const tiles = [
+  { title: '8 GB of RAM, no GPU', body: 'Any CPU with AVX2, most PCs since 2015.' },
+  { figure: '7.4 MB', body: 'One exe. No installer, no webview.' },
+  { figure: '30 MB', body: 'Memory while idle, before the model loads.' },
+  { title: 'No keyboard hook', body: 'On Windows, Pith never sees your keystrokes.' },
+];
+---
+
+<section class="band">
+  <div class="container">
+    <div class="head" data-reveal>
+      <h2>Made for an ordinary laptop.</h2>
+    </div>
+    <div class="bento">
+      <figure class="tile tile--shot" data-reveal>
+        <figcaption><h3>Settings, light or dark.</h3></figcaption>
+        <img src="/img/settings-dark.webp" width="960" height="900" alt="Pith settings in dark mode: suggest as I type, when to suggest, how often and suggestion length" loading="lazy" />
+      </figure>
+      {tiles.map((tile, i) => (
+        <article class="tile" data-reveal style={`--i:${i + 1}`}>
+          {tile.figure ? <p class="tile__figure">{tile.figure}</p> : <h3>{tile.title}</h3>}
+          <p>{tile.body}</p>
+        </article>
+      ))}
+    </div>
+
+    <div class="privacy" id="privacy">
+      <div class="privacy__head" data-reveal>
+        <h2>Your words stay on this PC.</h2>
+        <p><a href={links.privacy}>Read the full privacy table</a></p>
+      </div>
+      <dl class="rows">
+        {privacy.map((row, i) => (
+          <div data-reveal style={`--i:${i}`}><dt>{row.term}</dt><dd>{row.detail}</dd></div>
+        ))}
+      </dl>
+    </div>
+  </div>
+</section>
+
+<style>
+  .band { --color-focus: var(--color-focus-dark); position: relative; z-index: var(--z-raised); padding-block: var(--section-gap) calc(var(--section-gap) + var(--radius-band)); border-radius: var(--radius-band) var(--radius-band) 0 0; background: var(--color-cocoa); color: var(--color-on-dark); }
+  .band a { color: var(--color-on-dark); text-decoration-color: var(--color-caret); }
+  .bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: minmax(13rem, auto); gap: var(--gap-columns); }
+  .tile { display: grid; align-content: space-between; gap: var(--space-md); padding: var(--space-xl); border: 1px solid var(--color-dark-rule); border-radius: var(--radius-card); background: var(--color-cocoa-2); grid-column: span 5; transition: transform var(--dur-short) var(--ease-spring), border-color var(--dur-short) var(--ease-out); }
+  .tile:hover { transform: translateY(-4px); border-color: var(--color-on-dark-ghost); }
+  .tile h3 { font-size: var(--text-2xl); }
+  .tile p { max-width: 34ch; color: var(--color-on-dark-muted); }
+  .tile .tile__figure { font-family: var(--font-display); font-size: var(--text-display-s); line-height: 1; letter-spacing: -0.03em; color: var(--color-on-dark); }
+  .tile--shot { grid-column: span 7; grid-row: span 2; margin: 0; padding-bottom: 0; overflow: hidden; align-content: start; }
+  .tile--shot img { margin-top: var(--space-lg); border-radius: 14px 14px 0 0; border: 1px solid var(--color-dark-rule); border-bottom: 0; }
+  .tile:nth-child(4), .tile:nth-child(5) { grid-column: span 6; }
+  .privacy { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-2xl); margin-top: var(--section-gap); }
+  .privacy__head { display: grid; align-content: start; gap: var(--space-lg); }
+  .rows { margin: 0; }
+  .rows div { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: var(--space-lg); padding-block: var(--space-lg); border-top: 1px solid var(--color-dark-rule); }
+  .rows div:last-child { border-bottom: 1px solid var(--color-dark-rule); }
+  .rows dt { font-weight: 600; }
+  .rows dd { margin: 0; color: var(--color-on-dark-muted); }
+  @media (max-width: 60rem) {
+    .bento { grid-auto-rows: auto; }
+    .tile, .tile--shot, .tile:nth-child(4), .tile:nth-child(5) { grid-column: span 12; grid-row: auto; }
+    .tile { min-height: 11rem; }
+    .privacy, .rows div { grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); }
+    .privacy { gap: var(--space-xl); }
+  }
+</style>
