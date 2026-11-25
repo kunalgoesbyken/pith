@@ -128,7 +128,7 @@ When you turn on Learn my writing style in Settings, Privacy & data, Pith rememb
 
 ## Verify your download
 
-Every release carries `pith.exe`, a portable zip and `SHA256SUMS`. GitHub Actions also signs a build provenance attestation for `pith.exe` and for the zip (not for `SHA256SUMS`). It says which commit and which workflow of this repository built the file.
+Every release carries `pith.exe`, a portable zip, the Linux tarball and one `SHA256SUMS` that lists all three. GitHub Actions also signs a build provenance attestation for each of these files, `SHA256SUMS` included. It says which commit and which workflow of this repository built the file.
 
 Check where the file came from (needs the [GitHub CLI](https://cli.github.com)):
 
@@ -136,7 +136,7 @@ Check where the file came from (needs the [GitHub CLI](https://cli.github.com)):
 gh attestation verify pith.exe --repo kunalgoesbyken/pith --signer-workflow kunalgoesbyken/pith/.github/workflows/release.yml
 ```
 
-Use the same command with the zip's file name to check the zip.
+Use the same command with another file's name to check that file, including `SHA256SUMS`.
 
 Check the file was not damaged or swapped in transit, with tools Windows already has:
 
@@ -145,7 +145,7 @@ certutil -hashfile pith.exe SHA256
 certutil -hashfile pith-0.1.0-x64-portable.zip SHA256
 ```
 
-Each hash must equal that file's own line in `SHA256SUMS` from the same release (use your version in the zip's name). The checksum alone proves less than the attestation: `SHA256SUMS` sits on the same release page, so whoever could replace the exe could replace the list too.
+Each hash must equal that file's own line in `SHA256SUMS` from the same release (use your version in the zip's name). The checksum alone proves less than the attestation: `SHA256SUMS` sits on the same release page, so whoever could replace the exe could replace the list too. Check the list's own attestation too.
 
 **About SmartScreen and Smart App Control.** `pith.exe` is not code-signed. Signing certificates cost money every year, and Pith is a free MIT project. SmartScreen judges an unsigned program by how many people have already run that exact file, so a new release shows "Windows protected your PC", and it can show again on the next release because each build is a new file. The warning means "not known yet", not "known bad". After the attestation or the hash checks out, choose More info, then Run anyway. Extracting the zip with Windows Explorer copies the download's mark of the web onto `pith.exe`, so the same prompt appears for the extracted file.
 
@@ -247,12 +247,12 @@ Run `pith --allow-accessibility` in an X11 session. It refuses to start in a Way
 - **Inserts** through the accessibility interface. It falls back to the clipboard only when the field has no editable text interface or refuses the insert. Once a field has accepted an insert Pith never pastes, even if the text cannot be confirmed; it re-reads the field once and takes whatever is there. Firefox, Thunderbird, LibreWolf and Tor Browser accept the insert call but ignore it, so Pith pastes in them from the start. Before either path Pith checks that the focused field and app are still the ones the suggestion was made for.
 - **Config and data** live in `~/.config/pith/config.toml` and `~/.local/share/pith/` (the model, `pith.log` and `style.toml` when `style_memory = true`), or under `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME`. `blocked_apps` and `allowed_apps` use the lower-case program name, for example `keepassxc`.
 - **Tray** is a StatusNotifier item, so it shows wherever the panel implements `org.kde.StatusNotifierWatcher`. It lists the status line, the pause choices, Resume, a switch for the app you last typed in, Start at login, Open settings and Quit. On GNOME it needs the AppIndicator extension (Ubuntu ships it; Fedora and stock GNOME do not). CI exercises the item against a stand-in watcher and notification server, not against a real KDE, Xfce or GNOME panel.
-- **Without a tray** (no watcher on the session bus) Pith still runs. It says so in a desktop notice the first time, and `pith --settings`, or simply starting `pith` again, reaches the running instance, opens the settings file and shows the current status as a notice.
+- **Without a tray** (no watcher on the session bus) Pith still runs. It tries again for about 30 seconds in case the panel starts late, then says so in a desktop notice the first time, and `pith --settings`, or simply starting `pith` again, reaches the running instance, opens the settings file and shows the current status as a notice.
 - **One instance per session**: Pith owns `org.pith.Pith` on the session bus. A second launch asks the running instance to open its settings and exits.
 - **Settings** has no window yet. Open settings opens `config.toml` with `xdg-open` (it is created with the defaults first if it is missing). Edits to the file apply the next time Pith starts; pausing and the per-app switch from the tray apply at once and are saved.
-- **Start at login** writes or removes `~/.config/autostart/pith.desktop` (under `$XDG_CONFIG_HOME`), with the path of the running binary and `--allow-accessibility` if you started with it. While the file exists Pith updates only its `Exec=` line to the current path at each start, and leaves an entry the desktop has disabled (`Hidden=true` or `X-GNOME-Autostart-enabled=false`) off.
+- **Start at login** writes or removes `~/.config/autostart/pith.desktop` (under `$XDG_CONFIG_HOME`), with the path of the running binary and `--allow-accessibility` if you started with it. While the file exists Pith checks it at each start. If the program in its `Exec=` line has moved, Pith swaps in the new path and keeps your arguments, your edits and every other line. A file it cannot read is never overwritten, and an entry the desktop has disabled (`Hidden=true` or `X-GNOME-Autostart-enabled=false`) stays off.
 - **Notices** go through `org.freedesktop.Notifications`: first run, a model that fails to load, and the status when there is no tray.
-- **Install** from the release: `pith-linux-x86_64.tar.gz` with its `.sha256`, built on Ubuntu 22.04 so it runs on glibc 2.35 and newer. `sha256sum -c pith-linux-x86_64.tar.gz.sha256`, unpack, run `pith --allow-accessibility`.
+- **Install** from the release: `pith-linux-x86_64.tar.gz`, built on Ubuntu 22.04 so it runs on glibc 2.35 and newer. `sha256sum -c --ignore-missing SHA256SUMS`, unpack, run `pith --allow-accessibility`.
 - **Build** with `cargo build --release -p pith`. CI runs the end-to-end suite on Xvfb with GTK 3 and Firefox.
 
 Which app is behind a window comes from the process that owns it. Programs run by an interpreter or a sandbox are named as follows, and Pith reads nothing from a window it cannot name:

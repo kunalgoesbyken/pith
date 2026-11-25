@@ -129,11 +129,10 @@ jobs:
         with:
           name: pith-linux
       - run: >
-          sudo apt-get install -y --no-install-recommends
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
           xvfb x11-utils openbox dbus-x11 at-spi2-core python3-gi gir1.2-glib-2.0
-      - name: Verify and unpack
+      - name: Unpack
         run: |
-          sha256sum -c "$NAME.tar.gz.sha256"
           tar -xzf "$NAME.tar.gz"
           ls -l "$NAME"
           ! ldd "$NAME/pith" | grep "not found"

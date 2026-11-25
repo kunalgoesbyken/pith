@@ -49,7 +49,6 @@ jobs:
           mkdir -p "$DIST" "$NAME"
           cp target/release/pith LICENSE README.md "$NAME"
           tar -czf "$DIST/$NAME.tar.gz" "$NAME"
-          (cd "$DIST" && sha256sum "$NAME.tar.gz" | tee "$NAME.tar.gz.sha256")
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pith-linux

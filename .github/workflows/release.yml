@@ -49,11 +49,6 @@ jobs:
           New-Item -ItemType Directory $stage | Out-Null
           Copy-Item target/release/pith.exe, LICENSE, README.md $stage
           Compress-Archive -Path "$stage/*" -DestinationPath "$env:DIST/$stage.zip"
-          $sums = Get-ChildItem $env:DIST -File | ForEach-Object {
-            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
-          }
-          [IO.File]::WriteAllText("$env:DIST/SHA256SUMS", ($sums -join "`n") + "`n")
-          $sums
       - name: Fill the winget manifests
         shell: pwsh
         env:
@@ -95,20 +90,27 @@ jobs:
         with:
           name: pith-linux
           path: ${{ env.DIST }}
+      - name: Sum every release file
+        run: cd "$DIST" && sha256sum pith.exe *.zip *.tar.gz | tee SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: |
             ${{ env.DIST }}/pith.exe
             ${{ env.DIST }}/*.zip
             ${{ env.DIST }}/*.tar.gz
+            ${{ env.DIST }}/SHA256SUMS
       - name: Verify the attestations
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          for file in "$DIST/pith.exe" "$DIST"/*.zip "$DIST"/*.tar.gz; do
+          for file in "$DIST/pith.exe" "$DIST"/*.zip "$DIST"/*.tar.gz "$DIST/SHA256SUMS"; do
             gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-ref "refs/tags/v$VERSION"
           done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sums
+          path: ${{ env.DIST }}/SHA256SUMS
 
   publish:
     needs: [build, linux, attest]
@@ -123,7 +125,10 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pith-linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sums
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" pith.exe pith-*-portable.zip SHA256SUMS pith-linux-x86_64.tar.gz pith-linux-x86_64.tar.gz.sha256 --repo "$GITHUB_REPOSITORY" --title "Pith $TAG" --generate-notes
+        run: gh release create "$TAG" pith.exe pith-*-portable.zip pith-linux-x86_64.tar.gz SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "Pith $TAG" --generate-notes
