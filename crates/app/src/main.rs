@@ -2,20 +2,17 @@
 
 #[cfg(target_os = "linux")]
 mod hooks;
-#[cfg(windows)]
-mod launch;
-#[cfg(target_os = "linux")]
-mod linux;
+mod platform;
 mod setup;
 
 #[cfg(windows)]
 fn main() {
-    launch::launch();
+    platform::launch();
 }
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
-    linux::launch()
+    platform::launch()
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
