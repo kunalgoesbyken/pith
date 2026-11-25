@@ -9,7 +9,7 @@ use pith_core::{
 };
 
 use crate::autostart::Autostart;
-use crate::run::{Inbound, Inbox};
+use crate::shared::{Inbound, Inbox};
 
 const NAME: &str = "Pith";
 const ICON_SIZES: [u32; 4] = [16, 24, 32, 48];

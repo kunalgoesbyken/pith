@@ -8,7 +8,7 @@ use x11rb::protocol::xproto::Mapping;
 use super::desktop::Desktop;
 use super::display::{Display, DisplayError};
 use super::grab::{Grabs, Stroke};
-use crate::held::Held;
+use crate::shared::Held;
 
 pub fn listen(
     display: Arc<Display>,

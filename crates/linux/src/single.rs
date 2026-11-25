@@ -7,7 +7,7 @@ use zbus::Connection;
 use zbus::connection::Builder;
 
 use crate::bounded::{DEADLINE, within};
-use crate::run::{Inbound, Inbox};
+use crate::shared::{Inbound, Inbox};
 
 const NAME: &str = "org.pith.Pith";
 const PATH: &str = "/org/pith/Pith";

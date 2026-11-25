@@ -1,44 +1,14 @@
-use std::sync::mpsc::{Receiver, Sender, channel};
-
-use pith_core::{Completion, Event, FieldSnapshot, Model, TrayCommand, log};
+use pith_core::{Completion, Event, FieldSnapshot, Model, log};
 use pith_infer::Stage;
 
 use super::App;
 use super::RunError;
 use super::keyboard::HOLD_LIMIT;
 use crate::accessibility::{Reading, Report};
-use crate::error::{InsertError, Inserted, ReaderError, Target};
+use crate::error::{InsertError, Inserted, Target};
 use crate::notice::notify;
+use crate::shared::Inbound;
 use crate::tray::Tray;
-use crate::x11::{DisplayError, Stroke};
-
-pub enum Inbound {
-    Report(Result<Report, ReaderError>),
-    Done(u64, Result<Completion, String>),
-    Ready(Result<String, String>),
-    Preparing(Stage),
-    Command(TrayCommand),
-    Tray(Tray),
-    NoTray,
-    Key(Stroke),
-    Failed(DisplayError),
-    Unpasted,
-    Quit,
-}
-
-#[derive(Clone)]
-pub struct Inbox(Sender<Inbound>);
-
-impl Inbox {
-    pub fn channel() -> (Self, Receiver<Inbound>) {
-        let (sender, receiver) = channel();
-        (Self(sender), receiver)
-    }
-
-    pub fn post(&self, message: Inbound) {
-        let _ = self.0.send(message);
-    }
-}
 
 pub(super) enum Flow {
     Continue,

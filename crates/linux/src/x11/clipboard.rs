@@ -16,8 +16,8 @@ use x11rb::wrapper::ConnectionExt as _;
 
 use super::display::{Display, DisplayError};
 use super::keymap::Keyboard;
-use crate::current::Current;
 use crate::error::Target;
+use crate::shared::Current;
 
 const FETCH_WAIT: Duration = Duration::from_millis(300);
 const SAVE_WAIT: Duration = Duration::from_millis(2000);

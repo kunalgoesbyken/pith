@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use pith_core::{Binding, Keymap, Keys, PressQueue};
 
 use super::App;
-use crate::held::Held;
+use crate::shared::Held;
 use crate::x11::{Grabs, Stroke, Verdict};
 
 const KEY_DEADLINE: Duration = Duration::from_millis(150);

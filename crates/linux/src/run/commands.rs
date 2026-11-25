@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use pith_core::{Event, PauseSpan, TrayCommand, log};
 
-use super::inbox::Flow;
+use super::handle::Flow;
 use super::{App, Start};
 use crate::clock::local_clock;
 use crate::notice::notify;

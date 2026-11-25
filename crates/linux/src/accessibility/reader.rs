@@ -21,8 +21,7 @@ use super::reading::Reading;
 use super::settle::Settling;
 use crate::bounded::{Bounded, STARTUP_DEADLINE, bounded, stop_requested, within};
 use crate::error::{InsertError, Inserted, ReaderError, Target};
-use crate::held::Held;
-use crate::session::Quit;
+use crate::shared::{Held, Quit};
 use crate::x11::Desktop;
 
 const READ_ATTEMPTS: usize = 3;

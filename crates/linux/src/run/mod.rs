@@ -1,6 +1,6 @@
 mod commands;
 mod effects;
-mod inbox;
+mod handle;
 mod keyboard;
 mod shell;
 mod style;
@@ -23,17 +23,14 @@ use signal_hook::iterator::Signals;
 
 use crate::accessibility::{Consent, Reader};
 use crate::autostart::Autostart;
-use crate::current::Current;
 use crate::error::ReaderError;
-use crate::held::Held;
 use crate::overlay::Overlay;
-use crate::session::Quit;
+use crate::shared::{Current, Held, Inbound, Inbox, Quit};
 use crate::tray::Tray;
 use crate::x11::{Clipboard, Desktop, Display, DisplayError, Grabs, listen};
 
 use effects::Effects;
-use inbox::Flow;
-pub use inbox::{Inbound, Inbox};
+use handle::Flow;
 use keyboard::Keyboard;
 use shell::Shell;
 use timers::{Due, Timers};
