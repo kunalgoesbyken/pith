@@ -5,7 +5,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use crate::reader::Poke;
+use crate::field::reader::Poke;
 
 static TARGET: Mutex<Option<Sender<Poke>>> = Mutex::new(None);
 

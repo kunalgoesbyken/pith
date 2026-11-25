@@ -15,7 +15,7 @@ use windows::Win32::System::Com::{
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::{PCWSTR, PWSTR};
 
-use crate::language::input_language;
+use crate::field::language::input_language;
 use crate::system::util::wide;
 
 const WARM_UP_WORD: &str = "the";

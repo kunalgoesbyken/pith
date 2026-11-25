@@ -7,7 +7,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
 use super::{App, Options, Start};
-use crate::foreground::Foreground;
+use crate::field::foreground::Foreground;
 use crate::onboarding::{Event as OnboardingEvent, Onboarding, Outcome};
 use crate::settings::{Overview, SettingsWindow, StatsView, StyleLine};
 use crate::system::appearance::Appearance;

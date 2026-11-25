@@ -17,12 +17,12 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetForegroundWindow};
 use windows::core::{Interface, Result};
 
-use crate::caret::{
+use crate::field::caret::{
     caret_range, caret_rect, collapse_selection, composing, font, has_selection, runtime_id,
     select_before_caret, text_around,
 };
-use crate::language::input_language;
-use crate::nearby;
+use crate::field::language::input_language;
+use crate::field::nearby;
 use crate::system::util::{
     is_elevated, process_name, rect_of, window_pid, window_title, work_areas,
 };

@@ -5,7 +5,7 @@ use pith_core::{Action, Chord, Completion, Correction, Drawn, Event, log};
 
 use super::{App, Inbound, InsertMode, TIMER_DEBOUNCE, TIMER_REPLACE};
 use crate::clipboard::{Trigger, paste};
-use crate::reader::Selection;
+use crate::field::reader::Selection;
 
 pub struct Effects {
     insert: InsertMode,

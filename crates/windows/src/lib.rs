@@ -1,29 +1,24 @@
 #![cfg(windows)]
 
 pub mod brand;
-mod caret;
 mod clipboard;
 mod control;
-mod events;
-mod foreground;
+mod field;
 mod format;
 mod keys;
-mod language;
 mod messages;
-mod nearby;
 mod onboarding;
 mod overlay;
 mod reach;
-mod reader;
 mod run;
 mod settings;
-mod spell;
 mod system;
 mod tray;
 mod ui;
 
 pub use clipboard::{Trigger, paste};
 pub use control::reveal_running_instance;
+pub use field::reader::{Reader, SnapshotCallback, Source};
 pub use keys::KeyAction;
 pub use onboarding::{
     Controls, Event as OnboardingEvent, Onboarding, Outcome, Step as OnboardingStep,
@@ -31,7 +26,6 @@ pub use onboarding::{
 pub use overlay::OVERLAY_CLASS;
 #[doc(hidden)]
 pub use overlay::{Picture, Sample, preview};
-pub use reader::{Reader, SnapshotCallback, Source};
 pub use run::{Inbound, Inbox, InsertMode, Options, Start, run};
 #[doc(hidden)]
 pub use settings::Page;
