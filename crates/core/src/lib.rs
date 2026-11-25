@@ -7,11 +7,6 @@ mod emphasis;
 mod engine;
 mod field;
 mod ghost;
-#[cfg(target_os = "linux")]
-mod hosts;
-#[cfg(not(target_os = "linux"))]
-#[path = "hosts_none.rs"]
-mod hosts;
 mod ignore;
 mod keybind;
 mod keys;
@@ -53,7 +48,7 @@ pub use ghost::{
     Flow, Ink, Line, blend, fits, flow_bounds, ink, is_rtl, layout, lines_that_fit,
     median_by_luminance, next_word_alpha, opacity_alpha, strong_span,
 };
-pub use hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
+pub use apps::hosts::{entry_of, is_generic_entry, is_runtime, is_unlisted_id};
 pub use keys::{Binding, KeyAction, Keys, Press, PressQueue, Registrar};
 pub use log::{init_log, log};
 pub use mark::{

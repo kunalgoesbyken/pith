@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::apps::{Access, Surface, allowable_among, same_app, surface};
 use crate::chord::{Chord, Key};
-use crate::hosts::is_unlisted_id;
+use crate::apps::hosts::is_unlisted_id;
 use crate::preset::ModelPreset;
 use crate::stored::{read, write_atomically};
 
