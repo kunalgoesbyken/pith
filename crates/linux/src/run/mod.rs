@@ -22,11 +22,10 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
 use crate::accessibility::{Consent, Reader};
-use crate::autostart::Autostart;
 use crate::error::ReaderError;
+use crate::host::{Autostart, Tray};
 use crate::overlay::Overlay;
 use crate::shared::{Current, Held, Inbound, Inbox, Quit};
-use crate::tray::Tray;
 use crate::x11::{Clipboard, Desktop, Display, DisplayError, Grabs, listen};
 
 use effects::Effects;

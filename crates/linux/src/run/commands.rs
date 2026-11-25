@@ -5,9 +5,7 @@ use pith_core::{Event, PauseSpan, TrayCommand, log};
 
 use super::handle::Flow;
 use super::{App, Start};
-use crate::clock::local_clock;
-use crate::notice::notify;
-use crate::open::open_config;
+use crate::host::{local_clock, notify, open_config};
 
 const PAUSE_CHECK: Duration = Duration::from_secs(5);
 const WELCOME: &str = "Pith is running. Its icon is in the system tray.";

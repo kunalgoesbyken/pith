@@ -5,7 +5,7 @@ use pith_infer::Stage;
 
 use crate::accessibility::Report;
 use crate::error::ReaderError;
-use crate::tray::Tray;
+use crate::host::Tray;
 use crate::x11::{DisplayError, Stroke};
 
 pub enum Inbound {

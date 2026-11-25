@@ -8,7 +8,7 @@ use pith_core::{
     TrayView, auto_paused_label, log, menu_line, render_mark,
 };
 
-use crate::autostart::Autostart;
+use super::autostart::Autostart;
 use crate::shared::{Inbound, Inbox};
 
 const NAME: &str = "Pith";

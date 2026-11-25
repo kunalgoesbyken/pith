@@ -1,7 +1,7 @@
 use pith_core::{Model, Preferences, SkipReason, TrayView};
 
 use super::App;
-use crate::tray::{Shown, Tray};
+use crate::host::{Shown, Tray};
 
 pub(super) struct Shell {
     tray: Option<Tray>,

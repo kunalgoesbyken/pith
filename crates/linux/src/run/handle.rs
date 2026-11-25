@@ -6,9 +6,8 @@ use super::RunError;
 use super::keyboard::HOLD_LIMIT;
 use crate::accessibility::{Reading, Report};
 use crate::error::{InsertError, Inserted, Target};
-use crate::notice::notify;
+use crate::host::{Tray, notify};
 use crate::shared::Inbound;
-use crate::tray::Tray;
 
 pub(super) enum Flow {
     Continue,
