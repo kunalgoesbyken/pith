@@ -6,7 +6,7 @@ use pith_infer::Worker;
 use windows::Win32::UI::WindowsAndMessaging::{MB_ICONWARNING, MB_OK, MessageBoxW};
 use windows::core::{PCWSTR, w};
 
-use crate::util::wide;
+use crate::system::util::wide;
 
 const DELETE_ATTEMPTS: u32 = 8;
 const DELETE_RETRY: Duration = Duration::from_millis(250);

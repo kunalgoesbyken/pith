@@ -5,7 +5,7 @@ use super::super::action::Action;
 use super::super::layout::{Item, Row, Sample, Sheet};
 use super::super::model::Model;
 use super::{choice, notice, switch};
-use crate::format::number;
+use crate::text::format::number;
 
 fn frequency_label(level: Suggestions) -> &'static str {
     match level {

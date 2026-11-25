@@ -17,14 +17,14 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use crate::appearance::Appearance;
 use crate::control::{Signal, control_window, next_signal};
-use crate::erase::erase;
-use crate::events::Hooks;
+use crate::field::events::Hooks;
+use crate::field::reader::{Reader, Source};
+use crate::field::spell::Speller;
 use crate::overlay::Overlay;
-use crate::power;
-use crate::reader::{Reader, Source};
-use crate::spell::Speller;
+use crate::system::appearance::Appearance;
+use crate::system::erase::erase;
+use crate::system::power;
 
 use effects::Effects;
 pub use inbox::{Inbound, Inbox};

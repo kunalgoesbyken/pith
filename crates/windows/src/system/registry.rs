@@ -8,7 +8,7 @@ use windows::Win32::System::Registry::{
 };
 use windows::core::{PCWSTR, Result};
 
-use crate::util::wide;
+use crate::system::util::wide;
 
 pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const RUN_VALUE: &str = "Pith";

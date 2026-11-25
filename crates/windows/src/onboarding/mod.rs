@@ -16,8 +16,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-use crate::util::wide;
-use crate::{reach, reader};
+use crate::field::reader;
+use crate::system::util::wide;
+use crate::text::reach;
 
 pub use step::{Event, Step};
 

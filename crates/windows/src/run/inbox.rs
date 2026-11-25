@@ -10,7 +10,7 @@ use super::App;
 use crate::control::Waker;
 use crate::onboarding::Event as OnboardingEvent;
 use crate::settings::UiEvent;
-use crate::update::Update;
+use crate::system::update::Update;
 
 pub enum Inbound {
     Snapshot(Option<FieldSnapshot>, Option<u64>),

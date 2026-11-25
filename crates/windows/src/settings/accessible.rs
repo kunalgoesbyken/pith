@@ -13,7 +13,7 @@ use windows::core::{
 };
 
 use super::slider::snapshot;
-use crate::messages::WM_SLIDE_TO;
+use crate::control::messages::WM_SLIDE_TO;
 
 fn unavailable() -> Error {
     Error::from_hresult(HRESULT(UIA_E_ELEMENTNOTAVAILABLE as i32))

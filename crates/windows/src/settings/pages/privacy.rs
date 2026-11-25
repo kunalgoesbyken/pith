@@ -5,7 +5,7 @@ use super::super::action::Action;
 use super::super::layout::{Item, Row, Sheet};
 use super::super::model::Model;
 use super::switch;
-use crate::reach;
+use crate::text::reach;
 use crate::ui::Tone;
 
 const OPEN: (&str, Tone) = ("Open", Tone::Standard);

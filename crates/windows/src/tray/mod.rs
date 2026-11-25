@@ -1,3 +1,5 @@
+pub mod brand;
+
 use std::cell::RefCell;
 
 use pith_core::{
@@ -12,11 +14,10 @@ use windows::Win32::UI::Shell::{
     Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 
-use crate::appearance::Appearance;
-use crate::brand;
-use crate::reach::tooltip;
+use crate::system::appearance::Appearance;
+use crate::system::update::Update;
+use crate::text::reach::tooltip;
 use crate::ui::Taskbar;
-use crate::update::Update;
 
 pub const POWER_TOOLTIP: &str = "Pith \u{b7} paused while battery saver is on";
 

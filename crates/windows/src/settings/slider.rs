@@ -20,9 +20,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, w};
 
 use super::accessible::provider_for;
-use crate::messages::WM_SLIDE_TO;
+use crate::control::messages::WM_SLIDE_TO;
+use crate::system::util::wide;
 use crate::ui::{BASE_DPI, Scale, height, request_draw, slider_fraction_at, track_hover, width};
-use crate::util::wide;
 
 pub const TBM_GETPOS: u32 = WM_USER;
 pub const MOVED: u32 = 0x100;

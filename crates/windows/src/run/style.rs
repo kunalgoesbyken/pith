@@ -5,7 +5,7 @@ use pith_core::{Event, Sample, StyleMemory, StyleStore, log};
 
 use super::App;
 use crate::settings::StyleLine;
-use crate::vault::DpapiVault;
+use crate::system::vault::DpapiVault;
 
 const STYLE_FILE: &str = "style.bin";
 

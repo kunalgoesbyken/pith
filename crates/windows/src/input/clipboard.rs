@@ -12,8 +12,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_V};
 use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_PASTE};
 use windows::core::PCWSTR;
 
-use crate::keys::{send_chord, wait_for_modifiers_released};
-use crate::util::wide;
+use crate::input::keys::{send_chord, wait_for_modifiers_released};
+use crate::system::util::wide;
 
 const GDI_FORMATS: [u32; 7] = [2, 3, 9, 14, 0x80, 0x82, 0x8E];
 const HANDLE_FORMATS: std::ops::RangeInclusive<u32> = 0x200..=0x3FF;

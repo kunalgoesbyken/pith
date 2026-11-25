@@ -7,9 +7,9 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
-use crate::caret::gui_thread_info;
+use crate::field::caret::gui_thread_info;
+use crate::system::util::rect_of;
 use crate::ui::{BASE_DPI, Scale};
-use crate::util::rect_of;
 
 const CLR_INVALID: u32 = 0xFFFF_FFFF;
 const SAMPLE_COLUMNS: i32 = 4;

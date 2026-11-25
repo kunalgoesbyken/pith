@@ -7,7 +7,7 @@ use super::super::action::Action;
 use super::super::layout::{Item, Row, Sheet};
 use super::super::model::Model;
 use super::{choice, switch};
-use crate::format::number;
+use crate::text::format::number;
 use crate::ui::Tone;
 
 const BYTES_PER_MB: u64 = 1_000_000;

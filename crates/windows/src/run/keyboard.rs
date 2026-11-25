@@ -4,7 +4,7 @@ use pith_core::{Keymap, PressQueue};
 use windows::Win32::Foundation::HWND;
 
 use super::{App, TIMER_REARM};
-use crate::keys::{Binding, Hotkeys, Keys, replay};
+use crate::input::keys::{Binding, Hotkeys, Keys, replay};
 
 const REARM_MS: u32 = 60;
 

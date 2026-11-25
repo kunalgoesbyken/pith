@@ -3,7 +3,7 @@ use pith_core::{Config, KeyAction, ModelPreset};
 use super::layout::{Class, Layout};
 use super::page::Page;
 use super::{Overview, UiEvent};
-use crate::rival::Rival;
+use crate::system::rival::Rival;
 use crate::ui::{Rgb, Scale, Slot, Surface, Theme};
 
 #[derive(Debug)]

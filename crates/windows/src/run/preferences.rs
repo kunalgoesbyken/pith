@@ -3,8 +3,8 @@ use std::time::SystemTime;
 use pith_core::{Event, Model, PauseSpan, Preferences, Setting};
 
 use super::App;
-use crate::power::Power;
-use crate::util::local_time;
+use crate::system::power::Power;
+use crate::system::util::local_time;
 
 pub(super) fn read_power(prefs: &mut Preferences) -> bool {
     prefs

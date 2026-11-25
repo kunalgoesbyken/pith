@@ -16,7 +16,7 @@ use super::metrics::{
 use super::skin;
 use super::theme::{Palette, Rgb, Theme};
 use super::widgets;
-use crate::util::wide;
+use crate::system::util::wide;
 
 pub const TOGGLE_WIDTH: i32 = 40;
 pub const TOGGLE_HEIGHT: i32 = 20;
