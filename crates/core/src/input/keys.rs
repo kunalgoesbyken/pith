@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::chord::{Chord, Key};
+use super::chord::{Chord, Key};
 use crate::config::Keymap;
 use crate::engine::{Engine, Event};
 use crate::log::log;

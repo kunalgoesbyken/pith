@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::replacing::SelectOutcome;
+use super::replacing::SelectOutcome;
 use crate::{
     Completion, CompletionRequest, Config, Correction, Drawn, FieldSnapshot, Placement, Sample,
     Spelling, StyleMemory, TextStyle,

@@ -1,6 +1,6 @@
 use super::memory::StyleMemory;
 use super::sentence::script_of;
-use crate::budget::estimate_tokens;
+use crate::context::budget::estimate_tokens;
 use crate::{Config, FieldSnapshot, same_app, tail_chars};
 
 pub const EXAMPLES: usize = 3;

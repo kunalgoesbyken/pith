@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::{Action, Engine, Phase};
-use crate::suffix::candidates;
+use crate::text::suffix::candidates;
 use crate::{Drawn, Placement, Suffix};
 
 pub(super) struct Shown {

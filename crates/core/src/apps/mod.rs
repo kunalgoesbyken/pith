@@ -1,5 +1,7 @@
+pub(crate) mod hosts;
+
 use crate::config::app_name;
-use crate::hosts::{alias_of, is_unlisted_id};
+use hosts::{alias_of, is_unlisted_id};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {

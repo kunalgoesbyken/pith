@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::suffix::{CATEGORIES, OPENING, SENTENCE, joins_previous};
+use super::{LINE_BREAKS, is_inline_space, next_word};
 use crate::is_rtl;
-use crate::suffix::{CATEGORIES, OPENING, SENTENCE, joins_previous};
-use crate::text::{LINE_BREAKS, is_inline_space, next_word};
 
 const MIN_WORD_GRAPHEMES: usize = 3;
 const MAX_WORD_GRAPHEMES: usize = 32;

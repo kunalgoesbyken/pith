@@ -1,6 +1,6 @@
-use crate::budget::{estimate_tokens, room};
+use super::budget::{estimate_tokens, room};
 use crate::style::{Primer, STYLE_TOKENS};
-use crate::suffix::fit;
+use crate::text::suffix::fit;
 use crate::{
     After, Completion, Config, FieldSnapshot, StopReason, clean_completion, split_partial,
     tail_chars,

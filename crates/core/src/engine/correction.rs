@@ -1,9 +1,9 @@
 use std::time::Instant;
 
+use super::replacing::{Replacing, SelectOutcome};
 use super::{Action, Engine, Phase};
-use crate::field::FieldKey;
-use crate::replacing::{Replacing, SelectOutcome};
-use crate::typo::Finished;
+use crate::context::field::FieldKey;
+use crate::text::typo::Finished;
 use crate::{Correction, FieldSnapshot, Spelling, TriggerMode, check};
 
 const MAX_SPELL_WAIT_MS: u64 = 1_000;
