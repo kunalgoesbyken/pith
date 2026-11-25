@@ -2,7 +2,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::memory::Sample;
 use super::sentence::Sentence;
-use crate::field::FieldKey;
+use crate::context::field::FieldKey;
 use crate::{Config, FieldSnapshot, LINE_BREAKS, SentenceEnd, check_forced, sentence_end};
 
 struct Pending {

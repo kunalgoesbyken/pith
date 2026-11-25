@@ -2,8 +2,8 @@ use icu_properties::props::Script;
 use icu_properties::{CodePointMapData, CodePointMapDataBorrowed};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::nearby::plain;
-use crate::policy::is_prose;
+use crate::context::nearby::plain;
+use crate::context::policy::is_prose;
 
 const MIN_GRAPHEMES: usize = 12;
 const MAX_GRAPHEMES: usize = 160;

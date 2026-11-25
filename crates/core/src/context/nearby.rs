@@ -2,8 +2,8 @@ use std::time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::budget::{clip_head, clip_tail, estimate_tokens};
-use crate::policy::is_prose;
+use super::budget::{clip_head, clip_tail, estimate_tokens};
+use super::policy::is_prose;
 use crate::text::suffix::is_ignorable;
 
 pub struct WalkLimits {

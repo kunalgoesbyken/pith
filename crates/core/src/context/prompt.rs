@@ -1,4 +1,4 @@
-use crate::budget::{estimate_tokens, room};
+use super::budget::{estimate_tokens, room};
 use crate::style::{Primer, STYLE_TOKENS};
 use crate::text::suffix::fit;
 use crate::{

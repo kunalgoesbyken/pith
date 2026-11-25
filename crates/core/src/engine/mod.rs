@@ -12,7 +12,7 @@ mod typing;
 
 use std::sync::Arc;
 
-use crate::field::FieldKey;
+use crate::context::field::FieldKey;
 use crate::ignore::IgnoreTracker;
 use crate::replacing::Replacing;
 use crate::stats::Counts;

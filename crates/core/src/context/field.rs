@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::nearby::{Nearby, RawCue};
+use super::nearby::{Nearby, RawCue};
 use crate::placement::Placement;
 use crate::text::suffix::After;
 use crate::types::{FieldSnapshot, TextStyle};
