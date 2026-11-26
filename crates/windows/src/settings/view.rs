@@ -8,8 +8,8 @@ use super::layout::{
 use super::model::Model;
 use crate::text::format::number;
 use crate::ui::{
-    self, Align, Canvas, Look, Rgb, Role, STROKE, Text, height, key_labels, keycaps, measure,
-    paint_backdrop, paint_mark, rect,
+    self, Align, Canvas, Corner, Look, Rgb, Role, Text, key_labels, keycaps, measure,
+    paint_backdrop, paint_wordmark,
 };
 
 fn voice_color(model: &Model, voice: Voice) -> Rgb {
@@ -59,7 +59,8 @@ fn paint_row(canvas: &Canvas, model: &Model, row: &PlacedRow) {
         canvas.text(*bounds, caption, style);
     }
     if let Some((bounds, badge)) = &row.badge {
-        canvas.card(*bounds, palette.control, palette.control_stroke);
+        let pill = canvas.shape(*bounds, Corner::Pill);
+        canvas.card(pill, palette.well, palette.control_stroke);
         let style = Text::new(Role::Caption, palette.text_secondary).aligned(Align::Center);
         canvas.text(*bounds, badge, style);
     }
@@ -94,9 +95,18 @@ fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
             let style = Text::new(Role::Caption, voice_color(model, *voice)).wrapping();
             canvas.text(*bounds, text, style);
         }
-        Block::Panel(bounds) => canvas.card(*bounds, palette.card, palette.card_stroke),
+        Block::Panel(bounds) => {
+            let shape = canvas.shape(*bounds, Corner::Card);
+            canvas.card(shape, palette.card, palette.card_stroke);
+        }
+        Block::Tile(bounds) => {
+            let shape = canvas.shape(*bounds, Corner::Card);
+            canvas.shadow(shape, model.theme.shadow_over(palette.page));
+            canvas.card(shape, palette.card, palette.card_stroke);
+        }
         Block::Card(bounds, rows) => {
-            canvas.card(*bounds, palette.card, palette.card_stroke);
+            let shape = canvas.shape(*bounds, Corner::Card);
+            canvas.card(shape, palette.card, palette.card_stroke);
             for row in rows {
                 paint_row(canvas, model, row);
             }
@@ -106,27 +116,8 @@ fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
 
 fn paint_sidebar(canvas: &Canvas, model: &Model, layout: &Layout) {
     let palette = &model.theme.palette;
-    let scale = model.scale;
-    canvas.fill(layout.sidebar, model.theme.sidebar());
-    let edge = rect(
-        layout.sidebar.right - scale.px(STROKE),
-        0,
-        scale.px(STROKE),
-        height(layout.sidebar),
-    );
-    canvas.fill(edge, palette.card_stroke);
-    paint_mark(
-        canvas,
-        (layout.mark.left, layout.mark.top),
-        height(layout.mark),
-        palette.mark_caret,
-        palette.mark_ghost,
-    );
-    canvas.text(
-        layout.brand,
-        "Pith",
-        Text::new(Role::BodyStrong, palette.text),
-    );
+    canvas.fill(layout.sidebar, palette.sidebar);
+    paint_wordmark(canvas, model.scale, layout.brand, palette);
     let (bounds, version) = &layout.version;
     canvas.text(
         *bounds,
@@ -140,20 +131,20 @@ pub fn paint_page(canvas: &Canvas, model: &Model) {
     let layout = &model.layout;
     canvas.clear(model.theme.palette.page);
     let (bounds, title) = &layout.title;
-    canvas.text(*bounds, title, Text::new(Role::Subtitle, palette.text));
+    canvas.text(*bounds, title, Text::new(Role::Display, palette.text));
     for block in &layout.blocks {
         paint_block(canvas, model, block);
     }
     paint_sidebar(canvas, model, layout);
     if let Some(thumb) = layout.thumb {
-        canvas.fill(thumb, palette.strong_stroke);
+        canvas.fill_shape(canvas.shape(thumb, Corner::Pill), palette.strong_stroke);
     }
 }
 
 fn paint_tile(canvas: &Canvas, model: &Model, local: RECT, (value, caption): (&str, &str)) {
     let palette = &model.theme.palette;
     let rects = tile_rects(model.scale, local);
-    canvas.text(rects.number, value, Text::new(Role::Title, palette.text));
+    canvas.text(rects.number, value, Text::new(Role::Stat, palette.text));
     canvas.text(
         rects.caption,
         caption,
@@ -180,10 +171,10 @@ fn paint_strip(
         let today = index + 1 == days.len();
         let color = match (today, *words) {
             (true, _) => palette.accent.base,
-            (false, 0) => palette.track,
-            (false, _) => palette.strong_stroke,
+            (false, 0) => palette.card_stroke,
+            (false, _) => palette.track,
         };
-        canvas.fill(*bar, color);
+        canvas.fill_shape(canvas.shape(*bar, Corner::Bar), color);
     }
 }
 
@@ -198,9 +189,10 @@ fn look(placed: &Placed) -> Option<Look<'_>> {
             seam: *seam,
         }),
         Face::Button(tone) => Some(Look::Button { tone: *tone, label }),
-        Face::Nav { .. } => Some(Look::Nav {
+        Face::Nav { icon, .. } => Some(Look::Nav {
             selected: item.checked,
             label,
+            icon: *icon,
         }),
         Face::Chip(state) => Some(Look::Chip {
             state: *state,

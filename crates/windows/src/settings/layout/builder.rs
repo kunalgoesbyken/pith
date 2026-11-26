@@ -386,7 +386,7 @@ impl Sheet {
                 each,
                 tile_height,
             );
-            self.blocks.push(Block::Panel(bounds));
+            self.blocks.push(Block::Tile(bounds));
             self.place(tile, inset(bounds, pad));
         }
         self.y += tile_height;

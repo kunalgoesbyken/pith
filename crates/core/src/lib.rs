@@ -34,9 +34,7 @@ pub use render::ink::{Ink, blend, ink, median_by_luminance, next_word_alpha, opa
 pub use render::layout::{
     Flow, Line, fits, flow_bounds, is_rtl, layout, lines_that_fit, strong_span,
 };
-pub use render::mark::{
-    Block, Look, MARK_HEIGHT, MARK_WIDTH, PAUSED_GREY, TRAIL, TRAY_FILL, render_mark, trail_colors,
-};
+pub use render::mark::{Look, MARK_WIDTH, PAUSED_GREY, TRAY_FILL, render_mark, trail_colors};
 pub use render::placement::{Placement, anchor_pill, place};
 pub use render::scale::{BASE_DPI, Scale};
 pub use render::scene::{

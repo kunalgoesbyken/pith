@@ -19,6 +19,17 @@ impl Page {
         Self::Privacy,
     ];
 
+    pub fn icon(self) -> char {
+        match self {
+            Self::Home => '\u{E80F}',
+            Self::General => '\u{E713}',
+            Self::Shortcuts => '\u{E765}',
+            Self::Apps => '\u{E71D}',
+            Self::Model => '\u{E950}',
+            Self::Privacy => '\u{EA18}',
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Home => "Home",

@@ -6,8 +6,8 @@ use super::model::Model;
 use super::step::Glyph;
 use super::{DONE_ID, HINT_ID, KEYS_ID, PROGRESS_ID, STATUS_ID};
 use crate::ui::{
-    self, Align, Canvas, KEYCAP_HEIGHT, Look, Role, STROKE, Text, Tone, height, keycaps,
-    paint_backdrop, paint_mark, rect, width,
+    self, Align, Canvas, Corner, KEYCAP_HEIGHT, Look, Role, STROKE, Text, Tone, height, keycaps,
+    paint_backdrop, rect, width,
 };
 
 const KEY_CAPTION_GAP: i32 = 8;
@@ -21,13 +21,14 @@ fn glyph(canvas: &Canvas, model: &Model, bounds: RECT) {
         bounds.left as f32 + half,
         bounds.top as f32 + height(bounds) as f32 / 2.0,
     );
+    let disc = canvas.shape(bounds, Corner::Pill);
     match model.step.glyph() {
         Glyph::Busy => {
             let ring = model.scale.px(RING);
-            canvas.stroke(bounds, palette.accent.base, ring);
+            canvas.stroke_shape(disc, palette.accent.base, ring);
         }
         Glyph::Ready => {
-            canvas.fill(bounds, palette.success);
+            canvas.fill_shape(disc, palette.success);
             let unit = half * 2.0 * MARK;
             let tick = [
                 (center.0 - unit, center.1),
@@ -39,7 +40,7 @@ fn glyph(canvas: &Canvas, model: &Model, bounds: RECT) {
             canvas.line(tick[1], tick[2], thickness, palette.card);
         }
         Glyph::Failed => {
-            canvas.fill(bounds, palette.danger);
+            canvas.fill_shape(disc, palette.danger);
             let mark = Text::new(Role::BodyStrong, palette.card).aligned(Align::Center);
             canvas.text(bounds, "!", mark);
         }
@@ -50,29 +51,27 @@ pub fn paint_page(canvas: &Canvas, model: &Model, layout: &Layout) {
     let palette = &model.theme.palette;
     let scale = model.scale;
     canvas.clear(palette.page);
-    paint_mark(
-        canvas,
-        (layout.mark.left, layout.mark.top),
-        height(layout.mark),
-        palette.mark_caret,
-        palette.mark_ghost,
-    );
-    canvas.text(layout.title, TITLE, Text::new(Role::Title, palette.text));
+    canvas.text(layout.title, TITLE, Text::new(Role::Display, palette.text));
     canvas.text(
         layout.promise,
         &model.promise,
         Text::new(Role::Body, palette.text_secondary).wrapping(),
     );
-    canvas.card(layout.status_card, palette.card, palette.card_stroke);
+    let card = |bounds| canvas.shape(bounds, Corner::Card);
+    canvas.card(card(layout.status_card), palette.card, palette.card_stroke);
     glyph(canvas, model, layout.glyph);
-    canvas.card(layout.keys_card, palette.card, palette.card_stroke);
+    canvas.card(card(layout.keys_card), palette.card, palette.card_stroke);
     canvas.text(
         layout.note,
         KEYS_NOTE,
         Text::new(Role::Caption, palette.text_secondary),
     );
     if model.step.practice_enabled() {
-        canvas.card(layout.practice_card, palette.card, palette.card_stroke);
+        canvas.card(
+            card(layout.practice_card),
+            palette.card,
+            palette.card_stroke,
+        );
     }
     canvas.fill(layout.footer, palette.page);
     let divider = rect(
@@ -110,14 +109,14 @@ fn paint_keys(canvas: &Canvas, model: &Model, bounds: RECT) {
 
 fn paint_progress(canvas: &Canvas, model: &Model, bounds: RECT) {
     let palette = &model.theme.palette;
-    canvas.fill(bounds, palette.track);
+    canvas.fill_shape(canvas.shape(bounds, Corner::Pill), palette.track);
     let permille = model.step.permille().unwrap_or(0) as i32;
     let filled = RECT {
         right: bounds.left + width(bounds) * permille / 1000,
         ..bounds
     };
     if width(filled) > 0 {
-        canvas.fill(filled, palette.accent.base);
+        canvas.fill_shape(canvas.shape(filled, Corner::Pill), palette.accent.base);
     }
 }
 

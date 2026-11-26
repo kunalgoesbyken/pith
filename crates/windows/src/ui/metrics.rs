@@ -5,39 +5,66 @@ pub use pith_core::{BASE_DPI, Scale};
 pub const FOCUS_RING: i32 = 2;
 pub const FOCUS_GAP: i32 = 1;
 pub const STROKE: i32 = 1;
+pub const RADIUS_CARD: i32 = 12;
+pub const RADIUS_CONTROL: i32 = 8;
+pub const RADIUS_KEY: i32 = 6;
+pub const RADIUS_BAR: i32 = 2;
+pub const SHADOW_OFFSET: i32 = 1;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Typeface {
+    Sans,
+    Serif,
+    Icons,
+}
+
+impl Typeface {
+    pub const ALL: [Self; 3] = [Self::Sans, Self::Serif, Self::Icons];
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
-    Title,
-    Subtitle,
+    Display,
+    Wordmark,
+    Stat,
     BodyStrong,
     Body,
     Caption,
+    Icon,
 }
 
 impl Role {
+    pub fn typeface(self) -> Typeface {
+        match self {
+            Role::Display | Role::Wordmark => Typeface::Serif,
+            Role::Icon => Typeface::Icons,
+            Role::Stat | Role::BodyStrong | Role::Body | Role::Caption => Typeface::Sans,
+        }
+    }
+
     pub fn size(self) -> f32 {
         match self {
-            Role::Title => 28.0,
-            Role::Subtitle => 20.0,
+            Role::Display => 30.0,
+            Role::Wordmark | Role::Stat => 24.0,
             Role::BodyStrong | Role::Body => 14.0,
             Role::Caption => 12.0,
+            Role::Icon => 16.0,
         }
     }
 
     pub fn weight(self) -> i32 {
         match self {
-            Role::Title | Role::Subtitle | Role::BodyStrong => 600,
-            Role::Body | Role::Caption => 400,
+            Role::Stat | Role::BodyStrong => 600,
+            Role::Display | Role::Wordmark | Role::Body | Role::Caption | Role::Icon => 400,
         }
     }
 
     pub fn line(self) -> i32 {
         match self {
-            Role::Title => 36,
-            Role::Subtitle => 28,
+            Role::Display => 40,
+            Role::Wordmark | Role::Stat => 32,
             Role::BodyStrong | Role::Body => 20,
-            Role::Caption => 16,
+            Role::Caption | Role::Icon => 16,
         }
     }
 }

@@ -8,6 +8,7 @@ mod keycap;
 mod mark;
 mod metrics;
 mod opaque;
+mod shape;
 mod skin;
 mod slot;
 mod theme;
@@ -22,13 +23,14 @@ pub use control::{
 pub use font::gdi_font;
 pub use hover::attach as track_hover;
 pub use keycap::{KEYCAP_HEIGHT, key_labels, keycaps, keycaps_width};
-pub use mark::{app_icon, mark_width, paint_mark};
+pub use mark::{app_icon, paint_wordmark};
 pub use metrics::{BASE_DPI, Role, STROKE, Scale, height, inset, rect, width};
 pub use opaque::make_opaque;
+pub use shape::Corner;
 pub use skin::request_draw;
 pub use slot::Slot;
 pub use theme::{INK, Mode, Rgb, Taskbar, Theme, colorref, force_dark_theme};
-pub use widgets::{chip_width, slider_fraction_at};
+pub use widgets::{NAV_PAD, chip_width, slider_fraction_at};
 
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{SPI_SETHIGHCONTRAST, WM_SETTINGCHANGE};

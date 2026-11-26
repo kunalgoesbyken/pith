@@ -35,13 +35,13 @@ pub enum Block {
     Heading(RECT, String),
     Note(RECT, String, Voice),
     Panel(RECT),
+    Tile(RECT),
     Card(RECT, Vec<PlacedRow>),
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Layout {
     pub sidebar: RECT,
-    pub mark: RECT,
     pub brand: RECT,
     pub version: (RECT, String),
     pub title: (RECT, String),
@@ -91,7 +91,7 @@ pub fn build(model: &Model) -> Layout {
         left,
         scale.px(PANE_PAD) - model.scroll,
         span,
-        scale.px(Role::Subtitle.line()),
+        scale.px(Role::Display.line()),
     );
     let mut sheet = Sheet::new(
         scale,
@@ -109,7 +109,6 @@ pub fn build(model: &Model) -> Layout {
     let controls = side.controls.into_iter().chain(built.controls).collect();
     Layout {
         sidebar: side.bounds,
-        mark: side.mark,
         brand: side.brand,
         version: side.version,
         title: (title_bounds, model.page.label().to_string()),

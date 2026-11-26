@@ -19,7 +19,7 @@ pub struct StripRects {
 
 pub fn tile_rects(scale: Scale, local: RECT) -> TileRects {
     let area = inset(local, scale.px(TILE_TEXT_INSET));
-    let number_line = scale.px(Role::Title.line());
+    let number_line = scale.px(Role::Stat.line());
     let caption_line = scale.px(Role::Caption.line());
     let top = area.top + (height(area) - number_line - caption_line) / 2;
     let number = rect(area.left, top, width(area), number_line);

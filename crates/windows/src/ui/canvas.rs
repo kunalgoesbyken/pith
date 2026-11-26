@@ -24,10 +24,10 @@ use windows::core::{BOOL, PCWSTR, w};
 use windows_numerics::Vector2;
 
 use super::buffer::Buffer;
-use super::metrics::{BASE_DPI, Role, STROKE, Scale, height, width};
+use super::metrics::{BASE_DPI, Role, SHADOW_OFFSET, STROKE, Scale, Typeface, height, width};
+use super::shape::{Corner, Shape};
 use super::theme::Rgb;
 
-const FAMILIES: [PCWSTR; 2] = [w!("Segoe UI Variable Text"), w!("Segoe UI")];
 const TRANSPARENT: D2D1_COLOR_F = D2D1_COLOR_F {
     r: 0.0,
     g: 0.0,
@@ -40,7 +40,21 @@ const UNBOUNDED: f32 = 1.0e6;
 struct Resources {
     dwrite: IDWriteFactory,
     target: ID2D1DCRenderTarget,
-    family: PCWSTR,
+    families: [PCWSTR; Typeface::ALL.len()],
+}
+
+impl Resources {
+    fn family(&self, typeface: Typeface) -> PCWSTR {
+        self.families[typeface as usize]
+    }
+}
+
+fn candidates(typeface: Typeface) -> [PCWSTR; 2] {
+    match typeface {
+        Typeface::Sans => [w!("Segoe UI Variable Text"), w!("Segoe UI")],
+        Typeface::Serif => [w!("Sitka Display"), w!("Georgia")],
+        Typeface::Icons => [w!("Segoe Fluent Icons"), w!("Segoe MDL2 Assets")],
+    }
 }
 
 thread_local! {
@@ -77,14 +91,18 @@ fn create_resources() -> windows::core::Result<Resources> {
         };
         let target = d2d.CreateDCRenderTarget(&properties)?;
         target.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-        let family = FAMILIES
-            .into_iter()
-            .find(|family| installed(&dwrite, *family))
-            .unwrap_or(FAMILIES[1]);
+        let families = Typeface::ALL.map(|typeface| {
+            let [preferred, fallback] = candidates(typeface);
+            if installed(&dwrite, preferred) {
+                preferred
+            } else {
+                fallback
+            }
+        });
         Ok(Resources {
             dwrite,
             target,
-            family,
+            families,
         })
     }
 }
@@ -99,9 +117,9 @@ fn resources() -> Option<Resources> {
     })
 }
 
-pub fn family_name() -> Vec<u16> {
+pub fn family_name(typeface: Typeface) -> Vec<u16> {
     resources()
-        .map(|resources| unsafe { resources.family.as_wide().to_vec() })
+        .map(|resources| unsafe { resources.family(typeface).as_wide().to_vec() })
         .unwrap_or_default()
 }
 
@@ -164,6 +182,20 @@ fn float_rect(bounds: RECT) -> D2D_RECT_F {
     }
 }
 
+fn rounded(shape: Shape, inset: f32) -> D2D1_ROUNDED_RECT {
+    let mut rect = float_rect(shape.bounds);
+    rect.left += inset;
+    rect.top += inset;
+    rect.right -= inset;
+    rect.bottom -= inset;
+    let radius = (shape.radius - inset).max(0.0);
+    D2D1_ROUNDED_RECT {
+        rect,
+        radiusX: radius,
+        radiusY: radius,
+    }
+}
+
 fn point(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
@@ -187,34 +219,23 @@ impl Canvas {
         }
     }
 
-    pub fn fill_round_at(&self, origin: (f32, f32), size: (f32, f32), radius: f32, color: Rgb) {
-        let shape = D2D1_ROUNDED_RECT {
-            rect: D2D_RECT_F {
-                left: origin.0,
-                top: origin.1,
-                right: origin.0 + size.0,
-                bottom: origin.1 + size.1,
-            },
-            radiusX: radius,
-            radiusY: radius,
-        };
+    pub fn shape(&self, bounds: RECT, corner: Corner) -> Shape {
+        Shape::new(self.scale, bounds, corner)
+    }
+
+    pub fn fill_shape(&self, shape: Shape, color: Rgb) {
         unsafe {
             self.resources
                 .target
-                .FillRoundedRectangle(&shape, self.paint_with(color));
+                .FillRoundedRectangle(&rounded(shape, 0.0), self.paint_with(color));
         }
     }
 
-    pub fn stroke(&self, bounds: RECT, color: Rgb, thickness: i32) {
+    pub fn stroke_shape(&self, shape: Shape, color: Rgb, thickness: i32) {
         let half = thickness as f32 / 2.0;
-        let mut rect = float_rect(bounds);
-        rect.left += half;
-        rect.top += half;
-        rect.right -= half;
-        rect.bottom -= half;
         unsafe {
-            self.resources.target.DrawRectangle(
-                &rect,
+            self.resources.target.DrawRoundedRectangle(
+                &rounded(shape, half),
                 self.paint_with(color),
                 thickness as f32,
                 None,
@@ -222,9 +243,16 @@ impl Canvas {
         }
     }
 
-    pub fn card(&self, bounds: RECT, fill: Rgb, stroke: Rgb) {
-        self.fill(bounds, fill);
-        self.stroke(bounds, stroke, STROKE);
+    pub fn card(&self, shape: Shape, fill: Rgb, stroke: Rgb) {
+        self.fill_shape(shape, fill);
+        self.stroke_shape(shape, stroke, self.scale.px(STROKE));
+    }
+
+    pub fn shadow(&self, shape: Shape, color: Option<Rgb>) {
+        let Some(color) = color else {
+            return;
+        };
+        self.fill_shape(shape.offset(0, self.scale.px(SHADOW_OFFSET)), color);
     }
 
     pub fn line(&self, from: (f32, f32), to: (f32, f32), thickness: f32, color: Rgb) {
@@ -269,7 +297,7 @@ fn format(resources: &Resources, scale: Scale, style: Text) -> Option<IDWriteTex
         let format = resources
             .dwrite
             .CreateTextFormat(
-                resources.family,
+                resources.family(style.role.typeface()),
                 None,
                 DWRITE_FONT_WEIGHT(style.role.weight()),
                 DWRITE_FONT_STYLE_NORMAL,

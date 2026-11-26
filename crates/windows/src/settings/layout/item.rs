@@ -1,6 +1,7 @@
 use pith_core::HISTORY_DAYS;
 
 use super::super::action::Action;
+use super::super::page::Page;
 use crate::ui::{ChipState, Seam, Tone};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -8,7 +9,7 @@ pub enum Face {
     Toggle,
     Segment(Seam),
     Button(Tone),
-    Nav { first: bool },
+    Nav { first: bool, icon: char },
     Chip(ChipState),
     Slider { value: i32, low: i32, high: i32 },
     Tile(String),
@@ -31,7 +32,7 @@ impl Face {
             Self::Segment(seam) => Class::Radio {
                 first: matches!(seam, Seam::First | Seam::Only),
             },
-            Self::Nav { first } => Class::Radio { first: *first },
+            Self::Nav { first, .. } => Class::Radio { first: *first },
             Self::Button(_) | Self::Chip(_) => Class::Push,
             Self::Slider { .. } => Class::Slider,
             Self::Tile(_) | Self::Strip(_) => Class::Label,
@@ -88,10 +89,15 @@ impl Item {
         Self::new(Face::Strip(days), caption, name, Action::None)
     }
 
-    pub fn nav(label: &str, first: bool, selected: bool, action: Action) -> Self {
+    pub fn nav(page: Page, first: bool, selected: bool) -> Self {
+        let face = Face::Nav {
+            first,
+            icon: page.icon(),
+        };
+        let label = page.label();
         Self {
             checked: selected,
-            ..Self::new(Face::Nav { first }, label, label, action)
+            ..Self::new(face, label, label, Action::Go(page))
         }
     }
 

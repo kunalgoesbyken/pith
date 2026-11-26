@@ -1,10 +1,9 @@
 pub const SIDEBAR_WIDTH: i32 = 208;
 pub const SIDEBAR_INSET: i32 = 8;
 pub const SIDEBAR_TOP: i32 = 16;
-pub const BRAND_HEIGHT: i32 = 28;
-pub const BRAND_GAP: i32 = 12;
-pub const NAV_HEIGHT: i32 = 40;
-pub const NAV_GAP: i32 = 4;
+pub const BRAND_GAP: i32 = 16;
+pub const NAV_HEIGHT: i32 = 36;
+pub const NAV_GAP: i32 = 2;
 pub const SIDEBAR_BOTTOM: i32 = 16;
 
 pub const PANE_PAD: i32 = 32;
@@ -30,17 +29,14 @@ pub const BADGE_PAD: i32 = 8;
 pub const TILE_HEIGHT: i32 = 88;
 pub const TILE_GAP: i32 = 8;
 pub const STRIP_HEIGHT: i32 = 120;
-pub const PANEL_INSET: i32 = 4;
+pub const PANEL_INSET: i32 = 6;
 
 pub const THUMB_INSET: i32 = 4;
 pub const THUMB_WIDTH: i32 = 4;
 pub const MIN_THUMB: i32 = 32;
 
 pub const CARET_WIDTH: i32 = 1;
-pub const TILE_TEXT_INSET: i32 = 12;
+pub const TILE_TEXT_INSET: i32 = 10;
 pub const STRIP_GAP: i32 = 8;
 pub const BAR_GAP: i32 = 4;
 pub const BAR_MIN: i32 = 2;
-
-pub const MARK_HEIGHT: i32 = 24;
-pub const MARK_GAP: i32 = 12;

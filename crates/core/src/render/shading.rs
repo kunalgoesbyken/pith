@@ -22,21 +22,21 @@ pub struct Scheme {
 
 impl Scheme {
     pub const LIGHT: Self = Self {
-        page: Rgb(0xF9F3E8),
-        card: Rgb(0xF1E8DB),
-        stroke: Rgb(0xC5BCB1),
+        page: Rgb(0xFCFCFB),
+        card: Rgb(0xFFFFFF),
+        stroke: Rgb(0xEEEBE3),
         accent: Rgb(0xCC4C08),
-        text: Rgb(0x130E0A),
-        text_secondary: Rgb(0x665F58),
+        text: Rgb(0x1A1A1A),
+        text_secondary: Rgb(0x6A6A67),
     };
 
     pub const DARK: Self = Self {
-        page: Rgb(0x130E0A),
-        card: Rgb(0x1D1713),
-        stroke: Rgb(0x423C37),
+        page: Rgb(0x1A1A1A),
+        card: Rgb(0x2A2A29),
+        stroke: Rgb(0x343432),
         accent: Rgb(0xF5A04A),
-        text: Rgb(0xF9F3E8),
-        text_secondary: Rgb(0xC3BDB4),
+        text: Rgb(0xE9E8E1),
+        text_secondary: Rgb(0x9D9C98),
     };
 
     pub fn over(background: Rgb) -> Self {
@@ -141,8 +141,8 @@ impl PillStyle {
             stroke: scheme.stroke,
             text: scheme.text_secondary,
             strong: scheme.text,
-            keycap_fill: scheme.page,
-            keycap_stroke: scheme.page,
+            keycap_fill: scheme.stroke,
+            keycap_stroke: scheme.stroke,
             keycap_text: scheme.text_secondary,
         }
     }

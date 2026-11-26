@@ -1,30 +1,30 @@
-use windows::Win32::Foundation::HINSTANCE;
+use windows::Win32::Foundation::{HINSTANCE, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{HICON, LoadIconW};
 use windows::core::PCWSTR;
 
-use super::canvas::Canvas;
-use super::theme::Rgb;
-use pith_core::{Block, MARK_HEIGHT, MARK_WIDTH, TRAIL, trail_colors};
+use super::canvas::{Canvas, Text, measure};
+use super::metrics::{Role, Scale, height, rect};
+use super::shape::Corner;
+use super::theme::Palette;
 
 const APP_ICON_ID: usize = 1;
+const WORDMARK: &str = "pith";
+const CARET_WIDTH: i32 = 2;
+const CARET_GAP: i32 = 2;
+const CARET_EM: f32 = 0.9;
 
-pub fn mark_width(height: i32) -> i32 {
-    (height as f32 * MARK_WIDTH / MARK_HEIGHT).round() as i32
-}
-
-pub fn paint_mark(canvas: &Canvas, origin: (i32, i32), height: i32, caret: Rgb, trail: Rgb) {
-    let scale = height as f32 / MARK_HEIGHT;
-    let origin = (origin.0 as f32, origin.1 as f32);
-    for (block, color) in TRAIL.iter().zip(trail_colors(caret, trail)) {
-        let Block {
-            x,
-            y,
-            width,
-            height,
-            radius,
-        } = block.scaled(scale, origin);
-        canvas.fill_round_at((x, y), (width, height), radius, color);
-    }
+pub fn paint_wordmark(canvas: &Canvas, scale: Scale, bounds: RECT, palette: &Palette) {
+    let style = Text::new(Role::Wordmark, palette.text);
+    canvas.text(bounds, WORDMARK, style);
+    let word = measure(scale, WORDMARK, style, 0).0;
+    let caret_height = scale.size(Role::Wordmark.size() * CARET_EM).round() as i32;
+    let caret = rect(
+        bounds.left + word + scale.px(CARET_GAP),
+        bounds.top + (height(bounds) - caret_height) / 2,
+        scale.px(CARET_WIDTH),
+        caret_height,
+    );
+    canvas.fill_shape(canvas.shape(caret, Corner::Pill), palette.mark_caret);
 }
 
 pub fn app_icon(instance: HINSTANCE) -> HICON {

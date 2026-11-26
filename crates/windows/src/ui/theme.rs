@@ -16,7 +16,8 @@ use pith_core::Scheme;
 
 use crate::system::registry::{apps_use_dark_theme, system_uses_dark_theme};
 
-const WHITE: Rgb = Rgb::WHITE;
+const SHADOW_ALPHA_LIGHT: u32 = 18;
+const SHADOW_ALPHA_DARK: u32 = 110;
 pub const INK: Rgb = Rgb(0x1C1814);
 pub fn d2d(color: Rgb) -> D2D1_COLOR_F {
     let [r, g, b] = color.unit_channels();
@@ -41,16 +42,16 @@ pub struct Accent {
 
 impl Accent {
     const LIGHT: Accent = Accent {
-        base: Rgb(0xBF4300),
-        hover: Rgb(0xAA3800),
-        pressed: Rgb(0x982F00),
-        on: WHITE,
+        base: Scheme::LIGHT.text,
+        hover: Rgb(0x343432),
+        pressed: Rgb::BLACK,
+        on: Scheme::LIGHT.page,
     };
     const DARK: Accent = Accent {
-        base: Scheme::DARK.accent,
-        hover: Rgb(0xF7AC5E),
-        pressed: Rgb(0xE8913A),
-        on: INK,
+        base: Scheme::DARK.text,
+        hover: Rgb(0xE9E8E1),
+        pressed: Rgb(0xC8C8C2),
+        on: Scheme::DARK.page,
     };
 
     fn highlight() -> Self {
@@ -67,6 +68,7 @@ impl Accent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Palette {
     pub page: Rgb,
+    pub sidebar: Rgb,
     pub card: Rgb,
     pub card_stroke: Rgb,
     pub text: Rgb,
@@ -77,9 +79,11 @@ pub struct Palette {
     pub control_stroke: Rgb,
     pub strong_stroke: Rgb,
     pub track: Rgb,
+    pub selected: Rgb,
+    pub well: Rgb,
+    pub knob: Rgb,
     pub accent: Accent,
     pub mark_caret: Rgb,
-    pub mark_ghost: Rgb,
     pub danger: Rgb,
     pub success: Rgb,
 }
@@ -88,42 +92,48 @@ impl Palette {
     fn light() -> Self {
         Self {
             page: Scheme::LIGHT.page,
+            sidebar: Rgb(0xF5F4F0),
             card: Scheme::LIGHT.card,
             card_stroke: Scheme::LIGHT.stroke,
             text: Scheme::LIGHT.text,
             text_secondary: Scheme::LIGHT.text_secondary,
-            control: Scheme::LIGHT.page,
-            control_hover: Scheme::LIGHT.card,
-            control_pressed: Rgb(0xE4D9CA),
-            control_stroke: Scheme::LIGHT.stroke,
-            strong_stroke: Rgb(0x857B70),
-            track: Scheme::LIGHT.stroke,
+            control: Scheme::LIGHT.card,
+            control_hover: Rgb(0xF8F7F3),
+            control_pressed: Scheme::LIGHT.stroke,
+            control_stroke: Rgb(0xDEDDD7),
+            strong_stroke: Rgb(0xA39D8E),
+            track: Rgb(0xC5C0B3),
+            selected: Scheme::LIGHT.stroke,
+            well: Scheme::LIGHT.stroke,
+            knob: Rgb::WHITE,
             accent: Accent::LIGHT,
             mark_caret: Scheme::LIGHT.accent,
-            mark_ghost: Scheme::LIGHT.text,
-            danger: Rgb(0xC42B1C),
-            success: Rgb(0x0F7B0F),
+            danger: Rgb(0xDC2626),
+            success: Rgb(0x059669),
         }
     }
 
     fn dark() -> Self {
         Self {
             page: Scheme::DARK.page,
+            sidebar: Rgb(0x202020),
             card: Scheme::DARK.card,
             card_stroke: Scheme::DARK.stroke,
             text: Scheme::DARK.text,
             text_secondary: Scheme::DARK.text_secondary,
-            control: Rgb(0x26201C),
-            control_hover: Rgb(0x2D2823),
-            control_pressed: Rgb(0x211C17),
-            control_stroke: Scheme::DARK.stroke,
-            strong_stroke: Rgb(0x8C857D),
-            track: Rgb(0x4D4641),
+            control: Scheme::DARK.card,
+            control_hover: Rgb(0x30302F),
+            control_pressed: Rgb(0x202020),
+            control_stroke: Rgb(0x464544),
+            strong_stroke: Rgb(0x878683),
+            track: Rgb(0x5B5B59),
+            selected: Rgb(0x30302F),
+            well: Rgb(0x202020),
+            knob: Rgb::WHITE,
             accent: Accent::DARK,
             mark_caret: Scheme::DARK.accent,
-            mark_ghost: Scheme::DARK.text,
-            danger: Rgb(0xFF99A4),
-            success: Rgb(0x6CCB5F),
+            danger: Rgb(0xF87171),
+            success: Rgb(0x34D399),
         }
     }
 
@@ -134,6 +144,7 @@ impl Palette {
         let accent = Accent::highlight();
         Self {
             page: window,
+            sidebar: window,
             card: window,
             card_stroke: text,
             text,
@@ -144,9 +155,11 @@ impl Palette {
             control_stroke: system_color(COLOR_BTNTEXT),
             strong_stroke: text,
             track: face,
+            selected: accent.base,
+            well: face,
+            knob: text,
             mark_caret: accent.base,
             accent,
-            mark_ghost: system_color(COLOR_GRAYTEXT),
             danger: text,
             success: text,
         }
@@ -222,9 +235,6 @@ impl Taskbar {
     }
 }
 
-const SIDEBAR_BLEND_LIGHT: u32 = 244;
-const SIDEBAR_BLEND_DARK: u32 = 208;
-
 impl Theme {
     pub fn detect() -> Self {
         let mode = if high_contrast() {
@@ -253,12 +263,12 @@ impl Theme {
         self.mode == Mode::Contrast
     }
 
-    pub fn sidebar(&self) -> Rgb {
-        let palette = &self.palette;
-        match self.mode {
-            Mode::Contrast => palette.page,
-            Mode::Dark => pith_core::blend(palette.page, Rgb::BLACK, SIDEBAR_BLEND_DARK),
-            Mode::Light => pith_core::blend(palette.page, palette.text, SIDEBAR_BLEND_LIGHT),
-        }
+    pub fn shadow_over(&self, backdrop: Rgb) -> Option<Rgb> {
+        let alpha = match self.mode {
+            Mode::Contrast => return None,
+            Mode::Light => SHADOW_ALPHA_LIGHT,
+            Mode::Dark => SHADOW_ALPHA_DARK,
+        };
+        Some(pith_core::blend(Rgb::BLACK, backdrop, alpha))
     }
 }

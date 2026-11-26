@@ -1,8 +1,12 @@
+use windows::Win32::Foundation::RECT;
+
 use super::canvas::{Align, Canvas, Text, measure};
 use super::metrics::{Role, Scale, rect};
+use super::shape::Corner;
 use super::theme::{Palette, Rgb};
 
 pub const KEYCAP_HEIGHT: i32 = 28;
+const KEYCAP_LIP: i32 = 2;
 const KEYCAP_PAD: i32 = 10;
 const KEYCAP_MIN: i32 = 28;
 const KEYCAP_GAP: i32 = 6;
@@ -32,8 +36,14 @@ pub fn keycap(
     let style = Text::new(Role::Body, palette.text).aligned(Align::Center);
     let width = cap_width(scale, label);
     let bounds = rect(origin.0, origin.1, width, scale.px(KEYCAP_HEIGHT));
-    canvas.card(bounds, palette.control, palette.control_stroke);
-    canvas.text(bounds, label, style);
+    let face = RECT {
+        bottom: bounds.bottom - scale.px(KEYCAP_LIP),
+        ..bounds
+    };
+    canvas.fill_shape(canvas.shape(bounds, Corner::Key), palette.track);
+    let key = canvas.shape(face, Corner::Key);
+    canvas.card(key, palette.control, palette.control_stroke);
+    canvas.text(face, label, style);
     width
 }
 

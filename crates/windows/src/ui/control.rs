@@ -11,13 +11,14 @@ use windows::core::{PCWSTR, w};
 use super::canvas::{Align, Canvas, Text, measure, paint};
 use super::hover;
 use super::metrics::{FOCUS_GAP, FOCUS_RING, Role, STROKE, Scale, height, inset, origin, width};
+use super::shape::Corner;
 use super::skin;
 use super::theme::{Palette, Rgb, Theme};
 use super::widgets;
 use crate::system::util::wide;
 
 pub const TOGGLE_WIDTH: i32 = 40;
-pub const TOGGLE_HEIGHT: i32 = 20;
+pub const TOGGLE_HEIGHT: i32 = 22;
 pub const BUTTON_HEIGHT: i32 = 32;
 pub const SLIDER_WIDTH: i32 = 200;
 pub const FOCUS_MARGIN: i32 = FOCUS_RING + FOCUS_GAP;
@@ -84,6 +85,7 @@ pub enum Look<'a> {
     Nav {
         selected: bool,
         label: &'a str,
+        icon: char,
     },
     Chip {
         state: ChipState,
@@ -124,6 +126,7 @@ impl Interaction {
 struct Fill {
     fill: Rgb,
     stroke: Option<Rgb>,
+    raised: bool,
     text: Rgb,
 }
 
@@ -146,6 +149,7 @@ fn standard(theme: &Theme, state: Interaction, text: Rgb) -> Fill {
             palette.control_pressed,
         ),
         stroke: Some(palette.control_stroke),
+        raised: true,
         text: match (state.disabled, engaged) {
             (true, _) => palette.text_secondary,
             (false, true) => palette.accent.on,
@@ -167,6 +171,7 @@ fn accent(theme: &Theme, state: Interaction) -> Fill {
     Fill {
         fill: accent_fill(palette, state),
         stroke: None,
+        raised: false,
         text: palette.accent.on,
     }
 }
@@ -186,18 +191,22 @@ fn draw_button(
     (tone, label): (Tone, &str),
     state: Interaction,
 ) {
-    let margin = surface.scale.px(FOCUS_MARGIN);
-    let shape = inset(bounds, margin);
+    let scale = surface.scale;
+    let body = inset(bounds, scale.px(FOCUS_MARGIN));
+    let shape = canvas.shape(body, Corner::Control);
     let look = appearance(&surface.theme, tone, state);
-    canvas.fill(shape, look.fill);
+    if look.raised {
+        canvas.shadow(shape, surface.theme.shadow_over(surface.backdrop));
+    }
+    canvas.fill_shape(shape, look.fill);
     if let Some(stroke) = look.stroke {
-        canvas.stroke(shape, stroke, surface.scale.px(STROKE));
+        canvas.stroke_shape(shape, stroke, scale.px(STROKE));
     }
     let style = Text::new(Role::Body, look.text).aligned(Align::Center);
-    canvas.text(shape, label, style);
+    canvas.text(body, label, style);
     if state.focused {
-        let ring = surface.scale.px(FOCUS_RING);
-        canvas.stroke(bounds, surface.theme.palette.accent.base, ring);
+        let accent = surface.theme.palette.accent.base;
+        widgets::focus_ring(canvas, scale, shape, accent);
     }
 }
 
@@ -216,9 +225,11 @@ pub fn draw(item: &DRAWITEMSTRUCT, surface: &Surface, look: Look) {
             Look::Button { tone, label } => {
                 draw_button(canvas, surface, local, (tone, label), state);
             }
-            Look::Nav { selected, label } => {
-                widgets::draw_nav(canvas, surface, local, (selected, label), state);
-            }
+            Look::Nav {
+                selected,
+                label,
+                icon,
+            } => widgets::draw_nav(canvas, surface, local, (selected, label, icon), state),
             Look::Chip { state: chip, label } => {
                 widgets::draw_chip(canvas, surface, local, (chip, label), state);
             }
@@ -248,7 +259,7 @@ pub fn button_width(scale: Scale, label: &str) -> i32 {
 }
 
 pub fn segment_width<'a>(scale: Scale, labels: impl Iterator<Item = &'a str>) -> i32 {
-    let style = Text::new(Role::Body, Rgb::BLACK);
+    let style = Text::new(Role::BodyStrong, Rgb::BLACK);
     labels
         .map(|label| measure(scale, label, style, 0).0 + 2 * scale.px(BUTTON_PAD))
         .fold(scale.px(SEGMENT_MIN), i32::max)
