@@ -43,9 +43,13 @@ fn nav_hover(surface: &Surface) -> Rgb {
     blend(palette.selected, surface.backdrop, NAV_HOVER_WASH)
 }
 
-fn toggle_fill(palette: &Palette, on: bool, state: Interaction) -> Rgb {
+fn toggle_fill(palette: &Palette, contrast: bool, on: bool, state: Interaction) -> Rgb {
     if state.disabled {
-        return palette.control_stroke;
+        return if contrast {
+            palette.track
+        } else {
+            palette.control_stroke
+        };
     }
     if on {
         return accent_fill(palette, state);
@@ -67,8 +71,11 @@ pub fn draw_toggle(canvas: &Canvas, surface: &Surface, bounds: RECT, on: bool, s
     let top = bounds.top + (height(bounds) - pill_height) / 2;
     let body = rect(left, top, scale.px(TOGGLE_WIDTH), pill_height);
     let pill = canvas.shape(body, Corner::Pill);
-    canvas.fill_shape(pill, toggle_fill(palette, on, state));
-    if surface.theme.is_contrast() && !on {
+    let contrast = surface.theme.is_contrast();
+    canvas.fill_shape(pill, toggle_fill(palette, contrast, on, state));
+    if contrast && state.disabled {
+        canvas.stroke_shape(pill, palette.text_secondary, scale.px(STROKE));
+    } else if contrast && !on {
         canvas.stroke_shape(pill, palette.strong_stroke, scale.px(STROKE));
     }
     let lit = on && !state.disabled;
@@ -79,7 +86,13 @@ pub fn draw_toggle(canvas: &Canvas, surface: &Surface, bounds: RECT, on: bool, s
         body.left + travel
     };
     let knob = square((knob_x, top + pill_height / 2), scale.px(KNOB));
-    let knob_color = if lit { palette.accent.on } else { palette.knob };
+    let knob_color = if lit {
+        palette.accent.on
+    } else if contrast && state.disabled {
+        palette.text_secondary
+    } else {
+        palette.knob
+    };
     canvas.fill_shape(canvas.shape(knob, Corner::Pill), knob_color);
     if state.focused {
         focus_ring(canvas, scale, pill, palette.accent.base);

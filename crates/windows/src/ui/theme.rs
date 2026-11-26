@@ -49,7 +49,7 @@ impl Accent {
     };
     const DARK: Accent = Accent {
         base: Scheme::DARK.text,
-        hover: Rgb(0xE9E8E1),
+        hover: Rgb(0xF5F4F0),
         pressed: Rgb(0xC8C8C2),
         on: Scheme::DARK.page,
     };

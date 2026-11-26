@@ -8,8 +8,8 @@ use super::layout::{
 use super::model::Model;
 use crate::text::format::number;
 use crate::ui::{
-    self, Align, Canvas, Corner, Look, Rgb, Role, Text, key_labels, keycaps, measure,
-    paint_backdrop, paint_wordmark,
+    self, Align, Canvas, Corner, Look, Rgb, Role, STROKE, Text, height, key_labels, keycaps,
+    measure, paint_backdrop, paint_wordmark, rect,
 };
 
 fn voice_color(model: &Model, voice: Voice) -> Rgb {
@@ -117,6 +117,16 @@ fn paint_block(canvas: &Canvas, model: &Model, block: &Block) {
 fn paint_sidebar(canvas: &Canvas, model: &Model, layout: &Layout) {
     let palette = &model.theme.palette;
     canvas.fill(layout.sidebar, palette.sidebar);
+    if model.theme.is_contrast() {
+        let stroke = model.scale.px(STROKE);
+        let edge = rect(
+            layout.sidebar.right - stroke,
+            layout.sidebar.top,
+            stroke,
+            height(layout.sidebar),
+        );
+        canvas.fill(edge, palette.card_stroke);
+    }
     paint_wordmark(canvas, model.scale, layout.brand, palette);
     let (bounds, version) = &layout.version;
     canvas.text(

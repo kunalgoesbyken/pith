@@ -33,7 +33,7 @@ pub struct Shape {
 
 impl Shape {
     pub fn new(scale: Scale, bounds: RECT, corner: Corner) -> Self {
-        let limit = width(bounds).min(height(bounds)) as f32 / 2.0;
+        let limit = (width(bounds).min(height(bounds)) as f32 / 2.0).max(0.0);
         let radius = corner
             .logical()
             .map_or(limit, |logical| (scale.px(logical) as f32).min(limit));
